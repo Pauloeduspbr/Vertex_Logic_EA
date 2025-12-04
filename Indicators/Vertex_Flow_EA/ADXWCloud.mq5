@@ -17,7 +17,7 @@
 #property indicator_color1  clrLimeGreen, clrHotPink
 #property indicator_width1  1
 
-//--- Plot 1: ADX line (blue)
+//--- Plot 1: ADX line (blue) - desenhado DEPOIS da cloud para ficar por cima
 #property indicator_label2  "ADX"
 #property indicator_type2   DRAW_LINE
 #property indicator_color2  clrDodgerBlue
@@ -30,17 +30,17 @@
 #property indicator_width3  1
 #property indicator_style3  STYLE_DOT
 
-//--- Plot 3: +DI line (green)
+//--- Plot 3: +DI line (green) - desenhada por cima da cloud
 #property indicator_label4  "DI+ line"
 #property indicator_type4   DRAW_LINE
-#property indicator_color4  clrLimeGreen
-#property indicator_width4  2
+#property indicator_color4  clrLime
+#property indicator_width4  1
 
-//--- Plot 4: -DI line (red)
+//--- Plot 4: -DI line (red) - desenhada por cima da cloud
 #property indicator_label5  "DI- line"
 #property indicator_type5   DRAW_LINE
 #property indicator_color5  clrRed
-#property indicator_width5  2
+#property indicator_width5  1
 
 //--- Levels (classic trend threshold)
 #property indicator_level1  20.0
@@ -109,22 +109,18 @@ int OnInit()
    // Plot 4: -DI line (red)
    SetIndexBuffer(5, MinusDILineBuffer, INDICATOR_DATA);
 
-   //--- NÃO usar ArraySetAsSeries nos buffers do indicador
-   //--- O MT5 espera indexação normal (0 = mais antigo, rates_total-1 = mais recente)
-
    //--- aplicar cores configuráveis à nuvem
-   // Para DRAW_FILLING, as cores são aplicadas via PlotIndexSetInteger
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, Inp_BullishCloudColor);
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, Inp_BearishCloudColor);
    
-   // Aplicar também às linhas DI+ e DI-
-   PlotIndexSetInteger(3, PLOT_LINE_COLOR, 0, Inp_BullishCloudColor);
-   PlotIndexSetInteger(4, PLOT_LINE_COLOR, 0, Inp_BearishCloudColor);
+   // Cores das linhas DI
+   PlotIndexSetInteger(3, PLOT_LINE_COLOR, 0, clrLime);
+   PlotIndexSetInteger(4, PLOT_LINE_COLOR, 0, clrRed);
 
    IndicatorSetString(INDICATOR_SHORTNAME,
-                      StringFormat("ADXWCloud (%d,%.1f)", Inp_ADX_Period, Inp_ADXR_Level));
+                      StringFormat("ADXW Cloud (%d,%d)", Inp_ADX_Period, Inp_ADX_Period));
 
-   //--- nível configurável para ADXR/força de tendência
+   //--- nível configurável
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, Inp_ADXR_Level);
 
    return(INIT_SUCCEEDED);
@@ -152,12 +148,13 @@ int OnCalculate(const int rates_total,
    if(rates_total <= Inp_ADX_Period + 2)
       return(0);
 
-   //--- get built-in ADX buffers (sem ArraySetAsSeries - índice normal)
-   double adx_values[];
+   //--- get built-in ADX buffers
+   double adx_main[];
    double plusdi_values[];
    double minusdi_values[];
 
-   int copied1 = CopyBuffer(adx_handle, 0, 0, rates_total, adx_values);     // ADX
+   // iADX buffers: 0=ADX, 1=+DI, 2=-DI
+   int copied1 = CopyBuffer(adx_handle, 0, 0, rates_total, adx_main);       // ADX
    int copied2 = CopyBuffer(adx_handle, 1, 0, rates_total, plusdi_values);  // +DI
    int copied3 = CopyBuffer(adx_handle, 2, 0, rates_total, minusdi_values); // -DI
 
@@ -166,12 +163,16 @@ int OnCalculate(const int rates_total,
 
    int start = prev_calculated;
    if(start <= 0)
-      start = Inp_ADX_Period + 2; // garantir dados suficientes
+      start = 0;
+   
+   // Garantir que temos dados suficientes
+   if(start < Inp_ADX_Period)
+      start = Inp_ADX_Period;
 
-   //--- fill buffers (índice normal, do mais antigo para o mais recente)
+   //--- fill all buffers
    for(int i = start; i < rates_total; ++i)
    {
-      double adx    = adx_values[i];
+      double adx    = adx_main[i];
       double plusDI = plusdi_values[i];
       double minusDI= minusdi_values[i];
 
@@ -179,26 +180,21 @@ int OnCalculate(const int rates_total,
       PlusDICloudBuffer[i]  = plusDI;
       MinusDICloudBuffer[i] = minusDI;
 
-      // ADX
+      // ADX - valor direto do iADX
       ADXBuffer[i] = adx;
 
-      // +DI and -DI as separate lines
+      // +DI and -DI as separate lines (para desenhar por cima da cloud)
       PlusDILineBuffer[i]  = plusDI;
       MinusDILineBuffer[i] = minusDI;
-   }
-
-   //--- ADXR: fórmula clássica = (ADX[hoje] + ADX[n períodos atrás]) / 2
-   int adxr_period = 14;
-   for(int i = start; i < rates_total; ++i)
-   {
-      if(i < adxr_period)
+      
+      // ADXR clássico: (ADX[hoje] + ADX[n barras atrás]) / 2
+      if(i >= Inp_ADX_Period)
       {
-         ADXRBuffer[i] = ADXBuffer[i];
+         ADXRBuffer[i] = (adx_main[i] + adx_main[i - Inp_ADX_Period]) / 2.0;
       }
       else
       {
-         // ADXR clássico: média entre ADX atual e ADX de N barras atrás
-         ADXRBuffer[i] = (ADXBuffer[i] + ADXBuffer[i - adxr_period]) / 2.0;
+         ADXRBuffer[i] = adx;
       }
    }
 
@@ -207,8 +203,8 @@ int OnCalculate(const int rates_total,
 
 //+------------------------------------------------------------------+
 // Conveniência para EA via iCustom:
-//  Buffer 0: +DI cloud (PlusDICloudBuffer)
-//  Buffer 1: -DI cloud (MinusDICloudBuffer)
+//  Buffer 0: +DI (para cloud)
+//  Buffer 1: -DI (para cloud)
 //  Buffer 2: ADX
 //  Buffer 3: ADXR
 //  Buffer 4: +DI line
