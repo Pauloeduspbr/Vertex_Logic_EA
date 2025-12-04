@@ -12,7 +12,7 @@
 #property indicator_buffers 10
 
 //--- Plot 0: DI+ / DI- Cloud
-#property indicator_label1  "DI+;DI-"
+#property indicator_label1  ""
 #property indicator_type1   DRAW_FILLING
 #property indicator_color1  clrLimeGreen, clrHotPink
 #property indicator_width1  1
@@ -91,8 +91,9 @@ int OnInit()
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, ColorToARGB(Inp_BullishCloudColor, Inp_FillTransparency));
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, ColorToARGB(Inp_BearishCloudColor, Inp_FillTransparency));
    
-   //--- Ocultar valores da nuvem na Janela de Dados (para mostrar apenas as linhas)
+   //--- Ocultar valores da nuvem na Janela de Dados e na String do Gráfico
    PlotIndexSetInteger(0, PLOT_SHOW_DATA, false);
+   PlotIndexSetString(0, PLOT_LABEL, "");
 
    //--- aplicar cores às linhas (sem transparência ou opacas)
    PlotIndexSetInteger(1, PLOT_LINE_COLOR, 0, Inp_BullishCloudColor);
@@ -103,6 +104,8 @@ int OnInit()
    PlotIndexSetInteger(2, PLOT_LINE_WIDTH, 2); // DI-
 
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ADXW Cloud (%d,%d)", Inp_ADX_Period, Inp_ADXR_Period));
+   
+   Print("ADXW Cloud Updated: ", __DATETIME__); // Debug para confirmar atualização
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, 20.0);
 
    return(INIT_SUCCEEDED);
