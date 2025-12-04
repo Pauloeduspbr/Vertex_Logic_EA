@@ -215,7 +215,9 @@ int CSignalVertexFlow::GetSignal()
     if(mfi_color == 2) return 0; // Lateral - VETO
     
     //--- 4. ADX Filter
-    double adx = m_buf_adx[shift];
+    double adx_curr = m_buf_adx[shift];
+    double adx_prev = m_buf_adx[prev_shift];
+    bool adx_rising = (adx_curr > adx_prev);
     
     //--- BUY LOGIC
     if(rsi_cross_up)
@@ -223,18 +225,18 @@ int CSignalVertexFlow::GetSignal()
         // RSIOMA deve estar acima de 50 para compras
         if(rsi_red < 50.0) return 0;
 
-        // FGM: Must be Bullish (1 or 2)
-        if(fgm_phase < 1) return 0;
+        // FGM: Allow Neutral (0) + Bullish (1, 2). Block only Bearish (< 0).
+        // This allows catching the start of the trend when FGM is transitioning.
+        if(fgm_phase < 0) return 0;
         
         // MFI: Must be Green (0) OR Oversold (<20)
-        // Note: mfi_color != 2 is already checked.
-        // If it's Red (1) but < 20, is it allowed? User said: "Verde OR saindo da zona de sobrevenda"
-        // If it's Red, it's selling pressure. But if it's < 20, it might be a reversal.
-        // Let's stick to strict: If Color is Red, check if < 20. If > 20 and Red, then Veto.
+        // Note: mfi_color != 2 is already checked above.
         if(mfi_color == 1 && mfi_val > 20.0) return 0; 
         
-        // ADX: tendência precisa ter força mínima
-        if(adx < Inp_ADX_MinTrend) return 0;
+        // ADX: Trend Strength Filter
+        // If ADX is high (> Min) -> OK.
+        // If ADX is low (< Min) -> Only OK if Rising (Trend Starting).
+        if(adx_curr < Inp_ADX_MinTrend && !adx_rising) return 0;
         
         return 1; // Valid Buy
     }
@@ -245,15 +247,17 @@ int CSignalVertexFlow::GetSignal()
         // RSIOMA deve estar abaixo de 50 para vendas
         if(rsi_red > 50.0) return 0;
 
-        // FGM: Must be Bearish (-1 or -2)
-        if(fgm_phase > -1) return 0;
+        // FGM: Allow Neutral (0) + Bearish (-1, -2). Block only Bullish (> 0).
+        // This allows catching the start of the trend when FGM is transitioning.
+        if(fgm_phase > 0) return 0;
         
         // MFI: Must be Red (1) OR Overbought (>80)
-        // If it's Green (0) but > 80, is it allowed?
         if(mfi_color == 0 && mfi_val < 80.0) return 0;
         
-        // ADX: tendência precisa ter força mínima
-        if(adx < Inp_ADX_MinTrend) return 0;
+        // ADX: Trend Strength Filter
+        // If ADX is high (> Min) -> OK.
+        // If ADX is low (< Min) -> Only OK if Rising (Trend Starting).
+        if(adx_curr < Inp_ADX_MinTrend && !adx_rising) return 0;
         
         return -1; // Valid Sell
     }
