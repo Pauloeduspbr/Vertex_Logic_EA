@@ -91,9 +91,16 @@ int OnInit()
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, ColorToARGB(Inp_BullishCloudColor, Inp_FillTransparency));
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, ColorToARGB(Inp_BearishCloudColor, Inp_FillTransparency));
    
+   //--- Ocultar valores da nuvem na Janela de Dados (para mostrar apenas as linhas)
+   PlotIndexSetInteger(0, PLOT_SHOW_DATA, false);
+
    //--- aplicar cores às linhas (sem transparência ou opacas)
    PlotIndexSetInteger(1, PLOT_LINE_COLOR, 0, Inp_BullishCloudColor);
    PlotIndexSetInteger(2, PLOT_LINE_COLOR, 0, Inp_BearishCloudColor);
+   
+   //--- Aumentar espessura das linhas DI para melhor visibilidade
+   PlotIndexSetInteger(1, PLOT_LINE_WIDTH, 2); // DI+
+   PlotIndexSetInteger(2, PLOT_LINE_WIDTH, 2); // DI-
 
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ADXW Cloud (%d,%d)", Inp_ADX_Period, Inp_ADXR_Period));
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, 20.0);
