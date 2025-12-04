@@ -99,11 +99,13 @@ bool CSignalVertexFlow::Init()
     if(m_handle_obv == INVALID_HANDLE) { Print("Failed to create OBV MACD handle"); return false; }
 
     //--- Initialize RSIOMA v2
+    // Último parâmetro (ShowLevels) EM TRUE para exibir os níveis 70/30 no gráfico
+    // Isso permite visualizar claramente o filtro de nível (acima/abaixo de 50) usado pelo EA.
     m_handle_rsi = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\RSIOMA_v2HHLSX_MT5",
                            Inp_RSI_Period,
                            Inp_RSI_MAPeriod,
                            Inp_RSI_MAMethod,
-                           70.0, 30.0, false // Levels
+                           70.0, 30.0, true // Levels
                            );
                            
     if(m_handle_rsi == INVALID_HANDLE) { Print("Failed to create RSIOMA handle"); return false; }
