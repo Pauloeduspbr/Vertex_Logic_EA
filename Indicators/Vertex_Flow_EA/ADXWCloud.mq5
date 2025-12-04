@@ -12,9 +12,9 @@
 #property indicator_buffers 6
 
 //--- Plot 0: DI+ / DI- Cloud (fill between +DI and -DI)
-#property indicator_label1  "+DI/-DI Cloud"
+#property indicator_label1  "DI+;DI-"
 #property indicator_type1   DRAW_FILLING
-#property indicator_color1  clrLightGreen, clrHotPink
+#property indicator_color1  clrLimeGreen, clrHotPink
 #property indicator_width1  1
 
 //--- Plot 1: ADX line (blue)
@@ -31,16 +31,16 @@
 #property indicator_style3  STYLE_DOT
 
 //--- Plot 3: +DI line (green)
-#property indicator_label4  "+DI"
+#property indicator_label4  "DI+ line"
 #property indicator_type4   DRAW_LINE
-#property indicator_color4  clrLime
-#property indicator_width4  1
+#property indicator_color4  clrLimeGreen
+#property indicator_width4  2
 
 //--- Plot 4: -DI line (red)
-#property indicator_label5  "-DI"
+#property indicator_label5  "DI- line"
 #property indicator_type5   DRAW_LINE
 #property indicator_color5  clrRed
-#property indicator_width5  1
+#property indicator_width5  2
 
 //--- Levels (classic trend threshold)
 #property indicator_level1  20.0
@@ -50,7 +50,7 @@
 //--- Inputs (espelhando ADXW Cloud 1.0)
 input int      Inp_ADX_Period        = 14;            // ADX period
 input double   Inp_ADXR_Level        = 20.0;          // ADXR level line
-input color    Inp_BullishCloudColor = clrLightGreen; // Bullish cloud color
+input color    Inp_BullishCloudColor = clrLimeGreen;  // Bullish cloud color
 input color    Inp_BearishCloudColor = clrHotPink;    // Bearish cloud color
 input int      Inp_FillTransparency  = 80;            // Filling colors transparency (0..255)
 
@@ -112,17 +112,14 @@ int OnInit()
    //--- NÃO usar ArraySetAsSeries nos buffers do indicador
    //--- O MT5 espera indexação normal (0 = mais antigo, rates_total-1 = mais recente)
 
-   //--- aplicar cores configuráveis à nuvem com transparência
-   // MQL5 color é BGR, não RGB. E ColorToARGB usa alpha 0-255 onde 0=transparente, 255=opaco
-   // Inp_FillTransparency: 0=opaco, 255=transparente -> inverter para alpha
-   uchar alpha = (uchar)(255 - MathMax(0, MathMin(255, Inp_FillTransparency)));
+   //--- aplicar cores configuráveis à nuvem
+   // Para DRAW_FILLING, as cores são aplicadas via PlotIndexSetInteger
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, Inp_BullishCloudColor);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, Inp_BearishCloudColor);
    
-   // Usar função nativa ColorToARGB do MQL5
-   uint bullAlpha = ColorToARGB(Inp_BullishCloudColor, alpha);
-   uint bearAlpha = ColorToARGB(Inp_BearishCloudColor, alpha);
-   
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, bullAlpha);
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, bearAlpha);
+   // Aplicar também às linhas DI+ e DI-
+   PlotIndexSetInteger(3, PLOT_LINE_COLOR, 0, Inp_BullishCloudColor);
+   PlotIndexSetInteger(4, PLOT_LINE_COLOR, 0, Inp_BearishCloudColor);
 
    IndicatorSetString(INDICATOR_SHORTNAME,
                       StringFormat("ADXWCloud (%d,%.1f)", Inp_ADX_Period, Inp_ADXR_Level));
