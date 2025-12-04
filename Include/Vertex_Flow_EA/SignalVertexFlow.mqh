@@ -176,7 +176,10 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_cross_up   = (!rsi_bull_prev && rsi_bull_now);  // cruzou para cima (buy)
     bool rsi_cross_down = (!rsi_bear_prev && rsi_bear_now);  // cruzou para baixo (sell)
 
-    // LOG DE DEPURAÇÃO (reduzido - desative se não precisar)
+    // LOG DE DEPURAÇÃO (opcional)
+    // Atenção: este log pode ser muito verboso em backtests "Every tick".
+    // Para evitar spam no log, só ativar manualmente quando estiver depurando um caso específico.
+    /*
     if(rsi_cross_up || rsi_cross_down)
     {
         PrintFormat("VertexFlow RSIOMA signal: time=%s dir=%s rsi_red=%.2f rsi_blue=%.2f | prev_red=%.2f prev_blue=%.2f",
@@ -185,6 +188,7 @@ int CSignalVertexFlow::GetSignal()
                     m_buf_rsi_ma[shift], m_buf_rsi_val[shift],
                     m_buf_rsi_ma[prev_shift], m_buf_rsi_val[prev_shift]);
     }
+    */
 
     if(!rsi_cross_up && !rsi_cross_down)
         return 0; // Sem gatilho de RSIOMA, nenhuma operação
