@@ -72,7 +72,10 @@ int OnInit()
       return(INIT_FAILED);
    }
    if(Inp_ADXR_Period < 1)
-      Inp_ADXR_Period = 1;
+   {
+      Print("ADXWCloud: invalid ADXR period, must be >= 1");
+      return(INIT_FAILED);
+   }
 
    //--- create built-in ADX handle
    adx_handle = iADX(_Symbol, PERIOD_CURRENT, Inp_ADX_Period);
