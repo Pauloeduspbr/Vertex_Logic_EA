@@ -34,6 +34,8 @@
 #property indicator_level1  20.0
 #property indicator_levelcolor clrSilver
 #property indicator_levelstyle STYLE_DOT
+#property indicator_minimum 0
+#property indicator_maximum 100
 
 input int      Inp_ADX_Period        = 14;            // ADX period
 input int      Inp_ADXR_Period       = 20;            // ADXR period
@@ -68,8 +70,11 @@ int OnInit()
    SetIndexBuffer(6, MinusDMBuffer, INDICATOR_CALCULATIONS);
    SetIndexBuffer(7, DXBuffer,      INDICATOR_CALCULATIONS);
 
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, Inp_BullishCloudColor);
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, Inp_BearishCloudColor);
+   //--- aplicar cores configuráveis à nuvem com transparência
+   // Nota: ColorToARGB espera alpha entre 0 (transparente) e 255 (opaco).
+   // Se Inp_FillTransparency for 0-255, usamos direto.
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, ColorToARGB(Inp_BullishCloudColor, Inp_FillTransparency));
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, ColorToARGB(Inp_BearishCloudColor, Inp_FillTransparency));
 
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ADXW Cloud (%d,%d)", Inp_ADX_Period, Inp_ADXR_Period));
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, 20.0);
