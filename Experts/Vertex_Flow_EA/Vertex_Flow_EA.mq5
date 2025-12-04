@@ -14,6 +14,7 @@
 //--- Global Objects
 CSignalVertexFlow *g_signal;
 CTradeManager     *g_trade;
+datetime           g_last_bar_time = 0;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -23,6 +24,9 @@ int OnInit()
     //--- Create Objects
     g_signal = new CSignalVertexFlow();
     g_trade = new CTradeManager();
+    
+    //--- Initialize New Bar Check
+    g_last_bar_time = iTime(_Symbol, _Period, 0);
     
     //--- Initialize Trade Manager
     if(!g_trade.Init())
@@ -78,18 +82,25 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-    //--- 1. Check Time Filter
+    //--- 1. Update Trade Manager (Trailing, BE) - ALWAYS RUN EVERY TICK
+    g_trade.OnTick();
+
+    //--- 2. New Bar Check (Entry Logic only on New Bar)
+    datetime current_time = iTime(_Symbol, _Period, 0);
+    if(g_last_bar_time == current_time)
+        return; // Not a new bar, exit
+        
+    g_last_bar_time = current_time;
+
+    //--- 3. Check Time Filter
     if(!g_trade.IsTimeAllowed())
         return;
         
-    //--- 2. Check Weekly Filter
+    //--- 4. Check Weekly Filter
     if(!g_trade.IsDayAllowed())
         return;
-        
-    //--- 3. Update Trade Manager (Trailing, etc. - if implemented)
-    g_trade.OnTick();
     
-    //--- 4. Check for Open Positions
+    //--- 5. Check for Open Positions
     // Simple logic: One trade at a time per symbol
     if(PositionsTotal() > 0)
     {
@@ -105,10 +116,10 @@ void OnTick()
         }
     }
     
-    //--- 5. Get Signal
+    //--- 6. Get Signal
     int signal = g_signal.GetSignal();
     
-    //--- 6. Execute Trade
+    //--- 7. Execute Trade
     if(signal == 1)
     {
         g_trade.OpenBuy(Inp_StopLoss, Inp_TakeProfit, "VertexFlow Buy");
