@@ -83,7 +83,7 @@ void OnTick()
         return;
         
     //--- 2. Check Weekly Filter
-    if(g_trade.IsWeeklyLimitReached())
+    if(!g_trade.IsDayAllowed())
         return;
         
     //--- 3. Update Trade Manager (Trailing, etc. - if implemented)

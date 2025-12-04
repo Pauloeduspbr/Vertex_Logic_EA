@@ -31,7 +31,7 @@ public:
     
     //--- Filters
     bool           IsTimeAllowed();
-    bool           IsWeeklyLimitReached();
+    bool           IsDayAllowed();
     
     //--- Utilities
     double         NormalizePrice(double price);
@@ -157,67 +157,25 @@ int CTradeManager::TimeStringToMinutes(string time_str)
 }
 
 //+------------------------------------------------------------------+
-//| Check Weekly Profit/Loss Limit (Monday to Sunday)                |
+//| Check Day of Week Filter                                         |
 //+------------------------------------------------------------------+
-bool CTradeManager::IsWeeklyLimitReached()
+bool CTradeManager::IsDayAllowed()
 {
-    if(!Inp_UseWeeklyProfit && !Inp_UseWeeklyLoss) return false;
-    
     datetime current_time = TimeCurrent();
     MqlDateTime dt;
     TimeToStruct(current_time, dt);
     
-    // Calculate start of the week (Monday 00:00)
-    // MqlDateTime.day_of_week: 0=Sunday, 1=Monday, ..., 6=Saturday
-    int days_since_monday = 0;
-    
-    if(dt.day_of_week == 0) // Sunday
-        days_since_monday = 6;
-    else
-        days_since_monday = dt.day_of_week - 1;
-        
-    // Start of week is current time minus days since monday minus hours/mins/secs
-    datetime start_of_week = current_time - (days_since_monday * 86400) - (dt.hour * 3600) - (dt.min * 60) - dt.sec;
-    
-    // Select history from Monday 00:00 to Now
-    if(!HistorySelect(start_of_week, current_time)) return false;
-    
-    double weekly_profit = 0.0;
-    int deals = HistoryDealsTotal();
-    
-    for(int i = 0; i < deals; i++)
+    switch(dt.day_of_week)
     {
-        ulong ticket = HistoryDealGetTicket(i);
-        if(ticket > 0)
-        {
-            long magic = 0;
-            if(HistoryDealGetInteger(ticket, DEAL_MAGIC, magic))
-            {
-                if(magic == Inp_MagicNum && HistoryDealGetString(ticket, DEAL_SYMBOL) == m_symbol)
-                {
-                    weekly_profit += HistoryDealGetDouble(ticket, DEAL_PROFIT);
-                    weekly_profit += HistoryDealGetDouble(ticket, DEAL_SWAP);
-                    weekly_profit += HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-                }
-            }
-        }
+        case 0: return TradeSunday;
+        case 1: return TradeMonday;
+        case 2: return TradeTuesday;
+        case 3: return TradeWednesday;
+        case 4: return TradeThursday;
+        case 5: return TradeFriday;
+        case 6: return TradeSaturday;
+        default: return false;
     }
-    
-    // Check Profit Limit
-    if(Inp_UseWeeklyProfit && weekly_profit >= Inp_WeeklyProfitTarget)
-    {
-        Print("Weekly Profit Target Reached: ", weekly_profit);
-        return true;
-    }
-    
-    // Check Loss Limit
-    if(Inp_UseWeeklyLoss && weekly_profit <= -Inp_WeeklyLossLimit)
-    {
-        Print("Weekly Loss Limit Reached: ", weekly_profit);
-        return true;
-    }
-    
-    return false;
 }
 
 //+------------------------------------------------------------------+
