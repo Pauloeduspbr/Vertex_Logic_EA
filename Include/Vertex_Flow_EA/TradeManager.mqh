@@ -24,6 +24,7 @@ public:
     
     bool           Init();
     void           OnTick();
+    void           ManagePositions();
     
     //--- Trade Execution
     void           OpenBuy(double sl_points, double tp_points, string comment="VertexFlow Buy");
@@ -75,6 +76,100 @@ bool CTradeManager::Init()
 void CTradeManager::OnTick()
 {
     // Refresh symbol info if needed, though usually static
+    ManagePositions();
+}
+
+//+------------------------------------------------------------------+
+//| Manage Positions (BE & Trailing)                                 |
+//+------------------------------------------------------------------+
+void CTradeManager::ManagePositions()
+{
+    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(ticket <= 0) continue;
+        
+        if(PositionGetString(POSITION_SYMBOL) != m_symbol || PositionGetInteger(POSITION_MAGIC) != Inp_MagicNum)
+            continue;
+            
+        //--- Data
+        long type = PositionGetInteger(POSITION_TYPE);
+        double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
+        double current_sl = PositionGetDouble(POSITION_SL);
+        double current_tp = PositionGetDouble(POSITION_TP);
+        double current_price = (type == POSITION_TYPE_BUY) ? SymbolInfoDouble(m_symbol, SYMBOL_BID) : SymbolInfoDouble(m_symbol, SYMBOL_ASK);
+        
+        //--- Break Even
+        if(Inp_UseBreakEven)
+        {
+            if(type == POSITION_TYPE_BUY)
+            {
+                // Trigger: Price >= Open + Trigger
+                if(current_price - open_price >= Inp_BE_Trigger * m_point)
+                {
+                    double new_sl = open_price + Inp_BE_Profit * m_point;
+                    new_sl = NormalizePrice(new_sl);
+                    
+                    // Move SL only if it improves the current SL
+                    if(current_sl < new_sl - m_point) 
+                    {
+                        if(!m_trade.PositionModify(ticket, new_sl, current_tp))
+                            Print("Failed to move BE for Buy: ", m_trade.ResultRetcodeDescription());
+                    }
+                }
+            }
+            else if(type == POSITION_TYPE_SELL)
+            {
+                // Trigger: Price <= Open - Trigger
+                if(open_price - current_price >= Inp_BE_Trigger * m_point)
+                {
+                    double new_sl = open_price - Inp_BE_Profit * m_point;
+                    new_sl = NormalizePrice(new_sl);
+                    
+                    // Move SL only if it improves the current SL (Lower is better for Sell? No, SL for Sell is above price. We want to move it DOWN)
+                    // Current SL (e.g. 1.1000) > New SL (e.g. 1.0900). Yes.
+                    // Also handle case where SL is 0.
+                    if(current_sl > new_sl + m_point || current_sl == 0.0) 
+                    {
+                        if(!m_trade.PositionModify(ticket, new_sl, current_tp))
+                            Print("Failed to move BE for Sell: ", m_trade.ResultRetcodeDescription());
+                    }
+                }
+            }
+        }
+        
+        //--- Trailing Stop
+        if(Inp_UseTrailing)
+        {
+            if(type == POSITION_TYPE_BUY)
+            {
+                // Trailing Logic: SL = Price - Distance
+                double new_sl = current_price - Inp_TS_Start * m_point;
+                new_sl = NormalizePrice(new_sl);
+                
+                // Only move if New SL > Current SL + Step
+                if(new_sl > current_sl + Inp_TS_Step * m_point)
+                {
+                     if(!m_trade.PositionModify(ticket, new_sl, current_tp))
+                        Print("Failed to Trailing Stop for Buy: ", m_trade.ResultRetcodeDescription());
+                }
+            }
+            else if(type == POSITION_TYPE_SELL)
+            {
+                // Trailing Logic: SL = Price + Distance
+                double new_sl = current_price + Inp_TS_Start * m_point;
+                new_sl = NormalizePrice(new_sl);
+                
+                // Only move if New SL < Current SL - Step
+                // Or if Current SL is 0 (no SL set yet)
+                if(new_sl < current_sl - Inp_TS_Step * m_point || current_sl == 0.0)
+                {
+                     if(!m_trade.PositionModify(ticket, new_sl, current_tp))
+                        Print("Failed to Trailing Stop for Sell: ", m_trade.ResultRetcodeDescription());
+                }
+            }
+        }
+    }
 }
 
 //+------------------------------------------------------------------+

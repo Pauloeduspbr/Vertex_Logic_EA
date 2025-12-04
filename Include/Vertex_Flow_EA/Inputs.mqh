@@ -76,3 +76,12 @@ input bool TradeWednesday = true;                   // Trade on Wednesday
 input bool TradeThursday = true;                    // Trade on Thursday
 input bool TradeFriday = true;                      // Trade on Friday
 input bool TradeSaturday = false;                   // Trade on Saturday
+
+//--- Input Group: Management Settings
+input group "===== Management Settings ====="
+input bool             Inp_UseBreakEven  = true;   // Use Break Even
+input int              Inp_BE_Trigger    = 150;    // BE Trigger (Points)
+input int              Inp_BE_Profit     = 10;     // BE Profit Lock (Points)
+input bool             Inp_UseTrailing   = true;   // Use Trailing Stop
+input int              Inp_TS_Start      = 200;    // Trailing Distance (Points)
+input int              Inp_TS_Step       = 50;     // Trailing Step (Points)
