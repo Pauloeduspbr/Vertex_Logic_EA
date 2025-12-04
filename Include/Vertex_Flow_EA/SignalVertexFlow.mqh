@@ -12,6 +12,7 @@ private:
     int            m_handle_mfi;
     int            m_handle_obv;
     int            m_handle_rsi;
+    int            m_handle_adx;
     
     //--- Buffers for reading
     double         m_buf_fgm_phase[];
@@ -21,6 +22,7 @@ private:
     double         m_buf_obv_color[];
     double         m_buf_rsi_val[];
     double         m_buf_rsi_ma[];
+    double         m_buf_adx[];
     
 public:
     CSignalVertexFlow();
@@ -34,6 +36,7 @@ public:
     int            GetHandleMFI() { return m_handle_mfi; }
     int            GetHandleOBV() { return m_handle_obv; }
     int            GetHandleRSI() { return m_handle_rsi; }
+    int            GetHandleADX() { return m_handle_adx; }
     
 private:
     bool           UpdateBuffers();
@@ -46,7 +49,8 @@ CSignalVertexFlow::CSignalVertexFlow() :
     m_handle_fgm(INVALID_HANDLE),
     m_handle_mfi(INVALID_HANDLE),
     m_handle_obv(INVALID_HANDLE),
-    m_handle_rsi(INVALID_HANDLE)
+    m_handle_rsi(INVALID_HANDLE),
+    m_handle_adx(INVALID_HANDLE)
 {
 }
 
@@ -59,6 +63,7 @@ CSignalVertexFlow::~CSignalVertexFlow()
     if(m_handle_mfi != INVALID_HANDLE) IndicatorRelease(m_handle_mfi);
     if(m_handle_obv != INVALID_HANDLE) IndicatorRelease(m_handle_obv);
     if(m_handle_rsi != INVALID_HANDLE) IndicatorRelease(m_handle_rsi);
+    if(m_handle_adx != INVALID_HANDLE) IndicatorRelease(m_handle_adx);
 }
 
 //+------------------------------------------------------------------+
@@ -110,6 +115,19 @@ bool CSignalVertexFlow::Init()
                            
     if(m_handle_rsi == INVALID_HANDLE) { Print("Failed to create RSIOMA handle"); return false; }
 
+    //--- Initialize ADXW Cloud
+    // Assuming filename is ADXW_Cloud.mq5 based on "ADXW Cloud 1.0" title
+    // Parameters from image: Period, ADXR Level, BullColor, BearColor, Transparency
+    m_handle_adx = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\ADXW_Cloud",
+                           Inp_ADX_Period,
+                           Inp_ADX_MinTrend, // Using MinTrend as the ADXR Level input for the indicator
+                           clrLightGreen,
+                           clrHotPink,
+                           80
+                           );
+                           
+    if(m_handle_adx == INVALID_HANDLE) { Print("Failed to create ADX handle"); return false; }
+
     return true;
 }
 
@@ -136,6 +154,9 @@ bool CSignalVertexFlow::UpdateBuffers()
     if(CopyBuffer(m_handle_rsi, 0, 0, count, m_buf_rsi_val) < count) return false; // Buffer 0 = RSI (vermelha)
     if(CopyBuffer(m_handle_rsi, 1, 0, count, m_buf_rsi_ma) < count) return false; // Buffer 1 = MA  (azul)
 
+    // ADXW Cloud: Assuming Buffer 2 is the main ADX value (Blue/Orange line)
+    if(CopyBuffer(m_handle_adx, 2, 0, count, m_buf_adx) < count) return false;
+
     // Garante que todos os buffers usem a mesma convenção de índices (0 = barra atual, 1 = última fechada, 2 = penúltima).
     ArraySetAsSeries(m_buf_fgm_phase, true);
     ArraySetAsSeries(m_buf_mfi_color, true);
@@ -144,6 +165,7 @@ bool CSignalVertexFlow::UpdateBuffers()
     ArraySetAsSeries(m_buf_obv_color, true);
     ArraySetAsSeries(m_buf_rsi_val, true);
     ArraySetAsSeries(m_buf_rsi_ma, true);
+    ArraySetAsSeries(m_buf_adx, true);
 
     return true;
 }
@@ -217,7 +239,10 @@ int CSignalVertexFlow::GetSignal()
     //--- 4. OBV MACD Filter
     // Color: 0=GreenStrong, 1=RedStrong, 2=GreenWeak, 3=RedWeak
     double obv_hist = m_buf_obv_hist[shift];
-    int obv_color = (int)m_buf_obv_color[shift];
+    // int obv_color = (int)m_buf_obv_color[shift]; // Not used anymore for veto
+    
+    //--- 5. ADX Filter
+    double adx = m_buf_adx[shift];
     
     //--- BUY LOGIC
     if(rsi_cross_up)
@@ -237,9 +262,10 @@ int CSignalVertexFlow::GetSignal()
         
         // OBV: histograma deve estar POSITIVO para comprar
         if(obv_hist <= 0.0) return 0;
-        // Cor: SOMENTE GreenStrong (0) é aceita para compra.
-        // Qualquer outro valor (GreenWeak=2 ou vermelho forte/fraco) bloqueia a entrada.
-        if(obv_color != 0) return 0;
+        // Cor: REMOVIDO VETO POR COR (era if(obv_color != 0))
+        
+        // ADX: tendência precisa ter força mínima
+        if(adx < Inp_ADX_MinTrend) return 0;
         
         return 1; // Valid Buy
     }
@@ -259,9 +285,10 @@ int CSignalVertexFlow::GetSignal()
         
         // OBV: histograma deve estar NEGATIVO para vender
         if(obv_hist >= 0.0) return 0;
-        // Cor: SOMENTE RedStrong (1) é aceita para venda.
-        // Qualquer outro valor (RedWeak=3 ou verde forte/fraco) bloqueia a entrada.
-        if(obv_color != 1) return 0;
+        // Cor: REMOVIDO VETO POR COR (era if(obv_color != 1))
+        
+        // ADX: tendência precisa ter força mínima
+        if(adx < Inp_ADX_MinTrend) return 0;
         
         return -1; // Valid Sell
     }

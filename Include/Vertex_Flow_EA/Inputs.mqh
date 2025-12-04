@@ -56,6 +56,11 @@ input int              Inp_RSI_Period    = 14;     // RSI Period
 input int              Inp_RSI_MAPeriod  = 9;      // RSI MA Period
 input ENUM_MA_METHOD   Inp_RSI_MAMethod  = MODE_SMA; // RSI MA Method
 
+//--- Input Group: Strategy - ADXW Cloud
+input group "===== ADXW Cloud Settings ====="
+input int              Inp_ADX_Period    = 14;     // ADX Period
+input double           Inp_ADX_MinTrend  = 20.0;   // ADX Min Trend Strength
+
 //--- Input Group: Trading Settings
 input group "===== Trading Settings ====="
 input double           Inp_LotSize       = 0.1;    // Fixed Lot Size
