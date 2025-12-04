@@ -8,39 +8,27 @@
 #property description "ADXW (Wilder's) with ADXR and DI+ / DI- cloud"
 
 #property indicator_separate_window
-#property indicator_plots   5
-#property indicator_buffers 10
+#property indicator_plots   3
+#property indicator_buffers 8
 
 //--- Plot 0: DI+ / DI- Cloud
-#property indicator_label1  ""
+#property indicator_label1  "DI+;DI-"
 #property indicator_type1   DRAW_FILLING
-#property indicator_color1  clrLimeGreen, clrHotPink
+#property indicator_color1  clrLimeGreen, clrBlack
 #property indicator_width1  1
 
-//--- Plot 1: DI+ Line
-#property indicator_label2  "DI+"
+//--- Plot 1: ADX line
+#property indicator_label2  "ADX"
 #property indicator_type2   DRAW_LINE
-#property indicator_color2  clrLimeGreen
-#property indicator_width2  1
+#property indicator_color2  clrDodgerBlue
+#property indicator_width2  2
 
-//--- Plot 2: DI- Line
-#property indicator_label3  "DI-"
+//--- Plot 2: ADXR line
+#property indicator_label3  "ADXR"
 #property indicator_type3   DRAW_LINE
-#property indicator_color3  clrHotPink
+#property indicator_color3  clrOrange
 #property indicator_width3  1
-
-//--- Plot 3: ADX line
-#property indicator_label4  "ADX"
-#property indicator_type4   DRAW_LINE
-#property indicator_color4  clrDodgerBlue
-#property indicator_width4  2
-
-//--- Plot 4: ADXR line
-#property indicator_label5  "ADXR"
-#property indicator_type5   DRAW_LINE
-#property indicator_color5  clrOrange
-#property indicator_width5  1
-#property indicator_style5  STYLE_DOT
+#property indicator_style3  STYLE_DOT
 
 //--- Levels
 #property indicator_level1  20.0
@@ -58,16 +46,14 @@ input int      Inp_FillTransparency  = 80;            // Filling colors transpar
 //--- Buffers
 double CloudPlusDIBuffer[];   // 0
 double CloudMinusDIBuffer[];  // 1
-double LinePlusDIBuffer[];    // 2
-double LineMinusDIBuffer[];   // 3
-double ADXBuffer[];           // 4
-double ADXRBuffer[];          // 5
+double ADXBuffer[];           // 2
+double ADXRBuffer[];          // 3
 
 //--- Calculation Buffers
-double TRBuffer[];        // 6 (Smoothed TR)
-double PlusDMBuffer[];    // 7 (Smoothed +DM)
-double MinusDMBuffer[];   // 8 (Smoothed -DM)
-double DXBuffer[];        // 9 (Raw DX)
+double TRBuffer[];        // 4 (Smoothed TR)
+double PlusDMBuffer[];    // 5 (Smoothed +DM)
+double MinusDMBuffer[];   // 6 (Smoothed -DM)
+double DXBuffer[];        // 7 (Raw DX)
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -77,35 +63,22 @@ int OnInit()
    // Mapping Buffers
    SetIndexBuffer(0, CloudPlusDIBuffer,   INDICATOR_DATA);
    SetIndexBuffer(1, CloudMinusDIBuffer,  INDICATOR_DATA);
-   SetIndexBuffer(2, LinePlusDIBuffer,    INDICATOR_DATA);
-   SetIndexBuffer(3, LineMinusDIBuffer,   INDICATOR_DATA);
-   SetIndexBuffer(4, ADXBuffer,           INDICATOR_DATA);
-   SetIndexBuffer(5, ADXRBuffer,          INDICATOR_DATA);
+   SetIndexBuffer(2, ADXBuffer,           INDICATOR_DATA);
+   SetIndexBuffer(3, ADXRBuffer,          INDICATOR_DATA);
    
-   SetIndexBuffer(6, TRBuffer,      INDICATOR_CALCULATIONS);
-   SetIndexBuffer(7, PlusDMBuffer,  INDICATOR_CALCULATIONS);
-   SetIndexBuffer(8, MinusDMBuffer, INDICATOR_CALCULATIONS);
-   SetIndexBuffer(9, DXBuffer,      INDICATOR_CALCULATIONS);
+   SetIndexBuffer(4, TRBuffer,      INDICATOR_CALCULATIONS);
+   SetIndexBuffer(5, PlusDMBuffer,  INDICATOR_CALCULATIONS);
+   SetIndexBuffer(6, MinusDMBuffer, INDICATOR_CALCULATIONS);
+   SetIndexBuffer(7, DXBuffer,      INDICATOR_CALCULATIONS);
 
    //--- aplicar cores configuráveis à nuvem com transparência
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, ColorToARGB(Inp_BullishCloudColor, Inp_FillTransparency));
    PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, ColorToARGB(Inp_BearishCloudColor, Inp_FillTransparency));
    
-   //--- Ocultar valores da nuvem na Janela de Dados e na String do Gráfico
-   PlotIndexSetInteger(0, PLOT_SHOW_DATA, false);
-   PlotIndexSetString(0, PLOT_LABEL, "");
-
-   //--- aplicar cores às linhas (sem transparência ou opacas)
-   PlotIndexSetInteger(1, PLOT_LINE_COLOR, 0, Inp_BullishCloudColor);
-   PlotIndexSetInteger(2, PLOT_LINE_COLOR, 0, Inp_BearishCloudColor);
-   
-   //--- Aumentar espessura das linhas DI para melhor visibilidade
-   PlotIndexSetInteger(1, PLOT_LINE_WIDTH, 2); // DI+
-   PlotIndexSetInteger(2, PLOT_LINE_WIDTH, 2); // DI-
+   //--- Mostrar valores da nuvem na Janela de Dados (conforme original)
+   PlotIndexSetInteger(0, PLOT_SHOW_DATA, true);
 
    IndicatorSetString(INDICATOR_SHORTNAME, StringFormat("ADXW Cloud (%d,%d)", Inp_ADX_Period, Inp_ADXR_Period));
-   
-   Print("ADXW Cloud Updated: ", __DATETIME__); // Debug para confirmar atualização
    IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, 20.0);
 
    return(INIT_SUCCEEDED);
@@ -137,8 +110,6 @@ int OnCalculate(const int rates_total,
       ArrayInitialize(ADXRBuffer, 0);
       ArrayInitialize(CloudPlusDIBuffer, 0);
       ArrayInitialize(CloudMinusDIBuffer, 0);
-      ArrayInitialize(LinePlusDIBuffer, 0);
-      ArrayInitialize(LineMinusDIBuffer, 0);
    }
    else start = prev_calculated - 1;
 
@@ -189,10 +160,6 @@ int OnCalculate(const int rates_total,
       // Fill Cloud Buffers
       CloudPlusDIBuffer[i] = pdi;
       CloudMinusDIBuffer[i] = mdi;
-      
-      // Fill Line Buffers
-      LinePlusDIBuffer[i] = pdi;
-      LineMinusDIBuffer[i] = mdi;
 
       // 4. Calculate DX
       double di_sum = pdi + mdi;
