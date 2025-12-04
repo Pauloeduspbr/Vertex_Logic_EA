@@ -67,7 +67,7 @@ CSignalVertexFlow::~CSignalVertexFlow()
 bool CSignalVertexFlow::Init()
 {
     //--- Initialize FGM Indicator
-    m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Logic_EA\\FGM_Indicator",
+    m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\FGM_Indicator",
                            Inp_FGM_Period1, Inp_FGM_Period2, Inp_FGM_Period3, Inp_FGM_Period4, Inp_FGM_Period5,
                            Inp_FGM_Price,
                            Inp_FGM_Cross, // Primary Cross
@@ -86,7 +86,7 @@ bool CSignalVertexFlow::Init()
     if(m_handle_fgm == INVALID_HANDLE) { Print("Failed to create FGM handle"); return false; }
 
     //--- Initialize Enhanced MFI
-    m_handle_mfi = iCustom(_Symbol, _Period, "Vertex_Logic_EA\\EnhancedMFI",
+    m_handle_mfi = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\EnhancedMFI",
                            Inp_MFI_Period,
                            13, // BullsBearsPeriod
                            5, // VolumePeriod
@@ -99,7 +99,7 @@ bool CSignalVertexFlow::Init()
     if(m_handle_mfi == INVALID_HANDLE) { Print("Failed to create MFI handle"); return false; }
 
     //--- Initialize OBV MACD
-    m_handle_obv = iCustom(_Symbol, _Period, "Vertex_Logic_EA\\OBV_MACD",
+    m_handle_obv = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\OBV_MACD",
                            Inp_OBV_FastEMA,
                            Inp_OBV_SlowEMA,
                            Inp_OBV_SignalSMA,
@@ -111,7 +111,7 @@ bool CSignalVertexFlow::Init()
     if(m_handle_obv == INVALID_HANDLE) { Print("Failed to create OBV MACD handle"); return false; }
 
     //--- Initialize RSIOMA v2
-    m_handle_rsi = iCustom(_Symbol, _Period, "Vertex_Logic_EA\\RSIOMA_v2HHLSX_MT5",
+    m_handle_rsi = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\RSIOMA_v2HHLSX_MT5",
                            Inp_RSI_Period,
                            Inp_RSI_MAPeriod,
                            Inp_RSI_MAMethod,
