@@ -8,7 +8,7 @@
 #property description "ADX with ADXR and DI+ / DI- cloud"
 
 #property indicator_separate_window
-#property indicator_plots   4
+#property indicator_plots   5
 #property indicator_buffers 6
 
 //--- Plot 0: DI+ / DI- Cloud (fill between +DI and -DI)
@@ -30,11 +30,17 @@
 #property indicator_width3  1
 #property indicator_style3  STYLE_DOT
 
-//--- Plot 3: DI+ and DI- lines (for separate reading if needed)
-#property indicator_label4  "DI+ / DI-"
+//--- Plot 3: +DI line (green)
+#property indicator_label4  "+DI"
 #property indicator_type4   DRAW_LINE
-#property indicator_color4  clrLime, clrRed
-#property indicator_width4  2
+#property indicator_color4  clrLime
+#property indicator_width4  1
+
+//--- Plot 4: -DI line (red)
+#property indicator_label5  "-DI"
+#property indicator_type5   DRAW_LINE
+#property indicator_color5  clrRed
+#property indicator_width5  1
 
 //--- Levels (classic trend threshold)
 #property indicator_level1  20.0
@@ -42,14 +48,14 @@
 #property indicator_levelstyle STYLE_DOT
 
 //--- Inputs (espelhando ADXW Cloud 1.0)
-input int      Inp_ADX_Period        = 14;        // ADX period
-input double   Inp_ADXR_Level        = 20.0;      // ADXR level line
+input int      Inp_ADX_Period        = 14;            // ADX period
+input double   Inp_ADXR_Level        = 20.0;          // ADXR level line
 input color    Inp_BullishCloudColor = clrLightGreen; // Bullish cloud color
 input color    Inp_BearishCloudColor = clrHotPink;    // Bearish cloud color
-input int      Inp_FillTransparency  = 80;        // Filling colors transparency (0..255)
+input int      Inp_FillTransparency  = 80;            // Filling colors transparency (0..255)
 
 //--- Buffers
-// Plot 0: cloud
+// Plot 0: cloud (2 buffers)
 double PlusDICloudBuffer[];   // +DI for cloud
 double MinusDICloudBuffer[];  // -DI for cloud
 
@@ -59,8 +65,11 @@ double ADXBuffer[];
 // Plot 2: ADXR
 double ADXRBuffer[];
 
-// Plot 3: DI+ / DI- lines (two colors in same buffer)
-double DILineBuffer[];
+// Plot 3: +DI line
+double PlusDILineBuffer[];
+
+// Plot 4: -DI line
+double MinusDILineBuffer[];
 
 // Internal handle for standard ADX
 int adx_handle = INVALID_HANDLE;
@@ -84,7 +93,7 @@ int OnInit()
    }
 
    //--- map buffers
-   // Plot 0: cloud between +DI and -DI
+   // Plot 0: cloud between +DI and -DI (2 buffers)
    SetIndexBuffer(0, PlusDICloudBuffer,  INDICATOR_DATA);
    SetIndexBuffer(1, MinusDICloudBuffer, INDICATOR_DATA);
 
@@ -94,18 +103,14 @@ int OnInit()
    // Plot 2: ADXR
    SetIndexBuffer(3, ADXRBuffer, INDICATOR_DATA);
 
-   // Plot 3: DI line (single buffer with two colors)
-   SetIndexBuffer(4, DILineBuffer, INDICATOR_DATA);
+   // Plot 3: +DI line (green)
+   SetIndexBuffer(4, PlusDILineBuffer, INDICATOR_DATA);
 
-   // We use DI+ for color index 0 and DI- for color index 1 visually
-   // but for EA leitura é mais simples usar os próprios buffers da cloud.
+   // Plot 4: -DI line (red)
+   SetIndexBuffer(5, MinusDILineBuffer, INDICATOR_DATA);
 
-   //--- set series
-   ArraySetAsSeries(PlusDICloudBuffer,  true);
-   ArraySetAsSeries(MinusDICloudBuffer, true);
-   ArraySetAsSeries(ADXBuffer,          true);
-   ArraySetAsSeries(ADXRBuffer,         true);
-   ArraySetAsSeries(DILineBuffer,       true);
+   //--- NÃO usar ArraySetAsSeries nos buffers do indicador
+   //--- O MT5 espera indexação normal (0 = mais antigo, rates_total-1 = mais recente)
 
    //--- aplicar cores configuráveis à nuvem com transparência
    int alpha = MathMax(0, MathMin(255, Inp_FillTransparency));
@@ -158,14 +163,10 @@ int OnCalculate(const int rates_total,
    if(rates_total <= Inp_ADX_Period + 2)
       return(0);
 
-   //--- get built-in ADX buffers
-   static double adx_values[];
-   static double plusdi_values[];
-   static double minusdi_values[];
-
-   ArraySetAsSeries(adx_values,     true);
-   ArraySetAsSeries(plusdi_values,  true);
-   ArraySetAsSeries(minusdi_values, true);
+   //--- get built-in ADX buffers (sem ArraySetAsSeries - índice normal)
+   double adx_values[];
+   double plusdi_values[];
+   double minusdi_values[];
 
    int copied1 = CopyBuffer(adx_handle, 0, 0, rates_total, adx_values);     // ADX
    int copied2 = CopyBuffer(adx_handle, 1, 0, rates_total, plusdi_values);  // +DI
@@ -178,43 +179,41 @@ int OnCalculate(const int rates_total,
    if(start <= 0)
       start = Inp_ADX_Period + 2; // garantir dados suficientes
 
-   //--- fill buffers
+   //--- fill buffers (índice normal, do mais antigo para o mais recente)
    for(int i = start; i < rates_total; ++i)
    {
       double adx    = adx_values[i];
       double plusDI = plusdi_values[i];
       double minusDI= minusdi_values[i];
 
-      // Cloud buffers
+      // Cloud buffers (+DI e -DI)
       PlusDICloudBuffer[i]  = plusDI;
       MinusDICloudBuffer[i] = minusDI;
 
       // ADX
       ADXBuffer[i] = adx;
 
-      // DI line buffer: usamos +DI (verde) quando maior que -DI, senão -DI (vermelho)
-      DILineBuffer[i] = (plusDI >= minusDI ? plusDI : minusDI);
+      // +DI and -DI as separate lines
+      PlusDILineBuffer[i]  = plusDI;
+      MinusDILineBuffer[i] = minusDI;
    }
 
-   //--- ADXR: média móvel simples do ADX com período fixo (20) para suavizar
-   int adxr_period = 20;
-   if(adxr_period <= 1)
+   //--- ADXR: média móvel simples do ADX (olhando para trás, não para frente)
+   int adxr_period = 14;
+   for(int i = start; i < rates_total; ++i)
    {
-      for(int i = start; i < rates_total; ++i)
+      if(i < adxr_period)
+      {
          ADXRBuffer[i] = ADXBuffer[i];
-   }
-   else
-   {
-      for(int i = start; i < rates_total; ++i)
+      }
+      else
       {
          double sum = 0.0;
-         int    cnt = 0;
-         for(int j = 0; j < adxr_period && (i + j) < rates_total; ++j)
+         for(int j = 0; j < adxr_period; ++j)
          {
-            sum += ADXBuffer[i + j];
-            cnt++;
+            sum += ADXBuffer[i - j];
          }
-         ADXRBuffer[i] = (cnt > 0 ? sum / cnt : ADXBuffer[i]);
+         ADXRBuffer[i] = sum / adxr_period;
       }
    }
 
@@ -227,5 +226,6 @@ int OnCalculate(const int rates_total,
 //  Buffer 1: -DI cloud (MinusDICloudBuffer)
 //  Buffer 2: ADX
 //  Buffer 3: ADXR
-//  Buffer 4: DI line (maior entre +DI e -DI, apenas visual)
+//  Buffer 4: +DI line
+//  Buffer 5: -DI line
 //+------------------------------------------------------------------+
