@@ -14,7 +14,7 @@
 //--- Plot 0: DI+ / DI- Cloud (fill between +DI and -DI)
 #property indicator_label1  "+DI/-DI Cloud"
 #property indicator_type1   DRAW_FILLING
-#property indicator_color1  clrLime, clrRed
+#property indicator_color1  clrLightGreen, clrHotPink
 #property indicator_width1  1
 
 //--- Plot 1: ADX line (blue)
@@ -41,9 +41,12 @@
 #property indicator_levelcolor clrSilver
 #property indicator_levelstyle STYLE_DOT
 
-//--- Inputs
-input int   Inp_ADX_Period = 14;   // ADX period
-input int   Inp_ADXR_Period = 20;  // ADXR smoothing period
+//--- Inputs (espelhando ADXW Cloud 1.0)
+input int      Inp_ADX_Period        = 14;        // ADX period
+input double   Inp_ADXR_Level        = 20.0;      // ADXR level line
+input color    Inp_BullishCloudColor = clrLightGreen; // Bullish cloud color
+input color    Inp_BearishCloudColor = clrHotPink;    // Bearish cloud color
+input int      Inp_FillTransparency  = 80;        // Filling colors transparency (0..255)
 
 //--- Buffers
 // Plot 0: cloud
@@ -69,11 +72,6 @@ int OnInit()
    if(Inp_ADX_Period <= 1)
    {
       Print("ADXWCloud: invalid ADX period, must be > 1");
-      return(INIT_FAILED);
-   }
-   if(Inp_ADXR_Period < 1)
-   {
-      Print("ADXWCloud: invalid ADXR period, must be >= 1");
       return(INIT_FAILED);
    }
 
@@ -109,8 +107,20 @@ int OnInit()
    ArraySetAsSeries(ADXRBuffer,         true);
    ArraySetAsSeries(DILineBuffer,       true);
 
+   //--- aplicar cores configuráveis à nuvem com transparência
+   int alpha = MathMax(0, MathMin(255, Inp_FillTransparency));
+   color bull = Inp_BullishCloudColor;
+   color bear = Inp_BearishCloudColor;
+   color bullAlpha = (color)ARGB(alpha, GetRValue(bull), GetGValue(bull), GetBValue(bull));
+   color bearAlpha = (color)ARGB(alpha, GetRValue(bear), GetGValue(bear), GetBValue(bear));
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, bullAlpha);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, bearAlpha);
+
    IndicatorSetString(INDICATOR_SHORTNAME,
-                      StringFormat("ADXWCloud (%d,%d)", Inp_ADX_Period, Inp_ADXR_Period));
+                      StringFormat("ADXWCloud (%d,%.1f)", Inp_ADX_Period, Inp_ADXR_Level));
+
+   //--- nível configurável para ADXR/força de tendência
+   IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, Inp_ADXR_Level);
 
    return(INIT_SUCCEEDED);
 }
@@ -175,8 +185,9 @@ int OnCalculate(const int rates_total,
       DILineBuffer[i] = (plusDI >= minusDI ? plusDI : minusDI);
    }
 
-   //--- ADXR: média móvel simples do ADX
-   if(Inp_ADXR_Period <= 1)
+   //--- ADXR: média móvel simples do ADX com período fixo (20) para suavizar
+   int adxr_period = 20;
+   if(adxr_period <= 1)
    {
       for(int i = start; i < rates_total; ++i)
          ADXRBuffer[i] = ADXBuffer[i];
@@ -187,7 +198,7 @@ int OnCalculate(const int rates_total,
       {
          double sum = 0.0;
          int    cnt = 0;
-         for(int j = 0; j < Inp_ADXR_Period && (i + j) < rates_total; ++j)
+         for(int j = 0; j < adxr_period && (i + j) < rates_total; ++j)
          {
             sum += ADXBuffer[i + j];
             cnt++;
