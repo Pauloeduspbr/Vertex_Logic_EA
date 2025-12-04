@@ -141,51 +141,41 @@ void CTradeManager::ManagePositions()
         //--- Trailing Stop
         if(Inp_UseTrailing)
         {
-            // Check if Trailing is allowed (Only if BE is disabled OR if BE has already secured profit)
-            bool can_trail = false;
-            if(!Inp_UseBreakEven)
+            // Trailing só inicia quando o lucro atual >= TS_Start (distância do trailing)
+            // Isso garante que o trailing só começa após um movimento significativo a favor
+            
+            if(type == POSITION_TYPE_BUY)
             {
-                can_trail = true;
-            }
-            else
-            {
-                // If BE is enabled, only trail if SL is already in profit zone (at or better than Entry Price)
-                if(type == POSITION_TYPE_BUY)
-                {
-                    if(current_sl >= open_price) can_trail = true;
-                }
-                else if(type == POSITION_TYPE_SELL)
-                {
-                    // For Sell, SL is above price. Profit zone is when SL <= Open Price.
-                    // Also check if SL is not 0 (no SL).
-                    if(current_sl <= open_price && current_sl > 0.0) can_trail = true;
-                }
-            }
-
-            if(can_trail)
-            {
-                if(type == POSITION_TYPE_BUY)
+                double current_profit_points = (current_price - open_price) / m_point;
+                
+                // Só ativa trailing se lucro >= distância do trailing
+                if(current_profit_points >= Inp_TS_Start)
                 {
                     // Trailing Logic: SL = Price - Distance
                     double new_sl = current_price - Inp_TS_Start * m_point;
                     new_sl = NormalizePrice(new_sl);
                     
-                    // Only move if New SL > Current SL + Step
+                    // Only move if New SL > Current SL + Step (melhora o SL em pelo menos Step pontos)
                     if(new_sl > current_sl + Inp_TS_Step * m_point)
                     {
                          if(!m_trade.PositionModify(ticket, new_sl, current_tp))
                             Print("Failed to Trailing Stop for Buy: ", m_trade.ResultRetcodeDescription());
                     }
                 }
-                else if(type == POSITION_TYPE_SELL)
+            }
+            else if(type == POSITION_TYPE_SELL)
+            {
+                double current_profit_points = (open_price - current_price) / m_point;
+                
+                // Só ativa trailing se lucro >= distância do trailing
+                if(current_profit_points >= Inp_TS_Start)
                 {
                     // Trailing Logic: SL = Price + Distance
                     double new_sl = current_price + Inp_TS_Start * m_point;
                     new_sl = NormalizePrice(new_sl);
                     
-                    // Only move if New SL < Current SL - Step
-                    // Or if Current SL is 0 (no SL set yet)
-                    if(new_sl < current_sl - Inp_TS_Step * m_point || current_sl == 0.0)
+                    // Only move if New SL < Current SL - Step (melhora o SL em pelo menos Step pontos)
+                    if(new_sl < current_sl - Inp_TS_Step * m_point)
                     {
                          if(!m_trade.PositionModify(ticket, new_sl, current_tp))
                             Print("Failed to Trailing Stop for Sell: ", m_trade.ResultRetcodeDescription());
