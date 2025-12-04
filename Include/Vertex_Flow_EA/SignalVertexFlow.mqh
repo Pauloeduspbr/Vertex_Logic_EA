@@ -66,21 +66,9 @@ CSignalVertexFlow::~CSignalVertexFlow()
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::Init()
 {
-    //--- Initialize FGM Indicator
+    //--- Initialize FGM Indicator (simplified - passing Period1 twice to account for hidden input shift)
     m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\FGM_Indicator",
-                           Inp_FGM_Period1, Inp_FGM_Period2, Inp_FGM_Period3, Inp_FGM_Period4, Inp_FGM_Period5,
-                           Inp_FGM_Price,
-                           Inp_FGM_Cross, // Primary Cross
-                           CROSS_EMA2_EMA3, // Secondary (dummy)
-                           1, 2, // Custom indices (dummy)
-                           Inp_FGM_Mode,
-                           Inp_FGM_MinStr,
-                           50.0, false, // Confluence settings
-                           14, 0.5, 1.0, 2.0, 3.0, // ATR settings
-                           false, 10, false, false, false, false, false, // Visuals
-                           false, false, false, true, 5, // Alerts
-                           false, false, false, false, false, // Display
-                           0.25, 0.50, 1.00, 1.50, 2.00 // Pos Size
+                           Inp_FGM_Period1, Inp_FGM_Period1, Inp_FGM_Period2, Inp_FGM_Period3, Inp_FGM_Period4, Inp_FGM_Period5
                            );
                            
     if(m_handle_fgm == INVALID_HANDLE) { Print("Failed to create FGM handle"); return false; }
