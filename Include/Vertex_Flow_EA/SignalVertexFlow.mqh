@@ -10,7 +10,6 @@ class CSignalVertexFlow
 private:
     int            m_handle_fgm;
     int            m_handle_mfi;
-    int            m_handle_obv;
     int            m_handle_rsi;
     int            m_handle_adx;
     
@@ -18,8 +17,6 @@ private:
     double         m_buf_fgm_phase[];
     double         m_buf_mfi_color[];
     double         m_buf_mfi_val[];
-    double         m_buf_obv_hist[];
-    double         m_buf_obv_color[];
     double         m_buf_rsi_val[];
     double         m_buf_rsi_ma[];
     double         m_buf_adx[];
@@ -34,7 +31,6 @@ public:
     //--- Getters for Chart Attachment
     int            GetHandleFGM() { return m_handle_fgm; }
     int            GetHandleMFI() { return m_handle_mfi; }
-    int            GetHandleOBV() { return m_handle_obv; }
     int            GetHandleRSI() { return m_handle_rsi; }
     int            GetHandleADX() { return m_handle_adx; }
     
@@ -48,7 +44,6 @@ private:
 CSignalVertexFlow::CSignalVertexFlow() : 
     m_handle_fgm(INVALID_HANDLE),
     m_handle_mfi(INVALID_HANDLE),
-    m_handle_obv(INVALID_HANDLE),
     m_handle_rsi(INVALID_HANDLE),
     m_handle_adx(INVALID_HANDLE)
 {
@@ -61,7 +56,6 @@ CSignalVertexFlow::~CSignalVertexFlow()
 {
     if(m_handle_fgm != INVALID_HANDLE) IndicatorRelease(m_handle_fgm);
     if(m_handle_mfi != INVALID_HANDLE) IndicatorRelease(m_handle_mfi);
-    if(m_handle_obv != INVALID_HANDLE) IndicatorRelease(m_handle_obv);
     if(m_handle_rsi != INVALID_HANDLE) IndicatorRelease(m_handle_rsi);
     if(m_handle_adx != INVALID_HANDLE) IndicatorRelease(m_handle_adx);
 }
@@ -90,18 +84,6 @@ bool CSignalVertexFlow::Init()
                            );
                            
     if(m_handle_mfi == INVALID_HANDLE) { Print("Failed to create MFI handle"); return false; }
-
-    //--- Initialize OBV MACD
-    m_handle_obv = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\OBV_MACD",
-                           Inp_OBV_FastEMA,
-                           Inp_OBV_SlowEMA,
-                           Inp_OBV_SignalSMA,
-                           Inp_OBV_Smooth,
-                           Inp_OBV_UseTick,
-                           false, false, 34, 0.6 // Visuals & Threshold
-                           );
-                           
-    if(m_handle_obv == INVALID_HANDLE) { Print("Failed to create OBV MACD handle"); return false; }
 
     //--- Initialize RSIOMA v2
     // Último parâmetro (ShowLevels) EM TRUE para exibir os níveis 70/30 no gráfico
@@ -145,8 +127,6 @@ bool CSignalVertexFlow::UpdateBuffers()
     if(CopyBuffer(m_handle_fgm, 7, 0, count, m_buf_fgm_phase) < count) return false;
     if(CopyBuffer(m_handle_mfi, 1, 0, count, m_buf_mfi_color) < count) return false;
     if(CopyBuffer(m_handle_mfi, 0, 0, count, m_buf_mfi_val) < count) return false; // Valor para sobrecompra/sobrevenda
-    if(CopyBuffer(m_handle_obv, 0, 0, count, m_buf_obv_hist) < count) return false;
-    if(CopyBuffer(m_handle_obv, 1, 0, count, m_buf_obv_color) < count) return false;
     // No indicador RSIOMA_v2HHLSX_MT5:
     //  - Buffer 0 = RSI principal (linha vermelha)
     //  - Buffer 1 = MA do RSI (linha azul)
@@ -161,8 +141,6 @@ bool CSignalVertexFlow::UpdateBuffers()
     ArraySetAsSeries(m_buf_fgm_phase, true);
     ArraySetAsSeries(m_buf_mfi_color, true);
     ArraySetAsSeries(m_buf_mfi_val, true);
-    ArraySetAsSeries(m_buf_obv_hist, true);
-    ArraySetAsSeries(m_buf_obv_color, true);
     ArraySetAsSeries(m_buf_rsi_val, true);
     ArraySetAsSeries(m_buf_rsi_ma, true);
     ArraySetAsSeries(m_buf_adx, true);
@@ -236,12 +214,7 @@ int CSignalVertexFlow::GetSignal()
     
     if(mfi_color == 2) return 0; // Lateral - VETO
     
-    //--- 4. OBV MACD Filter
-    // Color: 0=GreenStrong, 1=RedStrong, 2=GreenWeak, 3=RedWeak
-    double obv_hist = m_buf_obv_hist[shift];
-    // int obv_color = (int)m_buf_obv_color[shift]; // Not used anymore for veto
-    
-    //--- 5. ADX Filter
+    //--- 4. ADX Filter
     double adx = m_buf_adx[shift];
     
     //--- BUY LOGIC
@@ -259,10 +232,6 @@ int CSignalVertexFlow::GetSignal()
         // If it's Red, it's selling pressure. But if it's < 20, it might be a reversal.
         // Let's stick to strict: If Color is Red, check if < 20. If > 20 and Red, then Veto.
         if(mfi_color == 1 && mfi_val > 20.0) return 0; 
-        
-        // OBV: histograma deve estar POSITIVO para comprar
-        if(obv_hist <= 0.0) return 0;
-        // Cor: REMOVIDO VETO POR COR (era if(obv_color != 0))
         
         // ADX: tendência precisa ter força mínima
         if(adx < Inp_ADX_MinTrend) return 0;
@@ -282,10 +251,6 @@ int CSignalVertexFlow::GetSignal()
         // MFI: Must be Red (1) OR Overbought (>80)
         // If it's Green (0) but > 80, is it allowed?
         if(mfi_color == 0 && mfi_val < 80.0) return 0;
-        
-        // OBV: histograma deve estar NEGATIVO para vender
-        if(obv_hist >= 0.0) return 0;
-        // Cor: REMOVIDO VETO POR COR (era if(obv_color != 1))
         
         // ADX: tendência precisa ter força mínima
         if(adx < Inp_ADX_MinTrend) return 0;

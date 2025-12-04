@@ -42,14 +42,6 @@ input double           Inp_MFI_LatStart  = 40.0;   // MFI Lateral Zone Start
 input double           Inp_MFI_LatEnd    = 60.0;   // MFI Lateral Zone End
 input ENUM_APPLIED_VOLUME Inp_MFI_VolType = VOLUME_TICK; // MFI Volume Type
 
-//--- Input Group: Strategy - OBV MACD
-input group "===== OBV MACD Settings ====="
-input int              Inp_OBV_FastEMA   = 12;     // OBV Fast EMA
-input int              Inp_OBV_SlowEMA   = 26;     // OBV Slow EMA
-input int              Inp_OBV_SignalSMA = 9;      // OBV Signal SMA
-input int              Inp_OBV_Smooth    = 5;      // OBV Smoothing
-input bool             Inp_OBV_UseTick   = true;   // OBV Use Tick Volume
-
 //--- Input Group: Strategy - RSIOMA v2
 input group "===== RSIOMA v2 Settings ====="
 input int              Inp_RSI_Period    = 14;     // RSI Period
