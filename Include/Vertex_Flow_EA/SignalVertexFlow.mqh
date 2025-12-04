@@ -124,8 +124,8 @@ bool CSignalVertexFlow::UpdateBuffers()
     if(CopyBuffer(m_handle_mfi, 0, 0, count, m_buf_mfi_val) < count) return false; // Value for oversold/overbought check
     if(CopyBuffer(m_handle_obv, 0, 0, count, m_buf_obv_hist) < count) return false;
     if(CopyBuffer(m_handle_obv, 1, 0, count, m_buf_obv_color) < count) return false;
-    if(CopyBuffer(m_handle_rsi, 0, 0, count, m_buf_rsi_val) < count) return false;
-    if(CopyBuffer(m_handle_rsi, 1, 0, count, m_buf_rsi_ma) < count) return false;
+    if(CopyBuffer(m_handle_rsi, 0, 0, count, m_buf_rsi_ma) < count) return false; // Buffer 0 is MA
+    if(CopyBuffer(m_handle_rsi, 1, 0, count, m_buf_rsi_val) < count) return false; // Buffer 1 is RSI
     
     return true;
 }
