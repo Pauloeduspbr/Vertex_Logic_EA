@@ -113,24 +113,16 @@ int OnInit()
    //--- O MT5 espera indexação normal (0 = mais antigo, rates_total-1 = mais recente)
 
    //--- aplicar cores configuráveis à nuvem com transparência
-   int alpha = MathMax(0, MathMin(255, Inp_FillTransparency));
+   // MQL5 color é BGR, não RGB. E ColorToARGB usa alpha 0-255 onde 0=transparente, 255=opaco
+   // Inp_FillTransparency: 0=opaco, 255=transparente -> inverter para alpha
+   uchar alpha = (uchar)(255 - MathMax(0, MathMin(255, Inp_FillTransparency)));
    
-   // Extrair componentes RGB da cor bullish
-   uchar rBull = (uchar)((Inp_BullishCloudColor >> 16) & 0xFF);
-   uchar gBull = (uchar)((Inp_BullishCloudColor >> 8) & 0xFF);
-   uchar bBull = (uchar)(Inp_BullishCloudColor & 0xFF);
+   // Usar função nativa ColorToARGB do MQL5
+   uint bullAlpha = ColorToARGB(Inp_BullishCloudColor, alpha);
+   uint bearAlpha = ColorToARGB(Inp_BearishCloudColor, alpha);
    
-   // Extrair componentes RGB da cor bearish
-   uchar rBear = (uchar)((Inp_BearishCloudColor >> 16) & 0xFF);
-   uchar gBear = (uchar)((Inp_BearishCloudColor >> 8) & 0xFF);
-   uchar bBear = (uchar)(Inp_BearishCloudColor & 0xFF);
-   
-   // Montar cores com alpha (ARGB)
-   uint bullAlpha = ((uint)alpha << 24) | ((uint)rBull << 16) | ((uint)gBull << 8) | (uint)bBull;
-   uint bearAlpha = ((uint)alpha << 24) | ((uint)rBear << 16) | ((uint)gBear << 8) | (uint)bBear;
-   
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, (color)bullAlpha);
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, (color)bearAlpha);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, bullAlpha);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, bearAlpha);
 
    IndicatorSetString(INDICATOR_SHORTNAME,
                       StringFormat("ADXWCloud (%d,%.1f)", Inp_ADX_Period, Inp_ADXR_Level));
@@ -198,7 +190,7 @@ int OnCalculate(const int rates_total,
       MinusDILineBuffer[i] = minusDI;
    }
 
-   //--- ADXR: média móvel simples do ADX (olhando para trás, não para frente)
+   //--- ADXR: fórmula clássica = (ADX[hoje] + ADX[n períodos atrás]) / 2
    int adxr_period = 14;
    for(int i = start; i < rates_total; ++i)
    {
@@ -208,12 +200,8 @@ int OnCalculate(const int rates_total,
       }
       else
       {
-         double sum = 0.0;
-         for(int j = 0; j < adxr_period; ++j)
-         {
-            sum += ADXBuffer[i - j];
-         }
-         ADXRBuffer[i] = sum / adxr_period;
+         // ADXR clássico: média entre ADX atual e ADX de N barras atrás
+         ADXRBuffer[i] = (ADXBuffer[i] + ADXBuffer[i - adxr_period]) / 2.0;
       }
    }
 
