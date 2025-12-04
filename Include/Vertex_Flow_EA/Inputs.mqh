@@ -21,10 +21,7 @@ enum CROSSOVER_TYPE {
 };
 
 //--- Enums for MFI
-enum ENUM_APPLIED_VOLUME {
-    VOLUME_TICK = 0,
-    VOLUME_REAL = 1
-};
+// ENUM_APPLIED_VOLUME is built-in
 
 //--- Input Group: Strategy - FGM Indicator
 input group "===== FGM Indicator Settings ====="
