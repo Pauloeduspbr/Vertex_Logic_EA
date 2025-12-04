@@ -174,15 +174,15 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_cross_up   = (!rsi_bull_prev && rsi_bull_now);  // cruzou para cima (buy)
     bool rsi_cross_down = (!rsi_bear_prev && rsi_bear_now);  // cruzou para baixo (sell)
 
-    // LOG DE DEPURAÇÃO (pode ser desativado depois de validar)
-    PrintFormat("VertexFlow RSIOMA debug: time=%s shift=%d rsi_red=%.2f rsi_blue=%.2f | prev_red=%.2f prev_blue=%.2f | bull_now=%s bull_prev=%s bear_now=%s bear_prev=%s cross_up=%s cross_down=%s",
-                TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
-                shift,
-                m_buf_rsi_ma[shift], m_buf_rsi_val[shift],
-                m_buf_rsi_ma[prev_shift], m_buf_rsi_val[prev_shift],
-                (rsi_bull_now?"true":"false"), (rsi_bull_prev?"true":"false"),
-                (rsi_bear_now?"true":"false"), (rsi_bear_prev?"true":"false"),
-                (rsi_cross_up?"true":"false"), (rsi_cross_down?"true":"false"));
+    // LOG DE DEPURAÇÃO (reduzido - desative se não precisar)
+    if(rsi_cross_up || rsi_cross_down)
+    {
+        PrintFormat("VertexFlow RSIOMA signal: time=%s dir=%s rsi_red=%.2f rsi_blue=%.2f | prev_red=%.2f prev_blue=%.2f",
+                    TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
+                    (rsi_cross_up?"BUY":"SELL"),
+                    m_buf_rsi_ma[shift], m_buf_rsi_val[shift],
+                    m_buf_rsi_ma[prev_shift], m_buf_rsi_val[prev_shift]);
+    }
 
     if(!rsi_cross_up && !rsi_cross_down)
         return 0; // Sem gatilho de RSIOMA, nenhuma operação
@@ -226,6 +226,9 @@ int CSignalVertexFlow::GetSignal()
         
         // OBV: histograma deve estar POSITIVO para comprar
         if(obv_hist <= 0.0) return 0;
+        // Cor: SOMENTE GreenStrong (0) é aceita para compra.
+        // Qualquer outro valor (GreenWeak=2 ou vermelho forte/fraco) bloqueia a entrada.
+        if(obv_color != 0) return 0;
         
         return 1; // Valid Buy
     }
@@ -245,6 +248,9 @@ int CSignalVertexFlow::GetSignal()
         
         // OBV: histograma deve estar NEGATIVO para vender
         if(obv_hist >= 0.0) return 0;
+        // Cor: SOMENTE RedStrong (1) é aceita para venda.
+        // Qualquer outro valor (RedWeak=3 ou verde forte/fraco) bloqueia a entrada.
+        if(obv_color != 1) return 0;
         
         return -1; // Valid Sell
     }
