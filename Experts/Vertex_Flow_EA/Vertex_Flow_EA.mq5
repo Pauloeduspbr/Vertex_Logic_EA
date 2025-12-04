@@ -49,9 +49,9 @@ int OnInit()
     if(!ChartIndicatorAdd(chart_id, 1, g_signal.GetHandleRSI()))
         Print("Failed to attach RSIOMA to chart");
         
-    // OBV MACD (Subwindow 2)
-    if(!ChartIndicatorAdd(chart_id, 2, g_signal.GetHandleOBV()))
-        Print("Failed to attach OBV MACD to chart");
+    // ADX (Subwindow 2)
+    if(!ChartIndicatorAdd(chart_id, 2, g_signal.GetHandleADX()))
+        Print("Failed to attach ADX to chart");
         
     // Enhanced MFI (Subwindow 3)
     if(!ChartIndicatorAdd(chart_id, 3, g_signal.GetHandleMFI()))
