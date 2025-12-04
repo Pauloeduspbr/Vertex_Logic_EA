@@ -129,8 +129,12 @@ bool CSignalVertexFlow::UpdateBuffers()
     if(CopyBuffer(m_handle_mfi, 0, 0, count, m_buf_mfi_val) < count) return false; // Valor para sobrecompra/sobrevenda
     if(CopyBuffer(m_handle_obv, 0, 0, count, m_buf_obv_hist) < count) return false;
     if(CopyBuffer(m_handle_obv, 1, 0, count, m_buf_obv_color) < count) return false;
-    if(CopyBuffer(m_handle_rsi, 0, 0, count, m_buf_rsi_ma) < count) return false;  // Buffer 0 = MA
-    if(CopyBuffer(m_handle_rsi, 1, 0, count, m_buf_rsi_val) < count) return false; // Buffer 1 = RSI
+    // No indicador RSIOMA_v2HHLSX_MT5:
+    //  - Buffer 0 = RSI principal (linha vermelha)
+    //  - Buffer 1 = MA do RSI (linha azul)
+    // Portanto, aqui mantemos a mesma convenção visual:
+    if(CopyBuffer(m_handle_rsi, 0, 0, count, m_buf_rsi_val) < count) return false; // Buffer 0 = RSI (vermelha)
+    if(CopyBuffer(m_handle_rsi, 1, 0, count, m_buf_rsi_ma) < count) return false; // Buffer 1 = MA  (azul)
 
     // Garante que todos os buffers usem a mesma convenção de índices (0 = barra atual, 1 = última fechada, 2 = penúltima).
     ArraySetAsSeries(m_buf_fgm_phase, true);
@@ -162,16 +166,16 @@ int CSignalVertexFlow::GetSignal()
     
     //--- 1. RSIOMA Trigger (Crossover)
     // IMPORTANTE: no indicador RSIOMA_v2HHLSX_MT5 a convenção é:
-    //  - Buffer 0 (m_buf_rsi_ma)  : linha vermelha (RSI/RSIOMA principal)
-    //  - Buffer 1 (m_buf_rsi_val) : linha azul  (média / Sinal)
+    //  - Buffer 0 (m_buf_rsi_val) : linha vermelha (RSI/RSIOMA principal)
+    //  - Buffer 1 (m_buf_rsi_ma)  : linha azul  (média / Sinal)
     // Para BUY queremos que a linha vermelha esteja ACIMA da azul (tendência de alta).
     // Para SELL queremos que a linha vermelha esteja ABAIXO da azul (tendência de baixa).
     // Além disso, exigimos um cruzamento verdadeiro entre a barra anterior e a barra de sinal.
 
-    bool rsi_bull_now  = (m_buf_rsi_ma[shift]  > m_buf_rsi_val[shift]);      // vermelho acima da azul
-    bool rsi_bull_prev = (m_buf_rsi_ma[prev_shift] > m_buf_rsi_val[prev_shift]);
-    bool rsi_bear_now  = (m_buf_rsi_ma[shift]  < m_buf_rsi_val[shift]);      // vermelho abaixo da azul
-    bool rsi_bear_prev = (m_buf_rsi_ma[prev_shift] < m_buf_rsi_val[prev_shift]);
+    bool rsi_bull_now  = (m_buf_rsi_val[shift]  > m_buf_rsi_ma[shift]);      // vermelho acima da azul
+    bool rsi_bull_prev = (m_buf_rsi_val[prev_shift] > m_buf_rsi_ma[prev_shift]);
+    bool rsi_bear_now  = (m_buf_rsi_val[shift]  < m_buf_rsi_ma[shift]);      // vermelho abaixo da azul
+    bool rsi_bear_prev = (m_buf_rsi_val[prev_shift] < m_buf_rsi_ma[prev_shift]);
 
     bool rsi_cross_up   = (!rsi_bull_prev && rsi_bull_now);  // cruzou para cima (buy)
     bool rsi_cross_down = (!rsi_bear_prev && rsi_bear_now);  // cruzou para baixo (sell)
@@ -196,7 +200,8 @@ int CSignalVertexFlow::GetSignal()
     // Nível extra de filtro: exigimos que o RSIOMA esteja coerente com a direção
     // Compra apenas se a linha vermelha (RSIOMA) estiver acima de 50
     // Venda apenas se a linha vermelha estiver abaixo de 50
-    double rsi_red = m_buf_rsi_ma[shift];
+    // rsi_red representa SEMPRE a linha vermelha (RSI principal)
+    double rsi_red = m_buf_rsi_val[shift];
     
     //--- 2. FGM Filter
     // Phase: 2=StrongBull, 1=WeakBull, 0=Neutral, -1=WeakBear, -2=StrongBear
