@@ -109,12 +109,23 @@ int OnInit()
 
    //--- aplicar cores configuráveis à nuvem com transparência
    int alpha = MathMax(0, MathMin(255, Inp_FillTransparency));
-   color bull = Inp_BullishCloudColor;
-   color bear = Inp_BearishCloudColor;
-   color bullAlpha = (color)ARGB(alpha, GetRValue(bull), GetGValue(bull), GetBValue(bull));
-   color bearAlpha = (color)ARGB(alpha, GetRValue(bear), GetGValue(bear), GetBValue(bear));
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, bullAlpha);
-   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, bearAlpha);
+   
+   // Extrair componentes RGB da cor bullish
+   uchar rBull = (uchar)((Inp_BullishCloudColor >> 16) & 0xFF);
+   uchar gBull = (uchar)((Inp_BullishCloudColor >> 8) & 0xFF);
+   uchar bBull = (uchar)(Inp_BullishCloudColor & 0xFF);
+   
+   // Extrair componentes RGB da cor bearish
+   uchar rBear = (uchar)((Inp_BearishCloudColor >> 16) & 0xFF);
+   uchar gBear = (uchar)((Inp_BearishCloudColor >> 8) & 0xFF);
+   uchar bBear = (uchar)(Inp_BearishCloudColor & 0xFF);
+   
+   // Montar cores com alpha (ARGB)
+   uint bullAlpha = ((uint)alpha << 24) | ((uint)rBull << 16) | ((uint)gBull << 8) | (uint)bBull;
+   uint bearAlpha = ((uint)alpha << 24) | ((uint)rBear << 16) | ((uint)gBear << 8) | (uint)bBear;
+   
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 0, (color)bullAlpha);
+   PlotIndexSetInteger(0, PLOT_LINE_COLOR, 1, (color)bearAlpha);
 
    IndicatorSetString(INDICATOR_SHORTNAME,
                       StringFormat("ADXWCloud (%d,%.1f)", Inp_ADX_Period, Inp_ADXR_Level));
