@@ -55,9 +55,9 @@ input double           Inp_ADX_MinTrend  = 20.0;   // ADX Min Trend Strength
 
 //--- Input Group: Trading Settings
 input group "===== Trading Settings ====="
-input double           Inp_LotSize       = 0.1;    // Fixed Lot Size
-input int              Inp_StopLoss      = 200;    // Stop Loss (Points)
-input int              Inp_TakeProfit    = 400;    // Take Profit (Points)
+input double           Inp_LotSize       = 1.0;    // Fixed Lot Size
+input int              Inp_StopLoss      = 300;    // Stop Loss (Points) - Aumentado para dar mais espaço
+input int              Inp_TakeProfit    = 500;    // Take Profit (Points) - Realista para M5
 input int              Inp_MagicNum      = 123456; // Magic Number
 input int              Inp_Slippage      = 3;      // Slippage (Points)
 

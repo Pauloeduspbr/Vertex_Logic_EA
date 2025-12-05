@@ -158,115 +158,142 @@ int CSignalVertexFlow::GetSignal()
     if(!UpdateBuffers())
         return 0;
 
-    // Vamos sempre analisar a ÚLTIMA BARRA FECHADA (candle de sinal) usando índice da série de preços.
-    // Em CopyBuffer usamos start_pos=0 e ArraySetAsSeries(true), então:
-    //  - índice 0 => barra atual em formação
-    //  - índice 1 => última barra fechada (candle de sinal)
-    //  - índice 2 => barra fechada anterior
+    // IMPORTANTE: Verificar se estamos no início de uma nova barra para evitar sinais duplicados
+    static datetime last_bar_time = 0;
+    datetime current_bar_time = iTime(_Symbol, _Period, 0);
+    
+    // Só processar sinal UMA VEZ por barra (quando a barra fecha)
+    if(last_bar_time == current_bar_time)
+        return 0; // Já processamos esta barra
+    
+    last_bar_time = current_bar_time;
+
+    // Analisamos a ÚLTIMA BARRA FECHADA (índice 1 após ArraySetAsSeries)
     int shift = 1;              // barra fechada mais recente (candle de sinal)
     int prev_shift = shift + 1; // barra anterior à de sinal (para detectar cruzamento)
     
     //--- 1. RSIOMA Trigger (Crossover)
-    // IMPORTANTE: no indicador RSIOMA_v2HHLSX_MT5 a convenção é:
-    //  - Buffer 0 (m_buf_rsi_val) : linha vermelha (RSI/RSIOMA principal)
-    //  - Buffer 1 (m_buf_rsi_ma)  : linha azul  (média / Sinal)
-    // Para BUY queremos que a linha vermelha esteja ACIMA da azul (tendência de alta).
-    // Para SELL queremos que a linha vermelha esteja ABAIXO da azul (tendência de baixa).
-    // Além disso, exigimos um cruzamento verdadeiro entre a barra anterior e a barra de sinal.
+    // Buffer 0 = RSI principal (linha vermelha)
+    // Buffer 1 = MA do RSI (linha azul)
+    double rsi_now = m_buf_rsi_val[shift];
+    double rsi_ma_now = m_buf_rsi_ma[shift];
+    double rsi_prev = m_buf_rsi_val[prev_shift];
+    double rsi_ma_prev = m_buf_rsi_ma[prev_shift];
 
-    bool rsi_bull_now  = (m_buf_rsi_val[shift]  > m_buf_rsi_ma[shift]);      // vermelho acima da azul
-    bool rsi_bull_prev = (m_buf_rsi_val[prev_shift] > m_buf_rsi_ma[prev_shift]);
-    bool rsi_bear_now  = (m_buf_rsi_val[shift]  < m_buf_rsi_ma[shift]);      // vermelho abaixo da azul
-    bool rsi_bear_prev = (m_buf_rsi_val[prev_shift] < m_buf_rsi_ma[prev_shift]);
+    bool rsi_bull_now  = (rsi_now > rsi_ma_now);
+    bool rsi_bull_prev = (rsi_prev > rsi_ma_prev);
+    bool rsi_bear_now  = (rsi_now < rsi_ma_now);
+    bool rsi_bear_prev = (rsi_prev < rsi_ma_prev);
 
-    bool rsi_cross_up   = (!rsi_bull_prev && rsi_bull_now);  // cruzou para cima (buy)
-    bool rsi_cross_down = (!rsi_bear_prev && rsi_bear_now);  // cruzou para baixo (sell)
-
-    // LOG DE DEPURAÇÃO (opcional)
-    // Atenção: este log pode ser muito verboso em backtests "Every tick".
-    // Para evitar spam no log, só ativar manualmente quando estiver depurando um caso específico.
-    /*
-    if(rsi_cross_up || rsi_cross_down)
-    {
-        PrintFormat("VertexFlow RSIOMA signal: time=%s dir=%s rsi_red=%.2f rsi_blue=%.2f | prev_red=%.2f prev_blue=%.2f",
-                    TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
-                    (rsi_cross_up?"BUY":"SELL"),
-                    m_buf_rsi_ma[shift], m_buf_rsi_val[shift],
-                    m_buf_rsi_ma[prev_shift], m_buf_rsi_val[prev_shift]);
-    }
-    */
+    bool rsi_cross_up   = (!rsi_bull_prev && rsi_bull_now);
+    bool rsi_cross_down = (!rsi_bear_prev && rsi_bear_now);
 
     if(!rsi_cross_up && !rsi_cross_down)
-        return 0; // Sem gatilho de RSIOMA, nenhuma operação
-
-    // REMOVIDO: Filtro RSI > 50 / < 50
-    // Motivo: Este filtro fazia com que as entradas fossem MUITO ATRASADAS.
-    // Quando há um cruzamento de alta, o RSI frequentemente ainda está abaixo de 50.
-    // O próprio cruzamento já é suficiente como gatilho de entrada.
-    // Se desejar reativar, descomente as linhas abaixo em cada lógica de BUY/SELL.
-    
-    double rsi_red = m_buf_rsi_val[shift]; // Mantido para debug se necessário
+        return 0;
     
     //--- 2. FGM Filter
-    // Phase: 2=StrongBull, 1=WeakBull, 0=Neutral, -1=WeakBear, -2=StrongBear
     int fgm_phase = (int)m_buf_fgm_phase[shift];
     
     //--- 3. MFI Filter
-    // Color: 0=Green, 1=Red, 2=Yellow
     int mfi_color = (int)m_buf_mfi_color[shift];
     double mfi_val = m_buf_mfi_val[shift];
-    
-    if(mfi_color == 2) return 0; // Lateral - VETO
     
     //--- 4. ADX Filter
     double adx_curr = m_buf_adx[shift];
     double adx_prev = m_buf_adx[prev_shift];
     bool adx_rising = (adx_curr > adx_prev);
     
+    // DEBUG: Log detalhado quando há cruzamento RSIOMA
+    PrintFormat("[DEBUG] %s | RSIOMA Cross: %s | RSI=%.2f MA=%.2f | FGM=%d | MFI_Color=%d MFI_Val=%.2f | ADX=%.2f Rising=%s",
+                TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
+                rsi_cross_up ? "UP" : "DOWN",
+                rsi_now, rsi_ma_now,
+                fgm_phase,
+                mfi_color, mfi_val,
+                adx_curr, adx_rising ? "YES" : "NO");
+    
     //--- BUY LOGIC
     if(rsi_cross_up)
     {
-        // OPCIONAL: Filtro de nível RSI (desativado para entradas mais rápidas)
-        // if(rsi_red < 50.0) return 0;
-
-        // FGM: Allow Neutral (0) + Bullish (1, 2). Block only Bearish (< 0).
-        // This allows catching the start of the trend when FGM is transitioning.
-        if(fgm_phase < 0) return 0;
+        // FILTRO 1: FGM deve confirmar tendência (não pode ser bearish)
+        if(fgm_phase < 0) 
+        {
+            Print("[VETO BUY] FGM Phase Bearish: ", fgm_phase);
+            return 0;
+        }
         
-        // MFI: Must be Green (0) for momentum confirmation
-        // Aceita também mercado não-lateral (já filtrado acima com mfi_color == 2)
-        // Removido filtro de sobrevenda porque limita boas entradas em tendência
-        if(mfi_color == 1) return 0; // Bloqueia apenas se MFI vermelho (selling pressure)
+        // FILTRO 2: MFI não pode estar em lateral (amarelo=2)
+        if(mfi_color == 2)
+        {
+            Print("[VETO BUY] MFI Lateral (Yellow)");
+            return 0;
+        }
         
-        // ADX: Trend Strength Filter
-        // If ADX is high (> Min) -> OK.
-        // If ADX is low (< Min) -> Only OK if Rising (Trend Starting).
-        if(adx_curr < Inp_ADX_MinTrend && !adx_rising) return 0;
+        // FILTRO 3: MFI não pode estar vermelho (selling pressure) para compra
+        if(mfi_color == 1)
+        {
+            Print("[VETO BUY] MFI Red (Selling Pressure)");
+            return 0;
+        }
         
-        return 1; // Valid Buy
+        // FILTRO 4: ADX deve indicar força de tendência
+        if(adx_curr < Inp_ADX_MinTrend && !adx_rising)
+        {
+            Print("[VETO BUY] ADX Low and Not Rising: ", adx_curr);
+            return 0;
+        }
+        
+        // FILTRO 5: RSI não pode estar sobrecomprado (evitar topo)
+        if(rsi_now > 70.0)
+        {
+            Print("[VETO BUY] RSI Overbought: ", rsi_now);
+            return 0;
+        }
+        
+        Print("[SIGNAL BUY] All filters passed!");
+        return 1;
     }
     
     //--- SELL LOGIC
     if(rsi_cross_down)
     {
-        // OPCIONAL: Filtro de nível RSI (desativado para entradas mais rápidas)
-        // if(rsi_red > 50.0) return 0;
-
-        // FGM: Allow Neutral (0) + Bearish (-1, -2). Block only Bullish (> 0).
-        // This allows catching the start of the trend when FGM is transitioning.
-        if(fgm_phase > 0) return 0;
+        // FILTRO 1: FGM deve confirmar tendência (não pode ser bullish)
+        if(fgm_phase > 0)
+        {
+            Print("[VETO SELL] FGM Phase Bullish: ", fgm_phase);
+            return 0;
+        }
         
-        // MFI: Must be Red (1) for momentum confirmation
-        // Aceita também mercado não-lateral (já filtrado acima com mfi_color == 2)
-        // Removido filtro de sobrecompra porque limita boas entradas em tendência
-        if(mfi_color == 0) return 0; // Bloqueia apenas se MFI verde (buying pressure)
+        // FILTRO 2: MFI não pode estar em lateral (amarelo=2)
+        if(mfi_color == 2)
+        {
+            Print("[VETO SELL] MFI Lateral (Yellow)");
+            return 0;
+        }
         
-        // ADX: Trend Strength Filter
-        // If ADX is high (> Min) -> OK.
-        // If ADX is low (< Min) -> Only OK if Rising (Trend Starting).
-        if(adx_curr < Inp_ADX_MinTrend && !adx_rising) return 0;
+        // FILTRO 3: MFI não pode estar verde (buying pressure) para venda
+        if(mfi_color == 0)
+        {
+            Print("[VETO SELL] MFI Green (Buying Pressure)");
+            return 0;
+        }
         
-        return -1; // Valid Sell
+        // FILTRO 4: ADX deve indicar força de tendência
+        if(adx_curr < Inp_ADX_MinTrend && !adx_rising)
+        {
+            Print("[VETO SELL] ADX Low and Not Rising: ", adx_curr);
+            return 0;
+        }
+        
+        // FILTRO 5: RSI não pode estar sobrevendido (evitar fundo)
+        if(rsi_now < 30.0)
+        {
+            Print("[VETO SELL] RSI Oversold: ", rsi_now);
+            return 0;
+        }
+        
+        Print("[SIGNAL SELL] All filters passed!");
+        return -1;
     }
     
     return 0;

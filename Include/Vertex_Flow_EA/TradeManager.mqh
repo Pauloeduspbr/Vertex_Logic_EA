@@ -84,6 +84,15 @@ void CTradeManager::OnTick()
 //+------------------------------------------------------------------+
 void CTradeManager::ManagePositions()
 {
+    // Limitar frequência de verificação para evitar modificações excessivas
+    static datetime last_check = 0;
+    datetime now = TimeCurrent();
+    
+    // Verificar no máximo a cada 5 segundos
+    if(now - last_check < 5)
+        return;
+    last_check = now;
+
     for(int i = PositionsTotal() - 1; i >= 0; i--)
     {
         ulong ticket = PositionGetTicket(i);
@@ -99,86 +108,73 @@ void CTradeManager::ManagePositions()
         double current_tp = PositionGetDouble(POSITION_TP);
         double current_price = (type == POSITION_TYPE_BUY) ? SymbolInfoDouble(m_symbol, SYMBOL_BID) : SymbolInfoDouble(m_symbol, SYMBOL_ASK);
         
-        //--- Break Even
+        double profit_points = 0;
+        if(type == POSITION_TYPE_BUY)
+            profit_points = (current_price - open_price) / m_point;
+        else
+            profit_points = (open_price - current_price) / m_point;
+        
+        //--- Break Even (apenas uma vez)
         if(Inp_UseBreakEven)
         {
             if(type == POSITION_TYPE_BUY)
             {
-                // Trigger: Price >= Open + Trigger
-                if(current_price - open_price >= Inp_BE_Trigger * m_point)
+                double be_level = open_price + Inp_BE_Profit * m_point;
+                be_level = NormalizePrice(be_level);
+                
+                // Ativar BE se: lucro >= trigger E SL ainda não está no BE
+                if(profit_points >= Inp_BE_Trigger && current_sl < be_level - m_tick_size)
                 {
-                    double new_sl = open_price + Inp_BE_Profit * m_point;
-                    new_sl = NormalizePrice(new_sl);
-                    
-                    // Move SL only if it improves the current SL
-                    if(current_sl < new_sl - m_point) 
-                    {
-                        if(!m_trade.PositionModify(ticket, new_sl, current_tp))
-                            Print("Failed to move BE for Buy: ", m_trade.ResultRetcodeDescription());
-                    }
+                    if(m_trade.PositionModify(ticket, be_level, current_tp))
+                        PrintFormat("[BE BUY] Ticket %d: SL moved to %.0f (profit: %.0f pts)", ticket, be_level, profit_points);
                 }
             }
             else if(type == POSITION_TYPE_SELL)
             {
-                // Trigger: Price <= Open - Trigger
-                if(open_price - current_price >= Inp_BE_Trigger * m_point)
+                double be_level = open_price - Inp_BE_Profit * m_point;
+                be_level = NormalizePrice(be_level);
+                
+                // Ativar BE se: lucro >= trigger E SL ainda não está no BE
+                if(profit_points >= Inp_BE_Trigger && (current_sl > be_level + m_tick_size || current_sl == 0.0))
                 {
-                    double new_sl = open_price - Inp_BE_Profit * m_point;
-                    new_sl = NormalizePrice(new_sl);
-                    
-                    // Move SL only if it improves the current SL (Lower is better for Sell? No, SL for Sell is above price. We want to move it DOWN)
-                    // Current SL (e.g. 1.1000) > New SL (e.g. 1.0900). Yes.
-                    // Also handle case where SL is 0.
-                    if(current_sl > new_sl + m_point || current_sl == 0.0) 
-                    {
-                        if(!m_trade.PositionModify(ticket, new_sl, current_tp))
-                            Print("Failed to move BE for Sell: ", m_trade.ResultRetcodeDescription());
-                    }
+                    if(m_trade.PositionModify(ticket, be_level, current_tp))
+                        PrintFormat("[BE SELL] Ticket %d: SL moved to %.0f (profit: %.0f pts)", ticket, be_level, profit_points);
                 }
             }
         }
         
-        //--- Trailing Stop
+        //--- Trailing Stop (só ativa após lucro >= TS_Start)
         if(Inp_UseTrailing)
         {
-            // Trailing só inicia quando o lucro atual >= TS_Start (distância do trailing)
-            // Isso garante que o trailing só começa após um movimento significativo a favor
-            
             if(type == POSITION_TYPE_BUY)
             {
-                double current_profit_points = (current_price - open_price) / m_point;
-                
-                // Só ativa trailing se lucro >= distância do trailing
-                if(current_profit_points >= Inp_TS_Start)
+                // Só ativa trailing se lucro >= TS_Start
+                if(profit_points >= Inp_TS_Start)
                 {
-                    // Trailing Logic: SL = Price - Distance
                     double new_sl = current_price - Inp_TS_Start * m_point;
                     new_sl = NormalizePrice(new_sl);
                     
-                    // Only move if New SL > Current SL + Step (melhora o SL em pelo menos Step pontos)
+                    // Só move se melhora em pelo menos TS_Step pontos
                     if(new_sl > current_sl + Inp_TS_Step * m_point)
                     {
-                         if(!m_trade.PositionModify(ticket, new_sl, current_tp))
-                            Print("Failed to Trailing Stop for Buy: ", m_trade.ResultRetcodeDescription());
+                        if(m_trade.PositionModify(ticket, new_sl, current_tp))
+                            PrintFormat("[TRAIL BUY] Ticket %d: SL moved to %.0f (profit: %.0f pts)", ticket, new_sl, profit_points);
                     }
                 }
             }
             else if(type == POSITION_TYPE_SELL)
             {
-                double current_profit_points = (open_price - current_price) / m_point;
-                
-                // Só ativa trailing se lucro >= distância do trailing
-                if(current_profit_points >= Inp_TS_Start)
+                // Só ativa trailing se lucro >= TS_Start
+                if(profit_points >= Inp_TS_Start)
                 {
-                    // Trailing Logic: SL = Price + Distance
                     double new_sl = current_price + Inp_TS_Start * m_point;
                     new_sl = NormalizePrice(new_sl);
                     
-                    // Only move if New SL < Current SL - Step (melhora o SL em pelo menos Step pontos)
+                    // Só move se melhora em pelo menos TS_Step pontos
                     if(new_sl < current_sl - Inp_TS_Step * m_point)
                     {
-                         if(!m_trade.PositionModify(ticket, new_sl, current_tp))
-                            Print("Failed to Trailing Stop for Sell: ", m_trade.ResultRetcodeDescription());
+                        if(m_trade.PositionModify(ticket, new_sl, current_tp))
+                            PrintFormat("[TRAIL SELL] Ticket %d: SL moved to %.0f (profit: %.0f pts)", ticket, new_sl, profit_points);
                     }
                 }
             }
