@@ -15,8 +15,19 @@ private:
     double         m_tick_size;
     int            m_digits;
     
+    //--- Tracking de melhor preço para Trailing Stop correto
+    //--- Chave: ticket da posição, Valor: melhor preço atingido
+    ulong          m_tracked_tickets[100];
+    double         m_best_prices[100];
+    int            m_tracked_count;
+    
     //--- Time Filter Helpers
     int            TimeStringToMinutes(string time_str);
+    
+    //--- Trailing Helpers
+    double         GetBestPrice(ulong ticket);
+    void           SetBestPrice(ulong ticket, double price);
+    void           RemoveTicket(ulong ticket);
     
 public:
     CTradeManager();
@@ -41,8 +52,10 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CTradeManager::CTradeManager()
+CTradeManager::CTradeManager() : m_tracked_count(0)
 {
+    ArrayInitialize(m_tracked_tickets, 0);
+    ArrayInitialize(m_best_prices, 0);
 }
 
 //+------------------------------------------------------------------+
@@ -114,8 +127,43 @@ void CTradeManager::ManagePositions()
         else
             profit_points = (open_price - current_price) / m_point;
         
+        //--- Atualizar melhor preço atingido (para trailing)
+        double best_price = GetBestPrice(ticket);
+        if(best_price == 0.0)
+        {
+            // Primeiro tick desta posição - inicializar com preço de abertura
+            best_price = open_price;
+            SetBestPrice(ticket, best_price);
+        }
+        
+        // Atualizar melhor preço APENAS se movimento a favor
+        if(type == POSITION_TYPE_BUY && current_price > best_price)
+        {
+            best_price = current_price;
+            SetBestPrice(ticket, best_price);
+        }
+        else if(type == POSITION_TYPE_SELL && current_price < best_price)
+        {
+            best_price = current_price;
+            SetBestPrice(ticket, best_price);
+        }
+        
+        // Calcular lucro baseado no MELHOR preço atingido
+        double best_profit_points = 0;
+        if(type == POSITION_TYPE_BUY)
+            best_profit_points = (best_price - open_price) / m_point;
+        else
+            best_profit_points = (open_price - best_price) / m_point;
+        
+        //--- Flag para saber se BE já foi ativado
+        bool be_activated = false;
+        if(type == POSITION_TYPE_BUY)
+            be_activated = (current_sl >= open_price + Inp_BE_Profit * m_point - m_tick_size);
+        else
+            be_activated = (current_sl <= open_price - Inp_BE_Profit * m_point + m_tick_size && current_sl > 0);
+        
         //--- Break Even (apenas uma vez)
-        if(Inp_UseBreakEven)
+        if(Inp_UseBreakEven && !be_activated)
         {
             if(type == POSITION_TYPE_BUY)
             {
@@ -126,7 +174,8 @@ void CTradeManager::ManagePositions()
                 if(profit_points >= Inp_BE_Trigger && current_sl < be_level - m_tick_size)
                 {
                     if(m_trade.PositionModify(ticket, be_level, current_tp))
-                        PrintFormat("[BE BUY] Ticket %d: SL moved to %.0f (profit: %.0f pts)", ticket, be_level, profit_points);
+                        PrintFormat("[BE BUY] Ticket %d: SL moved to %.0f (profit: %.0f pts, best: %.0f pts)", 
+                                    ticket, be_level, profit_points, best_profit_points);
                 }
             }
             else if(type == POSITION_TYPE_SELL)
@@ -138,47 +187,78 @@ void CTradeManager::ManagePositions()
                 if(profit_points >= Inp_BE_Trigger && (current_sl > be_level + m_tick_size || current_sl == 0.0))
                 {
                     if(m_trade.PositionModify(ticket, be_level, current_tp))
-                        PrintFormat("[BE SELL] Ticket %d: SL moved to %.0f (profit: %.0f pts)", ticket, be_level, profit_points);
+                        PrintFormat("[BE SELL] Ticket %d: SL moved to %.0f (profit: %.0f pts, best: %.0f pts)", 
+                                    ticket, be_level, profit_points, best_profit_points);
                 }
             }
         }
         
-        //--- Trailing Stop (só ativa após lucro >= TS_Start)
-        if(Inp_UseTrailing)
+        //--- Trailing Stop (só após BE e baseado no MELHOR preço)
+        // REGRA IMPORTANTE: O trailing SÓ move o SL quando o preço FAZ NOVO MÁXIMO (buy) ou MÍNIMO (sell)
+        // Se o preço está retornando (pullback), o SL NÃO move!
+        if(Inp_UseTrailing && be_activated)
         {
             if(type == POSITION_TYPE_BUY)
             {
-                // Só ativa trailing se lucro >= TS_Start
-                if(profit_points >= Inp_TS_Start)
+                // Só ativa trailing se MELHOR PREÇO atingiu TS_Start de lucro
+                if(best_profit_points >= Inp_TS_Start)
                 {
-                    double new_sl = current_price - Inp_TS_Start * m_point;
+                    // Calcular novo SL baseado no MELHOR preço, não no preço atual
+                    double new_sl = best_price - Inp_TS_Start * m_point;
                     new_sl = NormalizePrice(new_sl);
                     
-                    // Só move se melhora em pelo menos TS_Step pontos
-                    if(new_sl > current_sl + Inp_TS_Step * m_point)
+                    // VERIFICAÇÃO CRÍTICA: 
+                    // 1. Preço atual DEVE ser igual ou próximo ao melhor preço (não está em pullback)
+                    // 2. Novo SL deve ser melhor que o atual em pelo menos TS_Step pontos
+                    bool price_at_best = (current_price >= best_price - Inp_TS_Step * m_point);
+                    
+                    if(price_at_best && new_sl > current_sl + Inp_TS_Step * m_point)
                     {
                         if(m_trade.PositionModify(ticket, new_sl, current_tp))
-                            PrintFormat("[TRAIL BUY] Ticket %d: SL moved to %.0f (profit: %.0f pts)", ticket, new_sl, profit_points);
+                            PrintFormat("[TRAIL BUY] Ticket %d: SL moved to %.0f (current: %.0f, best: %.0f, profit: %.0f pts)", 
+                                        ticket, new_sl, current_price, best_price, profit_points);
                     }
                 }
             }
             else if(type == POSITION_TYPE_SELL)
             {
-                // Só ativa trailing se lucro >= TS_Start
-                if(profit_points >= Inp_TS_Start)
+                // Só ativa trailing se MELHOR PREÇO atingiu TS_Start de lucro
+                if(best_profit_points >= Inp_TS_Start)
                 {
-                    double new_sl = current_price + Inp_TS_Start * m_point;
+                    // Calcular novo SL baseado no MELHOR preço, não no preço atual
+                    double new_sl = best_price + Inp_TS_Start * m_point;
                     new_sl = NormalizePrice(new_sl);
                     
-                    // Só move se melhora em pelo menos TS_Step pontos
-                    if(new_sl < current_sl - Inp_TS_Step * m_point)
+                    // VERIFICAÇÃO CRÍTICA:
+                    // 1. Preço atual DEVE ser igual ou próximo ao melhor preço (não está em pullback)
+                    // 2. Novo SL deve ser melhor que o atual em pelo menos TS_Step pontos
+                    bool price_at_best = (current_price <= best_price + Inp_TS_Step * m_point);
+                    
+                    if(price_at_best && new_sl < current_sl - Inp_TS_Step * m_point)
                     {
                         if(m_trade.PositionModify(ticket, new_sl, current_tp))
-                            PrintFormat("[TRAIL SELL] Ticket %d: SL moved to %.0f (profit: %.0f pts)", ticket, new_sl, profit_points);
+                            PrintFormat("[TRAIL SELL] Ticket %d: SL moved to %.0f (current: %.0f, best: %.0f, profit: %.0f pts)", 
+                                        ticket, new_sl, current_price, best_price, profit_points);
                     }
                 }
             }
         }
+    }
+    
+    // Limpar tickets de posições fechadas
+    for(int i = m_tracked_count - 1; i >= 0; i--)
+    {
+        bool found = false;
+        for(int j = PositionsTotal() - 1; j >= 0; j--)
+        {
+            if(PositionGetTicket(j) == m_tracked_tickets[i])
+            {
+                found = true;
+                break;
+            }
+        }
+        if(!found)
+            RemoveTicket(m_tracked_tickets[i]);
     }
 }
 
@@ -289,4 +369,58 @@ bool CTradeManager::IsDayAllowed()
 double CTradeManager::NormalizePrice(double price)
 {
     return NormalizeDouble(price, m_digits);
+}
+
+//+------------------------------------------------------------------+
+//| Get Best Price for a Ticket                                      |
+//+------------------------------------------------------------------+
+double CTradeManager::GetBestPrice(ulong ticket)
+{
+    for(int i = 0; i < m_tracked_count; i++)
+    {
+        if(m_tracked_tickets[i] == ticket)
+            return m_best_prices[i];
+    }
+    return 0.0; // Não encontrado
+}
+
+//+------------------------------------------------------------------+
+//| Set Best Price for a Ticket                                      |
+//+------------------------------------------------------------------+
+void CTradeManager::SetBestPrice(ulong ticket, double price)
+{
+    // Verificar se já existe
+    for(int i = 0; i < m_tracked_count; i++)
+    {
+        if(m_tracked_tickets[i] == ticket)
+        {
+            m_best_prices[i] = price;
+            return;
+        }
+    }
+    // Adicionar novo
+    if(m_tracked_count < 100)
+    {
+        m_tracked_tickets[m_tracked_count] = ticket;
+        m_best_prices[m_tracked_count] = price;
+        m_tracked_count++;
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Remove Ticket from Tracking                                      |
+//+------------------------------------------------------------------+
+void CTradeManager::RemoveTicket(ulong ticket)
+{
+    for(int i = 0; i < m_tracked_count; i++)
+    {
+        if(m_tracked_tickets[i] == ticket)
+        {
+            // Mover último para esta posição
+            m_tracked_tickets[i] = m_tracked_tickets[m_tracked_count - 1];
+            m_best_prices[i] = m_best_prices[m_tracked_count - 1];
+            m_tracked_count--;
+            return;
+        }
+    }
 }
