@@ -170,16 +170,16 @@ int CSignalVertexFlow::GetSignal()
     static datetime last_bar_time = 0;
     datetime current_bar_time = iTime(_Symbol, _Period, 0);
     
-    // Só processar sinal UMA VEZ por barra (quando a barra fecha)
+    // Só processar sinal UMA VEZ por barra
     if(last_bar_time == current_bar_time)
         return 0; // Já processamos esta barra
     
     last_bar_time = current_bar_time;
 
-    // Analisamos a BARRA ATUAL EM FORMAÇÃO (índice 0 após ArraySetAsSeries)
-    // Isso permite que o EA reaja imediatamente quando todos os filtros se alinham,
-    // sem esperar a abertura do próximo candle.
-    int shift = 0;              // barra atual (candle de sinal em tempo real)
+    // Analisamos SEMPRE A ÚLTIMA BARRA FECHADA (índice 1 após ArraySetAsSeries).
+    // Dessa forma, todos os indicadores são avaliados apenas com dados consolidados,
+    // evitando sinais falsos durante a formação do candle.
+    int shift = 1;              // barra FECHADA mais recente (candle de sinal)
     int prev_shift = shift + 1; // barra anterior fechada (para detectar cruzamento)
     
     //==========================================================================
