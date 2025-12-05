@@ -64,8 +64,8 @@ input int              Inp_Slippage      = 3;      // Slippage (Points)
 //--- Input Group: Time Filters
 input group "===== Time Filter ====="
 input bool             Inp_UseTimeFilter = true;   // Use Time Filter
-input string           Inp_StartTime     = "09:00"; // Start Time (HH:MM)
-input string           Inp_EndTime       = "17:00"; // End Time (HH:MM)
+input string           Inp_StartTime     = "09:15"; // Start Time (HH:MM) - Evita abertura volátil
+input string           Inp_EndTime       = "16:30"; // End Time (HH:MM) - Fecha antes do gap
 
 //--- Input Group: Weekly Trading Filter
 input group "═══════════════ WEEKLY TRADING FILTER ═══════════════"

@@ -215,10 +215,10 @@ int CSignalVertexFlow::GetSignal()
     //--- BUY LOGIC
     if(rsi_cross_up)
     {
-        // FILTRO 1: FGM deve confirmar tendência (não pode ser bearish)
-        if(fgm_phase < 0) 
+        // FILTRO 1: FGM DEVE ser BULLISH (>0). Neutro (0) = sem tendência = não opera
+        if(fgm_phase <= 0) 
         {
-            Print("[VETO BUY] FGM Phase Bearish: ", fgm_phase);
+            Print("[VETO BUY] FGM Not Bullish: ", fgm_phase);
             return 0;
         }
         
@@ -229,24 +229,24 @@ int CSignalVertexFlow::GetSignal()
             return 0;
         }
         
-        // FILTRO 3: MFI não pode estar vermelho (selling pressure) para compra
-        if(mfi_color == 1)
+        // FILTRO 3: MFI DEVE ser verde (buying pressure) para compra
+        if(mfi_color != 0)
         {
-            Print("[VETO BUY] MFI Red (Selling Pressure)");
+            Print("[VETO BUY] MFI Not Green: ", mfi_color);
             return 0;
         }
         
-        // FILTRO 4: ADX deve indicar força de tendência
-        if(adx_curr < Inp_ADX_MinTrend && !adx_rising)
+        // FILTRO 4: ADX deve indicar força de tendência (mínimo 20)
+        if(adx_curr < Inp_ADX_MinTrend)
         {
-            Print("[VETO BUY] ADX Low and Not Rising: ", adx_curr);
+            Print("[VETO BUY] ADX Too Low: ", adx_curr);
             return 0;
         }
         
-        // FILTRO 5: RSI não pode estar sobrecomprado (evitar topo)
-        if(rsi_now > 70.0)
+        // FILTRO 5: RSI deve estar entre 40-65 (zona de momentum, não topo)
+        if(rsi_now > 65.0 || rsi_now < 40.0)
         {
-            Print("[VETO BUY] RSI Overbought: ", rsi_now);
+            Print("[VETO BUY] RSI Out of Range (40-65): ", rsi_now);
             return 0;
         }
         
@@ -257,10 +257,10 @@ int CSignalVertexFlow::GetSignal()
     //--- SELL LOGIC
     if(rsi_cross_down)
     {
-        // FILTRO 1: FGM deve confirmar tendência (não pode ser bullish)
-        if(fgm_phase > 0)
+        // FILTRO 1: FGM DEVE ser BEARISH (<0). Neutro (0) = sem tendência = não opera
+        if(fgm_phase >= 0)
         {
-            Print("[VETO SELL] FGM Phase Bullish: ", fgm_phase);
+            Print("[VETO SELL] FGM Not Bearish: ", fgm_phase);
             return 0;
         }
         
@@ -271,24 +271,24 @@ int CSignalVertexFlow::GetSignal()
             return 0;
         }
         
-        // FILTRO 3: MFI não pode estar verde (buying pressure) para venda
-        if(mfi_color == 0)
+        // FILTRO 3: MFI DEVE ser vermelho (selling pressure) para venda
+        if(mfi_color != 1)
         {
-            Print("[VETO SELL] MFI Green (Buying Pressure)");
+            Print("[VETO SELL] MFI Not Red: ", mfi_color);
             return 0;
         }
         
-        // FILTRO 4: ADX deve indicar força de tendência
-        if(adx_curr < Inp_ADX_MinTrend && !adx_rising)
+        // FILTRO 4: ADX deve indicar força de tendência (mínimo 20)
+        if(adx_curr < Inp_ADX_MinTrend)
         {
-            Print("[VETO SELL] ADX Low and Not Rising: ", adx_curr);
+            Print("[VETO SELL] ADX Too Low: ", adx_curr);
             return 0;
         }
         
-        // FILTRO 5: RSI não pode estar sobrevendido (evitar fundo)
-        if(rsi_now < 30.0)
+        // FILTRO 5: RSI deve estar entre 35-60 (zona de momentum, não fundo)
+        if(rsi_now < 35.0 || rsi_now > 60.0)
         {
-            Print("[VETO SELL] RSI Oversold: ", rsi_now);
+            Print("[VETO SELL] RSI Out of Range (35-60): ", rsi_now);
             return 0;
         }
         

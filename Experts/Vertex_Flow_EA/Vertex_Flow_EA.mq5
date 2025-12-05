@@ -82,6 +82,9 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+    //--- 0. Fechar posições antes do fim do pregão (16:30 para evitar gaps)
+    ClosePositionsBeforeClose();
+    
     //--- 1. Update Trade Manager (Trailing, BE) - ALWAYS RUN EVERY TICK
     g_trade.OnTick();
 
@@ -127,5 +130,40 @@ void OnTick()
     else if(signal == -1)
     {
         g_trade.OpenSell(Inp_StopLoss, Inp_TakeProfit, "VertexFlow Sell");
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Fechar posições antes do fechamento do mercado                   |
+//+------------------------------------------------------------------+
+void ClosePositionsBeforeClose()
+{
+    // Horário limite: 16:30 (30 min antes do fim às 17:00)
+    MqlDateTime dt;
+    TimeToStruct(TimeCurrent(), dt);
+    
+    int current_minutes = dt.hour * 60 + dt.min;
+    int close_time = 16 * 60 + 30; // 16:30
+    
+    if(current_minutes < close_time)
+        return; // Ainda não é hora de fechar
+    
+    // Fechar todas as posições do EA
+    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if(ticket <= 0) continue;
+        
+        if(PositionGetString(POSITION_SYMBOL) == _Symbol && 
+           PositionGetInteger(POSITION_MAGIC) == Inp_MagicNum)
+        {
+            CTrade trade;
+            trade.SetExpertMagicNumber(Inp_MagicNum);
+            
+            if(trade.PositionClose(ticket))
+                Print("[END OF DAY] Position closed to avoid overnight risk. Ticket: ", ticket);
+            else
+                Print("[END OF DAY] Failed to close position. Ticket: ", ticket);
+        }
     }
 }
