@@ -239,17 +239,22 @@ int CSignalVertexFlow::GetSignal()
     //==============================
     //  TENDÊNCIA x MOMENTO
     //==============================
-    // Tendência de fundo: FGM + ADX
-    bool trend_bull = (fgm_phase >= 1 && adx_moderate);
-    bool trend_bear = (fgm_phase <= -1 && adx_moderate);
+    // Tendência de fundo AGRESSIVA: exigimos FGM forte (±2) + ADX forte
+    bool trend_bull = (fgm_strong_bull && adx_strong);
+    bool trend_bear = (fgm_strong_bear && adx_strong);
 
-    // Momento / direção: basta UM dos rápidos a favor (MFI OU RSI)
-    bool momentum_bull = (mfi_green || rsi_bullish);
-    bool momentum_bear = (mfi_red   || rsi_bearish);
+    // Momento / direção:
+    //  - strict: MFI e RSI concordando (entrada inicial)
+    //  - relax:  MFI OU RSI (continuação)
+    bool momentum_bull_relax = (mfi_green || rsi_bullish);
+    bool momentum_bear_relax = (mfi_red   || rsi_bearish);
+
+    bool momentum_bull_strict = (mfi_green && rsi_bullish);
+    bool momentum_bear_strict = (mfi_red   && rsi_bearish);
     
     //--- Atualizar contadores de barras alinhadas (continuação)
-    // Agora usamos tendência forte + momento na mesma direção
-    if(trend_bull && momentum_bull && fgm_strong_bull && adx_strong)
+    // Agora usamos tendência forte + momento na mesma direção (modo relax)
+    if(trend_bull && momentum_bull_relax)
     {
         m_bars_aligned_buy++;
         m_bars_aligned_sell = 0;
@@ -259,7 +264,7 @@ int CSignalVertexFlow::GetSignal()
         m_bars_aligned_buy = 0;
     }
     
-    if(trend_bear && momentum_bear && fgm_strong_bear && adx_strong)
+    if(trend_bear && momentum_bear_relax)
     {
         m_bars_aligned_sell++;
         m_bars_aligned_buy = 0;
@@ -299,15 +304,16 @@ int CSignalVertexFlow::GetSignal()
     //==========================================================================
     // LÓGICA DE COMPRA (CAMADAS: TENDÊNCIA + MOMENTO + GATILHO)
     //==========================================================================
-    bool buy_trend_ok       = trend_bull;                    // FGM >= 1 + ADX moderado
-    bool buy_momentum_ok    = momentum_bull;                 // MFI verde OU RSI acima da MA
+    bool buy_trend_ok       = trend_bull;                    // FGM forte (>=2) + ADX forte
+    bool buy_momentum_ok    = momentum_bull_strict;          // MFI verde E RSI>MA (entrada inicial)
     bool buy_trigger_recent = (mfi_turned_green ||           // gatilho rápido
                                rsi_crossed_up   ||
                                fgm_turned_bullish);
     bool buy_not_overbought = (!mfi_too_high && !rsi_too_high);
     bool buy_continuation   = (continuation_buy && can_continue &&
-                               fgm_strong_bull && adx_strong &&
-                               buy_momentum_ok && buy_not_overbought);
+                               trend_bull &&                      // ainda em tendência forte
+                               momentum_bull_relax &&             // aqui aceitamos MFI OU RSI
+                               buy_not_overbought);
 
     bool buy_trigger = false;
 
@@ -343,15 +349,16 @@ int CSignalVertexFlow::GetSignal()
     //==========================================================================
     // LÓGICA DE VENDA (CAMADAS: TENDÊNCIA + MOMENTO + GATILHO)
     //==========================================================================
-    bool sell_trend_ok       = trend_bear;                   // FGM <= -1 + ADX moderado
-    bool sell_momentum_ok    = momentum_bear;                // MFI vermelho OU RSI abaixo da MA
+    bool sell_trend_ok       = trend_bear;                   // FGM forte (<=-2) + ADX forte
+    bool sell_momentum_ok    = momentum_bear_strict;         // MFI vermelho E RSI<MA (entrada inicial)
     bool sell_trigger_recent = (mfi_turned_red   ||
                                 rsi_crossed_down ||
                                 fgm_turned_bearish);
     bool sell_not_oversold   = (!mfi_too_low && !rsi_too_low);
     bool sell_continuation   = (continuation_sell && can_continue &&
-                                fgm_strong_bear && adx_strong &&
-                                sell_momentum_ok && sell_not_oversold);
+                                trend_bear &&                     // ainda em tendência forte
+                                momentum_bear_relax &&            // aqui aceitamos MFI OU RSI
+                                sell_not_oversold);
 
     bool sell_trigger = false;
 
