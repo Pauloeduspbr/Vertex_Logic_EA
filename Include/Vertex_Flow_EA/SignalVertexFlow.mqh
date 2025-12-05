@@ -211,7 +211,7 @@ int CSignalVertexFlow::GetSignal()
     
     double adx_curr = m_buf_adx[shift];
     
-    //--- Condições de FILTRO
+    //--- Condições de FILTRO BÁSICAS
     bool rsi_bullish = (rsi_val > rsi_ma);
     bool rsi_bearish = (rsi_val < rsi_ma);
     
@@ -219,56 +219,67 @@ int CSignalVertexFlow::GetSignal()
     bool fgm_bearish = (fgm_phase < 0);
     
     bool mfi_green = (mfi_color == 0);
-    bool mfi_red = (mfi_color == 1);
+    bool mfi_red   = (mfi_color == 1);
     bool mfi_yellow = (mfi_color == 2);
     
-    // ADX com dois níveis: 
-    // - Para triggers primários (mudança de estado), aceita ADX um pouco mais baixo
-    // - Para continuação, exige ADX forte
-    bool adx_strong = (adx_curr >= Inp_ADX_MinTrend);
-    bool adx_moderate = (adx_curr >= Inp_ADX_MinTrend * 0.90); // 90% do mínimo (18 se MinTrend=20)
+    // NÍVEIS DE FORÇA DO ADX
+    bool adx_strong   = (adx_curr >= Inp_ADX_MinTrend);
+    bool adx_moderate = (adx_curr >= Inp_ADX_MinTrend * 0.90); // ~90% do mínimo (18 se MinTrend=20)
+
+    // FORÇA DO FGM (tendência realmente forte)
+    bool fgm_strong_bull = (fgm_phase >= 2);
+    bool fgm_strong_bear = (fgm_phase <= -2);
+
+    // LIMITES DE SOBRECOMPRA/SOBREVENDA PARA EVITAR ENTRADAS EXTREMAS
+    bool mfi_too_low   = (mfi_val < 20.0);
+    bool mfi_too_high  = (mfi_val > 80.0);
+    bool rsi_too_low   = (rsi_val < 30.0);
+    bool rsi_too_high  = (rsi_val > 70.0);
+
+    //==============================
+    //  TENDÊNCIA x MOMENTO
+    //==============================
+    // Tendência de fundo: FGM + ADX
+    bool trend_bull = (fgm_phase >= 1 && adx_moderate);
+    bool trend_bear = (fgm_phase <= -1 && adx_moderate);
+
+    // Momento / direção: basta UM dos rápidos a favor (MFI OU RSI)
+    bool momentum_bull = (mfi_green || rsi_bullish);
+    bool momentum_bear = (mfi_red   || rsi_bearish);
     
-    //--- Verificar ALINHAMENTO COMPLETO
-    // Para triggers primários: aceita ADX moderado
-    // Para continuação: exige ADX forte
-    bool all_buy_filters_primary = (fgm_bullish && mfi_green && rsi_bullish && adx_moderate);
-    bool all_buy_filters_continuation = (fgm_bullish && mfi_green && rsi_bullish && adx_strong);
-    bool all_sell_filters_primary = (fgm_bearish && mfi_red && rsi_bearish && adx_moderate);
-    bool all_sell_filters_continuation = (fgm_bearish && mfi_red && rsi_bearish && adx_strong);
-    
-    //--- Atualizar contadores de barras alinhadas
-    // Usa filtros com ADX forte para continuação
-    if(all_buy_filters_continuation)
+    //--- Atualizar contadores de barras alinhadas (continuação)
+    // Agora usamos tendência forte + momento na mesma direção
+    if(trend_bull && momentum_bull && fgm_strong_bull && adx_strong)
     {
         m_bars_aligned_buy++;
-        m_bars_aligned_sell = 0; // Reset contador oposto
+        m_bars_aligned_sell = 0;
     }
     else
     {
         m_bars_aligned_buy = 0;
     }
     
-    if(all_sell_filters_continuation)
+    if(trend_bear && momentum_bear && fgm_strong_bear && adx_strong)
     {
         m_bars_aligned_sell++;
-        m_bars_aligned_buy = 0; // Reset contador oposto
+        m_bars_aligned_buy = 0;
     }
     else
     {
         m_bars_aligned_sell = 0;
     }
     
-    //--- TRIGGERS de mudança de estado
-    bool mfi_turned_green = (mfi_color == 0 && mfi_color_prev != 0);
-    bool mfi_turned_red = (mfi_color == 1 && mfi_color_prev != 1);
+    //--- TRIGGERS de mudança de estado (gatilhos RÁPIDOS)
+    bool mfi_turned_green   = (mfi_color == 0 && mfi_color_prev != 0);
+    bool mfi_turned_red     = (mfi_color == 1 && mfi_color_prev != 1);
     bool fgm_turned_bullish = (fgm_phase > 0 && fgm_phase_prev <= 0);
     bool fgm_turned_bearish = (fgm_phase < 0 && fgm_phase_prev >= 0);
-    bool rsi_crossed_up = (rsi_prev <= rsi_ma_prev && rsi_val > rsi_ma);
-    bool rsi_crossed_down = (rsi_prev >= rsi_ma_prev && rsi_val < rsi_ma);
+    bool rsi_crossed_up     = (rsi_prev <= rsi_ma_prev && rsi_val > rsi_ma);
+    bool rsi_crossed_down   = (rsi_prev >= rsi_ma_prev && rsi_val < rsi_ma);
     
     //--- TRIGGER DE CONTINUAÇÃO: Entrar após 3 barras alinhadas se ainda não entramos
     // Isso captura tendências estabelecidas que não tiveram trigger inicial
-    bool continuation_buy = (m_bars_aligned_buy >= 3);
+    bool continuation_buy  = (m_bars_aligned_buy  >= 3);
     bool continuation_sell = (m_bars_aligned_sell >= 3);
     
     // Verificar se já entramos nesta tendência recentemente
@@ -286,28 +297,42 @@ int CSignalVertexFlow::GetSignal()
                 m_bars_aligned_buy, m_bars_aligned_sell);
     
     //==========================================================================
-    // LÓGICA DE COMPRA
+    // LÓGICA DE COMPRA (CAMADAS: TENDÊNCIA + MOMENTO + GATILHO)
     //==========================================================================
-    bool buy_trigger_primary = (mfi_turned_green || fgm_turned_bullish);
-    bool buy_trigger_secondary = (rsi_crossed_up && fgm_bullish && mfi_green);
-    bool buy_trigger_continuation = (continuation_buy && can_continue);
-    
-    // Triggers primário/secundário aceitam ADX moderado, continuação exige ADX forte
+    bool buy_trend_ok       = trend_bull;                    // FGM >= 1 + ADX moderado
+    bool buy_momentum_ok    = momentum_bull;                 // MFI verde OU RSI acima da MA
+    bool buy_trigger_recent = (mfi_turned_green ||           // gatilho rápido
+                               rsi_crossed_up   ||
+                               fgm_turned_bullish);
+    bool buy_not_overbought = (!mfi_too_high && !rsi_too_high);
+    bool buy_continuation   = (continuation_buy && can_continue &&
+                               fgm_strong_bull && adx_strong &&
+                               buy_momentum_ok && buy_not_overbought);
+
     bool buy_trigger = false;
-    if((buy_trigger_primary || buy_trigger_secondary) && all_buy_filters_primary)
+
+    // Entrada INICIAL: tendência + momento + gatilho recente, evitando extremo
+    if(buy_trend_ok && buy_momentum_ok && buy_trigger_recent && buy_not_overbought)
         buy_trigger = true;
-    else if(buy_trigger_continuation && all_buy_filters_continuation)
+    // CONTINUAÇÃO: tendência forte já estabelecida + N barras alinhadas
+    else if(buy_continuation)
         buy_trigger = true;
     
     if(buy_trigger)
     {
-        Print("[TRIGGER BUY] Primary=", buy_trigger_primary, 
-              " Secondary(RSI)=", buy_trigger_secondary,
-              " Continuation=", buy_trigger_continuation,
-              " ADX=", adx_curr);
-        
-        Print("[SIGNAL BUY] All filters aligned! FGM=", fgm_phase, " MFI=Green RSI>MA ADX=", adx_curr);
-        
+        PrintFormat("[SIGNAL BUY] %s | TrendOK=%s MomentumOK=%s TriggerRecent=%s Cont=%s | FGM=%d MFI_Color=%d MFI_Val=%.2f RSI=%.2f MA=%.2f ADX=%.2f",
+                    TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
+                    buy_trend_ok ? "YES" : "NO",
+                    buy_momentum_ok ? "YES" : "NO",
+                    buy_trigger_recent ? "YES" : "NO",
+                    buy_continuation ? "YES" : "NO",
+                    fgm_phase,
+                    mfi_color,
+                    mfi_val,
+                    rsi_val,
+                    rsi_ma,
+                    adx_curr);
+
         // Registrar entrada
         m_last_entry_time = current_bar_time;
         m_bars_aligned_buy = 0; // Reset para evitar re-entradas imediatas
@@ -316,28 +341,42 @@ int CSignalVertexFlow::GetSignal()
     }
     
     //==========================================================================
-    // LÓGICA DE VENDA
+    // LÓGICA DE VENDA (CAMADAS: TENDÊNCIA + MOMENTO + GATILHO)
     //==========================================================================
-    bool sell_trigger_primary = (mfi_turned_red || fgm_turned_bearish);
-    bool sell_trigger_secondary = (rsi_crossed_down && fgm_bearish && mfi_red);
-    bool sell_trigger_continuation = (continuation_sell && can_continue);
-    
-    // Triggers primário/secundário aceitam ADX moderado, continuação exige ADX forte
+    bool sell_trend_ok       = trend_bear;                   // FGM <= -1 + ADX moderado
+    bool sell_momentum_ok    = momentum_bear;                // MFI vermelho OU RSI abaixo da MA
+    bool sell_trigger_recent = (mfi_turned_red   ||
+                                rsi_crossed_down ||
+                                fgm_turned_bearish);
+    bool sell_not_oversold   = (!mfi_too_low && !rsi_too_low);
+    bool sell_continuation   = (continuation_sell && can_continue &&
+                                fgm_strong_bear && adx_strong &&
+                                sell_momentum_ok && sell_not_oversold);
+
     bool sell_trigger = false;
-    if((sell_trigger_primary || sell_trigger_secondary) && all_sell_filters_primary)
+
+    // Entrada INICIAL: tendência + momento + gatilho recente, evitando extremo
+    if(sell_trend_ok && sell_momentum_ok && sell_trigger_recent && sell_not_oversold)
         sell_trigger = true;
-    else if(sell_trigger_continuation && all_sell_filters_continuation)
+    // CONTINUAÇÃO: tendência forte já estabelecida + N barras alinhadas
+    else if(sell_continuation)
         sell_trigger = true;
     
     if(sell_trigger)
     {
-        Print("[TRIGGER SELL] Primary=", sell_trigger_primary, 
-              " Secondary(RSI)=", sell_trigger_secondary,
-              " Continuation=", sell_trigger_continuation,
-              " ADX=", adx_curr);
-        
-        Print("[SIGNAL SELL] All filters aligned! FGM=", fgm_phase, " MFI=Red RSI<MA ADX=", adx_curr);
-        
+        PrintFormat("[SIGNAL SELL] %s | TrendOK=%s MomentumOK=%s TriggerRecent=%s Cont=%s | FGM=%d MFI_Color=%d MFI_Val=%.2f RSI=%.2f MA=%.2f ADX=%.2f",
+                    TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
+                    sell_trend_ok ? "YES" : "NO",
+                    sell_momentum_ok ? "YES" : "NO",
+                    sell_trigger_recent ? "YES" : "NO",
+                    sell_continuation ? "YES" : "NO",
+                    fgm_phase,
+                    mfi_color,
+                    mfi_val,
+                    rsi_val,
+                    rsi_ma,
+                    adx_curr);
+
         // Registrar entrada
         m_last_entry_time = current_bar_time;
         m_bars_aligned_sell = 0; // Reset para evitar re-entradas imediatas
