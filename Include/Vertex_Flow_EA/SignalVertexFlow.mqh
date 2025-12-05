@@ -21,6 +21,11 @@ private:
     double         m_buf_rsi_ma[];
     double         m_buf_adx[];
     
+    //--- Contadores de barras com filtros alinhados (para re-entrada)
+    int            m_bars_aligned_buy;
+    int            m_bars_aligned_sell;
+    datetime       m_last_entry_time;  // Evita múltiplas entradas na mesma tendência
+    
 public:
     CSignalVertexFlow();
     ~CSignalVertexFlow();
@@ -45,7 +50,10 @@ CSignalVertexFlow::CSignalVertexFlow() :
     m_handle_fgm(INVALID_HANDLE),
     m_handle_mfi(INVALID_HANDLE),
     m_handle_rsi(INVALID_HANDLE),
-    m_handle_adx(INVALID_HANDLE)
+    m_handle_adx(INVALID_HANDLE),
+    m_bars_aligned_buy(0),
+    m_bars_aligned_sell(0),
+    m_last_entry_time(0)
 {
 }
 
@@ -173,16 +181,16 @@ int CSignalVertexFlow::GetSignal()
     int prev_shift = shift + 1; // barra anterior à de sinal (para detectar cruzamento)
     
     //==========================================================================
-    // NOVA ESTRATÉGIA BASEADA NA ANÁLISE DAS IMAGENS:
+    // ESTRATÉGIA COM 3 TIPOS DE TRIGGERS:
     //
-    // TRIGGER: MFI muda de cor (de amarelo/neutro para verde ou vermelho)
-    //          OU FGM muda de fase (de 0 para +1/-1)
+    // 1. TRIGGER PRIMÁRIO: MFI muda de cor OU FGM muda de fase
+    // 2. TRIGGER SECUNDÁRIO: RSI cruza sua MA
+    // 3. TRIGGER DE CONTINUAÇÃO: Filtros alinhados por N barras sem entrada
     //
     // FILTROS (todos devem estar alinhados):
-    // 1. FGM: >0 para compra, <0 para venda (tendência definida)
-    // 2. MFI: Verde(0) para compra, Vermelho(1) para venda (NÃO amarelo=2)
-    // 3. RSIOMA: Vermelho ACIMA do azul = compra, Vermelho ABAIXO do azul = venda
-    //            (NÃO é cruzamento, é POSIÇÃO ATUAL)
+    // 1. FGM: >0 para compra, <0 para venda
+    // 2. MFI: Verde(0) para compra, Vermelho(1) para venda
+    // 3. RSIOMA: Acima da MA = compra, Abaixo da MA = venda
     // 4. ADX: Acima de 20 (tendência com força)
     //==========================================================================
     
@@ -196,149 +204,119 @@ int CSignalVertexFlow::GetSignal()
     
     double rsi_val = m_buf_rsi_val[shift];
     double rsi_ma = m_buf_rsi_ma[shift];
+    double rsi_prev = m_buf_rsi_val[prev_shift];
+    double rsi_ma_prev = m_buf_rsi_ma[prev_shift];
     
     double adx_curr = m_buf_adx[shift];
-    double adx_prev = m_buf_adx[prev_shift];
     
-    //--- Condições de FILTRO (devem estar alinhadas ANTES do trigger)
-    bool rsi_bullish = (rsi_val > rsi_ma);  // Vermelho ACIMA do azul
-    bool rsi_bearish = (rsi_val < rsi_ma);  // Vermelho ABAIXO do azul
+    //--- Condições de FILTRO
+    bool rsi_bullish = (rsi_val > rsi_ma);
+    bool rsi_bearish = (rsi_val < rsi_ma);
     
-    bool fgm_bullish = (fgm_phase > 0);     // FGM indica alta
-    bool fgm_bearish = (fgm_phase < 0);     // FGM indica baixa
+    bool fgm_bullish = (fgm_phase > 0);
+    bool fgm_bearish = (fgm_phase < 0);
     
-    bool mfi_green = (mfi_color == 0);      // Pressão compradora
-    bool mfi_red = (mfi_color == 1);        // Pressão vendedora
-    bool mfi_yellow = (mfi_color == 2);     // Lateral - NÃO OPERA
+    bool mfi_green = (mfi_color == 0);
+    bool mfi_red = (mfi_color == 1);
+    bool mfi_yellow = (mfi_color == 2);
     
     bool adx_strong = (adx_curr >= Inp_ADX_MinTrend);
     
-    //--- TRIGGERS: Mudança de estado que gera entrada
-    // Trigger 1: MFI saiu de amarelo/vermelho e ficou verde (início de pressão compradora)
-    bool mfi_turned_green = (mfi_color == 0 && mfi_color_prev != 0);
-    // Trigger 2: MFI saiu de amarelo/verde e ficou vermelho (início de pressão vendedora)
-    bool mfi_turned_red = (mfi_color == 1 && mfi_color_prev != 1);
-    // Trigger 3: FGM mudou para bullish
-    bool fgm_turned_bullish = (fgm_phase > 0 && fgm_phase_prev <= 0);
-    // Trigger 4: FGM mudou para bearish
-    bool fgm_turned_bearish = (fgm_phase < 0 && fgm_phase_prev >= 0);
+    //--- Verificar ALINHAMENTO COMPLETO
+    bool all_buy_filters = (fgm_bullish && mfi_green && rsi_bullish && adx_strong);
+    bool all_sell_filters = (fgm_bearish && mfi_red && rsi_bearish && adx_strong);
     
-    // Trigger 5: RSIOMA cruzou para cima (confirmação de momentum)
-    double rsi_prev = m_buf_rsi_val[prev_shift];
-    double rsi_ma_prev = m_buf_rsi_ma[prev_shift];
+    //--- Atualizar contadores de barras alinhadas
+    if(all_buy_filters)
+    {
+        m_bars_aligned_buy++;
+        m_bars_aligned_sell = 0; // Reset contador oposto
+    }
+    else
+    {
+        m_bars_aligned_buy = 0;
+    }
+    
+    if(all_sell_filters)
+    {
+        m_bars_aligned_sell++;
+        m_bars_aligned_buy = 0; // Reset contador oposto
+    }
+    else
+    {
+        m_bars_aligned_sell = 0;
+    }
+    
+    //--- TRIGGERS de mudança de estado
+    bool mfi_turned_green = (mfi_color == 0 && mfi_color_prev != 0);
+    bool mfi_turned_red = (mfi_color == 1 && mfi_color_prev != 1);
+    bool fgm_turned_bullish = (fgm_phase > 0 && fgm_phase_prev <= 0);
+    bool fgm_turned_bearish = (fgm_phase < 0 && fgm_phase_prev >= 0);
     bool rsi_crossed_up = (rsi_prev <= rsi_ma_prev && rsi_val > rsi_ma);
-    // Trigger 6: RSIOMA cruzou para baixo (confirmação de momentum)
     bool rsi_crossed_down = (rsi_prev >= rsi_ma_prev && rsi_val < rsi_ma);
     
+    //--- TRIGGER DE CONTINUAÇÃO: Entrar após 3 barras alinhadas se ainda não entramos
+    // Isso captura tendências estabelecidas que não tiveram trigger inicial
+    bool continuation_buy = (m_bars_aligned_buy >= 3);
+    bool continuation_sell = (m_bars_aligned_sell >= 3);
+    
+    // Verificar se já entramos nesta tendência recentemente
+    // Se a última entrada foi há menos de 10 barras, não re-entrar por continuação
+    int bars_since_last_entry = (int)((current_bar_time - m_last_entry_time) / PeriodSeconds(_Period));
+    bool can_continue = (bars_since_last_entry > 10 || m_last_entry_time == 0);
+    
     // DEBUG: Log do estado atual
-    PrintFormat("[DEBUG] %s | FGM=%d (prev=%d) | MFI_Color=%d (prev=%d) | RSI=%.2f MA=%.2f (%s) | ADX=%.2f",
+    PrintFormat("[DEBUG] %s | FGM=%d (prev=%d) | MFI_Color=%d (prev=%d) | RSI=%.2f MA=%.2f (%s) | ADX=%.2f | BuyAligned=%d SellAligned=%d",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                 fgm_phase, fgm_phase_prev,
                 mfi_color, mfi_color_prev,
                 rsi_val, rsi_ma, rsi_bullish ? "BULL" : (rsi_bearish ? "BEAR" : "NEUTRAL"),
-                adx_curr);
+                adx_curr,
+                m_bars_aligned_buy, m_bars_aligned_sell);
     
     //==========================================================================
     // LÓGICA DE COMPRA
     //==========================================================================
-    // Trigger PRIMÁRIO: MFI ficou verde OU FGM virou bullish
-    // Trigger SECUNDÁRIO: RSI cruzou para cima COM todos os filtros alinhados
     bool buy_trigger_primary = (mfi_turned_green || fgm_turned_bullish);
     bool buy_trigger_secondary = (rsi_crossed_up && fgm_bullish && mfi_green);
-    bool buy_trigger = (buy_trigger_primary || buy_trigger_secondary);
+    bool buy_trigger_continuation = (continuation_buy && can_continue);
+    bool buy_trigger = (buy_trigger_primary || buy_trigger_secondary || buy_trigger_continuation);
     
-    if(buy_trigger)
+    if(buy_trigger && all_buy_filters)
     {
-        Print("[TRIGGER BUY] Primary=", buy_trigger_primary, " Secondary(RSI_Cross)=", buy_trigger_secondary);
-        
-        // FILTRO 1: MFI NÃO pode ser amarelo (lateral)
-        if(mfi_yellow)
-        {
-            Print("[VETO BUY] MFI Lateral (Yellow)");
-            return 0;
-        }
-        
-        // FILTRO 2: MFI deve ser verde (pressão compradora)
-        if(!mfi_green)
-        {
-            Print("[VETO BUY] MFI Not Green: ", mfi_color);
-            return 0;
-        }
-        
-        // FILTRO 3: FGM deve ser bullish (tendência de alta)
-        if(!fgm_bullish)
-        {
-            Print("[VETO BUY] FGM Not Bullish: ", fgm_phase);
-            return 0;
-        }
-        
-        // FILTRO 4: RSIOMA vermelho deve estar ACIMA do azul
-        if(!rsi_bullish)
-        {
-            Print("[VETO BUY] RSI Not Above MA: RSI=", rsi_val, " MA=", rsi_ma);
-            return 0;
-        }
-        
-        // FILTRO 5: ADX deve indicar tendência (>= 20)
-        if(!adx_strong)
-        {
-            Print("[VETO BUY] ADX Too Low: ", adx_curr);
-            return 0;
-        }
+        Print("[TRIGGER BUY] Primary=", buy_trigger_primary, 
+              " Secondary(RSI)=", buy_trigger_secondary,
+              " Continuation=", buy_trigger_continuation);
         
         Print("[SIGNAL BUY] All filters aligned! FGM=", fgm_phase, " MFI=Green RSI>MA ADX=", adx_curr);
+        
+        // Registrar entrada
+        m_last_entry_time = current_bar_time;
+        m_bars_aligned_buy = 0; // Reset para evitar re-entradas imediatas
+        
         return 1;
     }
     
     //==========================================================================
     // LÓGICA DE VENDA
     //==========================================================================
-    // Trigger PRIMÁRIO: MFI ficou vermelho OU FGM virou bearish
-    // Trigger SECUNDÁRIO: RSI cruzou para baixo COM todos os filtros alinhados
     bool sell_trigger_primary = (mfi_turned_red || fgm_turned_bearish);
     bool sell_trigger_secondary = (rsi_crossed_down && fgm_bearish && mfi_red);
-    bool sell_trigger = (sell_trigger_primary || sell_trigger_secondary);
+    bool sell_trigger_continuation = (continuation_sell && can_continue);
+    bool sell_trigger = (sell_trigger_primary || sell_trigger_secondary || sell_trigger_continuation);
     
-    if(sell_trigger)
+    if(sell_trigger && all_sell_filters)
     {
-        Print("[TRIGGER SELL] Primary=", sell_trigger_primary, " Secondary(RSI_Cross)=", sell_trigger_secondary);
-        
-        // FILTRO 1: MFI NÃO pode ser amarelo (lateral)
-        if(mfi_yellow)
-        {
-            Print("[VETO SELL] MFI Lateral (Yellow)");
-            return 0;
-        }
-        
-        // FILTRO 2: MFI deve ser vermelho (pressão vendedora)
-        if(!mfi_red)
-        {
-            Print("[VETO SELL] MFI Not Red: ", mfi_color);
-            return 0;
-        }
-        
-        // FILTRO 3: FGM deve ser bearish (tendência de baixa)
-        if(!fgm_bearish)
-        {
-            Print("[VETO SELL] FGM Not Bearish: ", fgm_phase);
-            return 0;
-        }
-        
-        // FILTRO 4: RSIOMA vermelho deve estar ABAIXO do azul
-        if(!rsi_bearish)
-        {
-            Print("[VETO SELL] RSI Not Below MA: RSI=", rsi_val, " MA=", rsi_ma);
-            return 0;
-        }
-        
-        // FILTRO 5: ADX deve indicar tendência (>= 20)
-        if(!adx_strong)
-        {
-            Print("[VETO SELL] ADX Too Low: ", adx_curr);
-            return 0;
-        }
+        Print("[TRIGGER SELL] Primary=", sell_trigger_primary, 
+              " Secondary(RSI)=", sell_trigger_secondary,
+              " Continuation=", sell_trigger_continuation);
         
         Print("[SIGNAL SELL] All filters aligned! FGM=", fgm_phase, " MFI=Red RSI<MA ADX=", adx_curr);
+        
+        // Registrar entrada
+        m_last_entry_time = current_bar_time;
+        m_bars_aligned_sell = 0; // Reset para evitar re-entradas imediatas
+        
         return -1;
     }
     
