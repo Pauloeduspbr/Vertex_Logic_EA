@@ -80,8 +80,8 @@ input bool TradeSaturday = false;                   // Trade on Saturday
 //--- Input Group: Management Settings
 input group "===== Management Settings ====="
 input bool             Inp_UseBreakEven  = true;   // Use Break Even
-input int              Inp_BE_Trigger    = 150;    // BE Trigger (Points)
-input int              Inp_BE_Profit     = 10;     // BE Profit Lock (Points)
+input int              Inp_BE_Trigger    = 200;    // BE Trigger (Points) - Aumentado de 150 para 200
+input int              Inp_BE_Profit     = 50;     // BE Profit Lock (Points) - Aumentado de 10 para 50
 input bool             Inp_UseTrailing   = true;   // Use Trailing Stop
-input int              Inp_TS_Start      = 200;    // Trailing Distance (Points)
+input int              Inp_TS_Start      = 300;    // Trailing Distance (Points) - Aumentado de 200 para 300
 input int              Inp_TS_Step       = 50;     // Trailing Step (Points)

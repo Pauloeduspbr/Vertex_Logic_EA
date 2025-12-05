@@ -122,7 +122,16 @@ bool CSignalVertexFlow::UpdateBuffers()
     // Vamos sempre trabalhar com séries (0 = barra atual em formação, 1 = última barra fechada, 2 = barra anterior fechada).
     int count = 3;
 
-    // Copia a partir da barra 0, mas logo abaixo os arrays serão marcados como séries
+    // IMPORTANTE: Definir ArraySetAsSeries ANTES de CopyBuffer é uma boa prática
+    // para evitar problemas de indexação em diferentes timeframes
+    ArraySetAsSeries(m_buf_fgm_phase, true);
+    ArraySetAsSeries(m_buf_mfi_color, true);
+    ArraySetAsSeries(m_buf_mfi_val, true);
+    ArraySetAsSeries(m_buf_rsi_val, true);
+    ArraySetAsSeries(m_buf_rsi_ma, true);
+    ArraySetAsSeries(m_buf_adx, true);
+
+    // Copia a partir da barra 0, com arrays já marcados como séries
     // para garantir que todos os indicadores estejam alinhados no mesmo índice.
     if(CopyBuffer(m_handle_fgm, 7, 0, count, m_buf_fgm_phase) < count) return false;
     if(CopyBuffer(m_handle_mfi, 1, 0, count, m_buf_mfi_color) < count) return false;
@@ -134,16 +143,9 @@ bool CSignalVertexFlow::UpdateBuffers()
     if(CopyBuffer(m_handle_rsi, 0, 0, count, m_buf_rsi_val) < count) return false; // Buffer 0 = RSI (vermelha)
     if(CopyBuffer(m_handle_rsi, 1, 0, count, m_buf_rsi_ma) < count) return false; // Buffer 1 = MA  (azul)
 
-    // ADXW Cloud: Assuming Buffer 2 is the main ADX value (Blue/Orange line)
+    // ADXW Cloud: Buffer 2 é assumido como o valor principal do ADX
+    // NOTA: Se o indicador ADXW_Cloud usar outro buffer, ajustar aqui
     if(CopyBuffer(m_handle_adx, 2, 0, count, m_buf_adx) < count) return false;
-
-    // Garante que todos os buffers usem a mesma convenção de índices (0 = barra atual, 1 = última fechada, 2 = penúltima).
-    ArraySetAsSeries(m_buf_fgm_phase, true);
-    ArraySetAsSeries(m_buf_mfi_color, true);
-    ArraySetAsSeries(m_buf_mfi_val, true);
-    ArraySetAsSeries(m_buf_rsi_val, true);
-    ArraySetAsSeries(m_buf_rsi_ma, true);
-    ArraySetAsSeries(m_buf_adx, true);
 
     return true;
 }
@@ -197,11 +199,13 @@ int CSignalVertexFlow::GetSignal()
     if(!rsi_cross_up && !rsi_cross_down)
         return 0; // Sem gatilho de RSIOMA, nenhuma operação
 
-    // Nível extra de filtro: exigimos que o RSIOMA esteja coerente com a direção
-    // Compra apenas se a linha vermelha (RSIOMA) estiver acima de 50
-    // Venda apenas se a linha vermelha estiver abaixo de 50
-    // rsi_red representa SEMPRE a linha vermelha (RSI principal)
-    double rsi_red = m_buf_rsi_val[shift];
+    // REMOVIDO: Filtro RSI > 50 / < 50
+    // Motivo: Este filtro fazia com que as entradas fossem MUITO ATRASADAS.
+    // Quando há um cruzamento de alta, o RSI frequentemente ainda está abaixo de 50.
+    // O próprio cruzamento já é suficiente como gatilho de entrada.
+    // Se desejar reativar, descomente as linhas abaixo em cada lógica de BUY/SELL.
+    
+    double rsi_red = m_buf_rsi_val[shift]; // Mantido para debug se necessário
     
     //--- 2. FGM Filter
     // Phase: 2=StrongBull, 1=WeakBull, 0=Neutral, -1=WeakBear, -2=StrongBear
@@ -222,16 +226,17 @@ int CSignalVertexFlow::GetSignal()
     //--- BUY LOGIC
     if(rsi_cross_up)
     {
-        // RSIOMA deve estar acima de 50 para compras
-        if(rsi_red < 50.0) return 0;
+        // OPCIONAL: Filtro de nível RSI (desativado para entradas mais rápidas)
+        // if(rsi_red < 50.0) return 0;
 
         // FGM: Allow Neutral (0) + Bullish (1, 2). Block only Bearish (< 0).
         // This allows catching the start of the trend when FGM is transitioning.
         if(fgm_phase < 0) return 0;
         
-        // MFI: Must be Green (0) OR Oversold (<20)
-        // Note: mfi_color != 2 is already checked above.
-        if(mfi_color == 1 && mfi_val > 20.0) return 0; 
+        // MFI: Must be Green (0) for momentum confirmation
+        // Aceita também mercado não-lateral (já filtrado acima com mfi_color == 2)
+        // Removido filtro de sobrevenda porque limita boas entradas em tendência
+        if(mfi_color == 1) return 0; // Bloqueia apenas se MFI vermelho (selling pressure)
         
         // ADX: Trend Strength Filter
         // If ADX is high (> Min) -> OK.
@@ -244,15 +249,17 @@ int CSignalVertexFlow::GetSignal()
     //--- SELL LOGIC
     if(rsi_cross_down)
     {
-        // RSIOMA deve estar abaixo de 50 para vendas
-        if(rsi_red > 50.0) return 0;
+        // OPCIONAL: Filtro de nível RSI (desativado para entradas mais rápidas)
+        // if(rsi_red > 50.0) return 0;
 
         // FGM: Allow Neutral (0) + Bearish (-1, -2). Block only Bullish (> 0).
         // This allows catching the start of the trend when FGM is transitioning.
         if(fgm_phase > 0) return 0;
         
-        // MFI: Must be Red (1) OR Overbought (>80)
-        if(mfi_color == 0 && mfi_val < 80.0) return 0;
+        // MFI: Must be Red (1) for momentum confirmation
+        // Aceita também mercado não-lateral (já filtrado acima com mfi_color == 2)
+        // Removido filtro de sobrecompra porque limita boas entradas em tendência
+        if(mfi_color == 0) return 0; // Bloqueia apenas se MFI verde (buying pressure)
         
         // ADX: Trend Strength Filter
         // If ADX is high (> Min) -> OK.
