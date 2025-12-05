@@ -56,8 +56,8 @@ input double           Inp_ADX_MinTrend  = 20.0;   // ADX Min Trend Strength
 //--- Input Group: Trading Settings
 input group "===== Trading Settings ====="
 input double           Inp_LotSize       = 1.0;    // Fixed Lot Size
-input int              Inp_StopLoss      = 300;    // Stop Loss (Points) - Aumentado para dar mais espaço
-input int              Inp_TakeProfit    = 500;    // Take Profit (Points) - Realista para M5
+input int              Inp_StopLoss      = 250;    // Stop Loss (Points)
+input int              Inp_TakeProfit    = 350;    // Take Profit (Points) - Ratio 1:1.4
 input int              Inp_MagicNum      = 123456; // Magic Number
 input int              Inp_Slippage      = 3;      // Slippage (Points)
 
@@ -80,8 +80,8 @@ input bool TradeSaturday = false;                   // Trade on Saturday
 //--- Input Group: Management Settings
 input group "===== Management Settings ====="
 input bool             Inp_UseBreakEven  = true;   // Use Break Even
-input int              Inp_BE_Trigger    = 200;    // BE Trigger (Points) - Aumentado de 150 para 200
-input int              Inp_BE_Profit     = 50;     // BE Profit Lock (Points) - Aumentado de 10 para 50
+input int              Inp_BE_Trigger    = 150;    // BE Trigger (Points)
+input int              Inp_BE_Profit     = 100;    // BE Profit Lock (Points) - Garantir 100 pts
 input bool             Inp_UseTrailing   = true;   // Use Trailing Stop
-input int              Inp_TS_Start      = 300;    // Trailing Distance (Points) - Aumentado de 200 para 300
-input int              Inp_TS_Step       = 50;     // Trailing Step (Points)
+input int              Inp_TS_Start      = 200;    // Trailing Start (Points)
+input int              Inp_TS_Step       = 30;     // Trailing Step (Points)

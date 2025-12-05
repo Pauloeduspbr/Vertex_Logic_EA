@@ -236,17 +236,17 @@ int CSignalVertexFlow::GetSignal()
             return 0;
         }
         
-        // FILTRO 4: ADX deve indicar força de tendência (mínimo 20)
-        if(adx_curr < Inp_ADX_MinTrend)
+        // FILTRO 4: ADX deve indicar força de tendência (mínimo 22 para compra)
+        if(adx_curr < 22.0)
         {
             Print("[VETO BUY] ADX Too Low: ", adx_curr);
             return 0;
         }
         
-        // FILTRO 5: RSI deve estar entre 40-65 (zona de momentum, não topo)
-        if(rsi_now > 65.0 || rsi_now < 40.0)
+        // FILTRO 5: RSI deve estar entre 45-68 (zona de momentum de alta)
+        if(rsi_now > 68.0 || rsi_now < 45.0)
         {
-            Print("[VETO BUY] RSI Out of Range (40-65): ", rsi_now);
+            Print("[VETO BUY] RSI Out of Range (45-68): ", rsi_now);
             return 0;
         }
         
@@ -271,24 +271,25 @@ int CSignalVertexFlow::GetSignal()
             return 0;
         }
         
-        // FILTRO 3: MFI DEVE ser vermelho (selling pressure) para venda
-        if(mfi_color != 1)
+        // FILTRO 3: MFI deve indicar pressão vendedora (vermelho=1) ou neutro após queda
+        // Relaxado: permite MFI verde se RSI já está em queda forte
+        if(mfi_color == 0 && rsi_now > 50.0)
         {
-            Print("[VETO SELL] MFI Not Red: ", mfi_color);
+            Print("[VETO SELL] MFI Green with RSI > 50");
             return 0;
         }
         
-        // FILTRO 4: ADX deve indicar força de tendência (mínimo 20)
-        if(adx_curr < Inp_ADX_MinTrend)
+        // FILTRO 4: ADX deve indicar força de tendência (mínimo 18 para venda)
+        if(adx_curr < 18.0)
         {
             Print("[VETO SELL] ADX Too Low: ", adx_curr);
             return 0;
         }
         
-        // FILTRO 5: RSI deve estar entre 35-60 (zona de momentum, não fundo)
-        if(rsi_now < 35.0 || rsi_now > 60.0)
+        // FILTRO 5: RSI deve estar entre 30-55 (zona de momentum de baixa)
+        if(rsi_now < 30.0 || rsi_now > 55.0)
         {
-            Print("[VETO SELL] RSI Out of Range (35-60): ", rsi_now);
+            Print("[VETO SELL] RSI Out of Range (30-55): ", rsi_now);
             return 0;
         }
         
