@@ -221,10 +221,10 @@ int CSignalVertexFlow::GetSignal()
     bool mfi_yellow = (mfi_color == 2);
     
     // ADX com dois níveis: 
-    // - Para triggers primários (mudança de estado), aceita ADX mais baixo
-    // - Para continuação, exige ADX mais alto
+    // - Para triggers primários (mudança de estado), aceita ADX um pouco mais baixo
+    // - Para continuação, exige ADX forte
     bool adx_strong = (adx_curr >= Inp_ADX_MinTrend);
-    bool adx_moderate = (adx_curr >= Inp_ADX_MinTrend * 0.75); // 75% do mínimo (15 se MinTrend=20)
+    bool adx_moderate = (adx_curr >= Inp_ADX_MinTrend * 0.90); // 90% do mínimo (18 se MinTrend=20)
     
     //--- Verificar ALINHAMENTO COMPLETO
     // Para triggers primários: aceita ADX moderado

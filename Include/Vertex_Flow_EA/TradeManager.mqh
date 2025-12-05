@@ -97,14 +97,9 @@ void CTradeManager::OnTick()
 //+------------------------------------------------------------------+
 void CTradeManager::ManagePositions()
 {
-    // Limitar frequência de verificação para evitar modificações excessivas
-    static datetime last_check = 0;
-    datetime now = TimeCurrent();
-    
-    // Verificar no máximo a cada 5 segundos
-    if(now - last_check < 5)
-        return;
-    last_check = now;
+    // O trailing é verificado a CADA TICK
+    // O controle de frequência é feito pelo TS_Step (só move SL se diferença >= TS_Step pontos)
+    // Isso garante que o trailing acompanha o preço em tempo real sem modificações excessivas
 
     for(int i = PositionsTotal() - 1; i >= 0; i--)
     {
