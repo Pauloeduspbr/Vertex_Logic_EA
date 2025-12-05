@@ -31,6 +31,7 @@ private:
     //--- Controle de re-entrada
     datetime       m_last_entry_time;
     int            m_last_entry_direction; // 1=buy, -1=sell, 0=none
+    datetime       m_last_bar_processed;   // Última barra processada (evita duplicatas)
     
 public:
     CSignalVertexFlow();
@@ -60,7 +61,8 @@ CSignalVertexFlow::CSignalVertexFlow() :
     m_handle_rsi(INVALID_HANDLE),
     m_handle_adx(INVALID_HANDLE),
     m_last_entry_time(0),
-    m_last_entry_direction(0)
+    m_last_entry_direction(0),
+    m_last_bar_processed(0)
 {
 }
 
@@ -202,14 +204,17 @@ int CSignalVertexFlow::GetSignal()
     if(!UpdateBuffers())
         return 0;
 
-    // Só processar sinal UMA VEZ por barra
-    static datetime last_bar_time = 0;
-    datetime current_bar_time = iTime(_Symbol, _Period, 0);
+    //==========================================================================
+    // CONTROLE CRÍTICO: Só processar UMA VEZ por barra FECHADA
+    // Usamos a barra shift=1 (última fechada), então verificamos se já processamos
+    // a barra que AGORA está em shift=1
+    //==========================================================================
+    datetime closed_bar_time = iTime(_Symbol, _Period, 1);  // Tempo da barra FECHADA
     
-    if(last_bar_time == current_bar_time)
-        return 0;
+    if(m_last_bar_processed == closed_bar_time)
+        return 0;  // Já processamos esta barra
     
-    last_bar_time = current_bar_time;
+    m_last_bar_processed = closed_bar_time;
 
     // Analisamos a última barra FECHADA (shift=1)
     int shift = 1;
@@ -321,6 +326,7 @@ int CSignalVertexFlow::GetSignal()
     bool buy_trigger    = (breakout_up || mfi_turned_green);  // RSI agora é filtro, não trigger
     
     // Evitar re-entrada na mesma direção muito rápido
+    datetime current_bar_time = iTime(_Symbol, _Period, 0);
     int bars_since_entry = (m_last_entry_time > 0) ? 
                            (int)((current_bar_time - m_last_entry_time) / PeriodSeconds(_Period)) : 999;
     bool can_buy = (m_last_entry_direction != 1 || bars_since_entry > 5);
