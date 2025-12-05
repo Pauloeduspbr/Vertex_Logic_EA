@@ -223,6 +223,13 @@ int CSignalVertexFlow::GetSignal()
     // Trigger 4: FGM mudou para bearish
     bool fgm_turned_bearish = (fgm_phase < 0 && fgm_phase_prev >= 0);
     
+    // Trigger 5: RSIOMA cruzou para cima (confirmação de momentum)
+    double rsi_prev = m_buf_rsi_val[prev_shift];
+    double rsi_ma_prev = m_buf_rsi_ma[prev_shift];
+    bool rsi_crossed_up = (rsi_prev <= rsi_ma_prev && rsi_val > rsi_ma);
+    // Trigger 6: RSIOMA cruzou para baixo (confirmação de momentum)
+    bool rsi_crossed_down = (rsi_prev >= rsi_ma_prev && rsi_val < rsi_ma);
+    
     // DEBUG: Log do estado atual
     PrintFormat("[DEBUG] %s | FGM=%d (prev=%d) | MFI_Color=%d (prev=%d) | RSI=%.2f MA=%.2f (%s) | ADX=%.2f",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
@@ -234,12 +241,15 @@ int CSignalVertexFlow::GetSignal()
     //==========================================================================
     // LÓGICA DE COMPRA
     //==========================================================================
-    // Trigger: MFI ficou verde OU FGM virou bullish
-    bool buy_trigger = (mfi_turned_green || fgm_turned_bullish);
+    // Trigger PRIMÁRIO: MFI ficou verde OU FGM virou bullish
+    // Trigger SECUNDÁRIO: RSI cruzou para cima COM todos os filtros alinhados
+    bool buy_trigger_primary = (mfi_turned_green || fgm_turned_bullish);
+    bool buy_trigger_secondary = (rsi_crossed_up && fgm_bullish && mfi_green);
+    bool buy_trigger = (buy_trigger_primary || buy_trigger_secondary);
     
     if(buy_trigger)
     {
-        Print("[TRIGGER BUY] MFI_Green=", mfi_turned_green, " FGM_Bull=", fgm_turned_bullish);
+        Print("[TRIGGER BUY] Primary=", buy_trigger_primary, " Secondary(RSI_Cross)=", buy_trigger_secondary);
         
         // FILTRO 1: MFI NÃO pode ser amarelo (lateral)
         if(mfi_yellow)
@@ -283,12 +293,15 @@ int CSignalVertexFlow::GetSignal()
     //==========================================================================
     // LÓGICA DE VENDA
     //==========================================================================
-    // Trigger: MFI ficou vermelho OU FGM virou bearish
-    bool sell_trigger = (mfi_turned_red || fgm_turned_bearish);
+    // Trigger PRIMÁRIO: MFI ficou vermelho OU FGM virou bearish
+    // Trigger SECUNDÁRIO: RSI cruzou para baixo COM todos os filtros alinhados
+    bool sell_trigger_primary = (mfi_turned_red || fgm_turned_bearish);
+    bool sell_trigger_secondary = (rsi_crossed_down && fgm_bearish && mfi_red);
+    bool sell_trigger = (sell_trigger_primary || sell_trigger_secondary);
     
     if(sell_trigger)
     {
-        Print("[TRIGGER SELL] MFI_Red=", mfi_turned_red, " FGM_Bear=", fgm_turned_bearish);
+        Print("[TRIGGER SELL] Primary=", sell_trigger_primary, " Secondary(RSI_Cross)=", sell_trigger_secondary);
         
         // FILTRO 1: MFI NÃO pode ser amarelo (lateral)
         if(mfi_yellow)
