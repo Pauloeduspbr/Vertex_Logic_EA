@@ -220,14 +220,23 @@ int CSignalVertexFlow::GetSignal()
     bool mfi_red = (mfi_color == 1);
     bool mfi_yellow = (mfi_color == 2);
     
+    // ADX com dois níveis: 
+    // - Para triggers primários (mudança de estado), aceita ADX mais baixo
+    // - Para continuação, exige ADX mais alto
     bool adx_strong = (adx_curr >= Inp_ADX_MinTrend);
+    bool adx_moderate = (adx_curr >= Inp_ADX_MinTrend * 0.75); // 75% do mínimo (15 se MinTrend=20)
     
     //--- Verificar ALINHAMENTO COMPLETO
-    bool all_buy_filters = (fgm_bullish && mfi_green && rsi_bullish && adx_strong);
-    bool all_sell_filters = (fgm_bearish && mfi_red && rsi_bearish && adx_strong);
+    // Para triggers primários: aceita ADX moderado
+    // Para continuação: exige ADX forte
+    bool all_buy_filters_primary = (fgm_bullish && mfi_green && rsi_bullish && adx_moderate);
+    bool all_buy_filters_continuation = (fgm_bullish && mfi_green && rsi_bullish && adx_strong);
+    bool all_sell_filters_primary = (fgm_bearish && mfi_red && rsi_bearish && adx_moderate);
+    bool all_sell_filters_continuation = (fgm_bearish && mfi_red && rsi_bearish && adx_strong);
     
     //--- Atualizar contadores de barras alinhadas
-    if(all_buy_filters)
+    // Usa filtros com ADX forte para continuação
+    if(all_buy_filters_continuation)
     {
         m_bars_aligned_buy++;
         m_bars_aligned_sell = 0; // Reset contador oposto
@@ -237,7 +246,7 @@ int CSignalVertexFlow::GetSignal()
         m_bars_aligned_buy = 0;
     }
     
-    if(all_sell_filters)
+    if(all_sell_filters_continuation)
     {
         m_bars_aligned_sell++;
         m_bars_aligned_buy = 0; // Reset contador oposto
@@ -280,13 +289,20 @@ int CSignalVertexFlow::GetSignal()
     bool buy_trigger_primary = (mfi_turned_green || fgm_turned_bullish);
     bool buy_trigger_secondary = (rsi_crossed_up && fgm_bullish && mfi_green);
     bool buy_trigger_continuation = (continuation_buy && can_continue);
-    bool buy_trigger = (buy_trigger_primary || buy_trigger_secondary || buy_trigger_continuation);
     
-    if(buy_trigger && all_buy_filters)
+    // Triggers primário/secundário aceitam ADX moderado, continuação exige ADX forte
+    bool buy_trigger = false;
+    if((buy_trigger_primary || buy_trigger_secondary) && all_buy_filters_primary)
+        buy_trigger = true;
+    else if(buy_trigger_continuation && all_buy_filters_continuation)
+        buy_trigger = true;
+    
+    if(buy_trigger)
     {
         Print("[TRIGGER BUY] Primary=", buy_trigger_primary, 
               " Secondary(RSI)=", buy_trigger_secondary,
-              " Continuation=", buy_trigger_continuation);
+              " Continuation=", buy_trigger_continuation,
+              " ADX=", adx_curr);
         
         Print("[SIGNAL BUY] All filters aligned! FGM=", fgm_phase, " MFI=Green RSI>MA ADX=", adx_curr);
         
@@ -303,13 +319,20 @@ int CSignalVertexFlow::GetSignal()
     bool sell_trigger_primary = (mfi_turned_red || fgm_turned_bearish);
     bool sell_trigger_secondary = (rsi_crossed_down && fgm_bearish && mfi_red);
     bool sell_trigger_continuation = (continuation_sell && can_continue);
-    bool sell_trigger = (sell_trigger_primary || sell_trigger_secondary || sell_trigger_continuation);
     
-    if(sell_trigger && all_sell_filters)
+    // Triggers primário/secundário aceitam ADX moderado, continuação exige ADX forte
+    bool sell_trigger = false;
+    if((sell_trigger_primary || sell_trigger_secondary) && all_sell_filters_primary)
+        sell_trigger = true;
+    else if(sell_trigger_continuation && all_sell_filters_continuation)
+        sell_trigger = true;
+    
+    if(sell_trigger)
     {
         Print("[TRIGGER SELL] Primary=", sell_trigger_primary, 
               " Secondary(RSI)=", sell_trigger_secondary,
-              " Continuation=", sell_trigger_continuation);
+              " Continuation=", sell_trigger_continuation,
+              " ADX=", adx_curr);
         
         Print("[SIGNAL SELL] All filters aligned! FGM=", fgm_phase, " MFI=Red RSI<MA ADX=", adx_curr);
         
