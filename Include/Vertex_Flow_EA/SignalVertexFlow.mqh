@@ -176,9 +176,11 @@ int CSignalVertexFlow::GetSignal()
     
     last_bar_time = current_bar_time;
 
-    // Analisamos a ÚLTIMA BARRA FECHADA (índice 1 após ArraySetAsSeries)
-    int shift = 1;              // barra fechada mais recente (candle de sinal)
-    int prev_shift = shift + 1; // barra anterior à de sinal (para detectar cruzamento)
+    // Analisamos a BARRA ATUAL EM FORMAÇÃO (índice 0 após ArraySetAsSeries)
+    // Isso permite que o EA reaja imediatamente quando todos os filtros se alinham,
+    // sem esperar a abertura do próximo candle.
+    int shift = 0;              // barra atual (candle de sinal em tempo real)
+    int prev_shift = shift + 1; // barra anterior fechada (para detectar cruzamento)
     
     //==========================================================================
     // ESTRATÉGIA COM 3 TIPOS DE TRIGGERS:
