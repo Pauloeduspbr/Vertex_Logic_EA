@@ -285,6 +285,11 @@ int CSignalVertexFlow::GetSignal()
     //--- TRIGGERS: Mudanças de estado
     bool mfi_turned_green = (mfi_color == 0 && mfi_color_prev != 0);
     bool mfi_turned_red   = (mfi_color == 1 && mfi_color_prev != 1);
+    
+    //--- FGM Phase mudou para bullish/bearish (NOVO TRIGGER CRÍTICO)
+    bool phase_turned_bull = (fgm_phase >= 1 && fgm_phase_prev < 1);  // Entrou em +1 ou +2
+    bool phase_turned_bear = (fgm_phase <= -1 && fgm_phase_prev > -1); // Entrou em -1 ou -2
+    
     // RSI: Não exige cruzamento, apenas posição relativa (menos restritivo)
     // Linha vermelha (RSI) acima da azul (MA) = compra, abaixo = venda
     
@@ -326,7 +331,7 @@ int CSignalVertexFlow::GetSignal()
     bool buy_mfi_ok     = mfi_green;
     bool buy_rsi_ok     = rsi_bullish;  // Linha vermelha ACIMA da azul
     bool buy_not_extreme = (!mfi_extreme_high && !rsi_extreme_high);
-    bool buy_trigger    = (breakout_up || mfi_turned_green);  // RSI agora é filtro, não trigger
+    bool buy_trigger    = (breakout_up || mfi_turned_green || phase_turned_bull);  // Breakout, MFI ou Phase mudou
     
     // Evitar re-entrada na mesma direção muito rápido
     datetime current_bar_time = iTime(_Symbol, _Period, 0);
@@ -344,7 +349,7 @@ int CSignalVertexFlow::GetSignal()
                     buy_adx_ok ? "OK" : "NO",
                     buy_mfi_ok ? "OK" : "NO",
                     buy_rsi_ok ? "OK" : "NO",
-                    breakout_up ? "BREAKOUT" : (mfi_turned_green ? "MFI" : "RSI"));
+                    breakout_up ? "BREAKOUT" : (mfi_turned_green ? "MFI" : (phase_turned_bull ? "PHASE" : "UNKNOWN")));
         
         PrintFormat("   EMAs: %.2f / %.2f / %.2f / %.2f / %.2f",
                     m_buf_fgm_ema1[shift], m_buf_fgm_ema2[shift], m_buf_fgm_ema3[shift],
@@ -374,7 +379,7 @@ int CSignalVertexFlow::GetSignal()
     bool sell_mfi_ok     = mfi_red;
     bool sell_rsi_ok     = rsi_bearish;  // Linha vermelha ABAIXO da azul
     bool sell_not_extreme = (!mfi_extreme_low && !rsi_extreme_low);
-    bool sell_trigger    = (breakout_down || mfi_turned_red);  // RSI agora é filtro, não trigger
+    bool sell_trigger    = (breakout_down || mfi_turned_red || phase_turned_bear);  // Breakdown, MFI ou Phase mudou
     
     bool can_sell = (m_last_entry_direction != -1 || bars_since_entry > 5);
     
@@ -388,7 +393,7 @@ int CSignalVertexFlow::GetSignal()
                     sell_adx_ok ? "OK" : "NO",
                     sell_mfi_ok ? "OK" : "NO",
                     sell_rsi_ok ? "OK" : "NO",
-                    breakout_down ? "BREAKOUT" : (mfi_turned_red ? "MFI" : "RSI"));
+                    breakout_down ? "BREAKOUT" : (mfi_turned_red ? "MFI" : (phase_turned_bear ? "PHASE" : "UNKNOWN")));
         
         PrintFormat("   EMAs: %.2f / %.2f / %.2f / %.2f / %.2f",
                     m_buf_fgm_ema1[shift], m_buf_fgm_ema2[shift], m_buf_fgm_ema3[shift],
