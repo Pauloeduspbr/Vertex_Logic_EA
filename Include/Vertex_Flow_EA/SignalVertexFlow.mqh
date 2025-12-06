@@ -261,7 +261,7 @@ int CSignalVertexFlow::GetSignal()
     
     // NOVO: Spread mínimo entre DI+ e DI- (evita mercado indeciso)
     double di_spread = MathAbs(adx_di_plus - adx_di_minus);
-    bool di_spread_ok = (di_spread >= 2.0);  // Mínimo 2 pontos de diferença
+    bool di_spread_ok = (di_spread >= 5.0);  // Mínimo 5 pontos de diferença
 
     // MFI Logic
     bool mfi_green = (mfi_color == 0); // fluxo de compra
@@ -277,7 +277,7 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_not_oversold   = (rsi_val > 25.0);
 
     // Debug principal
-    PrintFormat("[DEBUG] %s | Close=%.2f | PriceAboveEMAs=%s PriceBelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f) RSI=%.1f/%.1f(%s) | ADX=%.1f(%s) DI+=%.1f DI-=%.1f Spread=%.1f | StrongBull=%s StrongBear=%s",
+    PrintFormat("[DEBUG] %s | Close=%.2f | PriceAboveEMAs=%s PriceBelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f) RSI=%.1f/%.1f(%s) | ADX=%.1f(%s) DI+=%.1f DI-=%.1f Spread=%.1f(%s) | Dir=%s",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                 close_price,
                 price_above_all_emas ? "YES" : "NO",
@@ -287,9 +287,8 @@ int CSignalVertexFlow::GetSignal()
                 mfi_color, mfi_val,
                 rsi_val, rsi_ma, rsi_bullish ? "BULL" : "BEAR",
                 adx_curr, adx_trending ? "TREND" : "LATERAL",
-                adx_di_plus, adx_di_minus, di_spread,
-                adx_strong_bull ? "YES" : "NO",
-                adx_strong_bear ? "YES" : "NO");
+                adx_di_plus, adx_di_minus, di_spread, di_spread_ok ? "OK" : "WEAK",
+                adx_bullish ? "BULL" : (adx_bearish ? "BEAR" : "NEUTRAL"));
 
     // Controle de reentrada
     datetime current_bar_time = iTime(_Symbol, _Period, 0);
@@ -342,9 +341,23 @@ int CSignalVertexFlow::GetSignal()
 
     //--------------------------------------------------------------
     // 3) ADX valida tendência sequencialmente
-    //    FLEXIBILIZADO: Foca na DIREÇÃO (DI+ vs DI-)
-    //    Não exige mais ADX >= MinTrend nem DI > ADX
+    //    Exige: ADX >= MinTrend + DI correto + Spread mínimo
     //--------------------------------------------------------------
+    
+    // Primeiro: verificar se há tendência mínima E spread suficiente
+    if(!adx_trending)
+    {
+        // ADX abaixo do mínimo = mercado lateral, cancela sinal
+        return 0;
+    }
+    
+    if(!di_spread_ok)
+    {
+        // DI+ e DI- muito próximos = mercado indeciso, cancela sinal
+        return 0;
+    }
+    
+    // Agora validar direção do DI
     if(raw_signal == 1)
     {
         if(!adx_bullish)
