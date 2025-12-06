@@ -11,7 +11,7 @@ private:
     int            m_handle_fgm;
     int            m_handle_mfi;
     int            m_handle_rsi;
-    int            m_handle_adx;
+    // ADX REMOVIDO
     
     //--- Buffers for reading - FGM EMAs (5 lines) + data
     double         m_buf_fgm_ema1[];   // Buffer 0: EMA 14
@@ -21,16 +21,12 @@ private:
     double         m_buf_fgm_ema5[];   // Buffer 4: EMA 200
     double         m_buf_fgm_phase[];  // Buffer 7: Phase
     
-    //--- Buffers MFI, RSI, ADX
+    //--- Buffers MFI, RSI
     double         m_buf_mfi_color[];
     double         m_buf_mfi_val[];
     double         m_buf_rsi_val[];
     double         m_buf_rsi_ma[];
-    double         m_buf_adx[];
-    
-    //--- NEW BUFFERS FOR ADX DIRECTION
-    double         m_buf_adx_di_plus[];  // Buffer 0: DI+
-    double         m_buf_adx_di_minus[]; // Buffer 1: DI-
+    // ADX buffers REMOVIDOS
     
     //--- Re-entry control
     datetime       m_last_entry_time;
@@ -48,7 +44,7 @@ public:
     int            GetHandleFGM() { return m_handle_fgm; }
     int            GetHandleMFI() { return m_handle_mfi; }
     int            GetHandleRSI() { return m_handle_rsi; }
-    int            GetHandleADX() { return m_handle_adx; }
+    // GetHandleADX() REMOVIDO
     
 private:
     bool           UpdateBuffers();
@@ -63,7 +59,6 @@ CSignalVertexFlow::CSignalVertexFlow() :
     m_handle_fgm(INVALID_HANDLE),
     m_handle_mfi(INVALID_HANDLE),
     m_handle_rsi(INVALID_HANDLE),
-    m_handle_adx(INVALID_HANDLE),
     m_last_entry_time(0),
     m_last_entry_direction(0),
     m_last_bar_processed(0)
@@ -78,7 +73,7 @@ CSignalVertexFlow::~CSignalVertexFlow()
     if(m_handle_fgm != INVALID_HANDLE) IndicatorRelease(m_handle_fgm);
     if(m_handle_mfi != INVALID_HANDLE) IndicatorRelease(m_handle_mfi);
     if(m_handle_rsi != INVALID_HANDLE) IndicatorRelease(m_handle_rsi);
-    if(m_handle_adx != INVALID_HANDLE) IndicatorRelease(m_handle_adx);
+    // ADX release REMOVIDO
 }
 
 //+------------------------------------------------------------------+
@@ -86,7 +81,7 @@ CSignalVertexFlow::~CSignalVertexFlow()
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::Init()
 {
-    Print("Vertex Flow Signal Init - ADXW_Cloud mapping: 0=ADX, 3=DI+, 2=DI-");
+    Print("Vertex Flow Signal Init - FGM + RSI + MFI (ADX REMOVIDO)");
     
     //--- Initialize FGM Indicator
     m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\FGM_Indicator",
@@ -129,16 +124,7 @@ bool CSignalVertexFlow::Init()
                            
     if(m_handle_rsi == INVALID_HANDLE) { Print("Failed to create RSIOMA handle"); return false; }
 
-    //--- Initialize ADXW Cloud
-    m_handle_adx = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\ADXW_Cloud",
-                           Inp_ADX_Period,
-                           Inp_ADX_MinTrend,
-                           clrLightGreen,
-                           clrHotPink,
-                           80
-                           );
-                           
-    if(m_handle_adx == INVALID_HANDLE) { Print("Failed to create ADX handle"); return false; }
+    // ADX REMOVIDO - não mais inicializado
 
     return true;
 }
@@ -161,9 +147,7 @@ bool CSignalVertexFlow::UpdateBuffers()
     ArraySetAsSeries(m_buf_mfi_val, true);
     ArraySetAsSeries(m_buf_rsi_val, true);
     ArraySetAsSeries(m_buf_rsi_ma, true);
-    ArraySetAsSeries(m_buf_adx, true);
-    ArraySetAsSeries(m_buf_adx_di_plus, true);
-    ArraySetAsSeries(m_buf_adx_di_minus, true);
+    // ADX arrays REMOVIDOS
 
     // FGM
     if(CopyBuffer(m_handle_fgm, 0, 0, count, m_buf_fgm_ema1) < count) return false;
@@ -181,10 +165,7 @@ bool CSignalVertexFlow::UpdateBuffers()
     if(CopyBuffer(m_handle_rsi, 0, 0, count, m_buf_rsi_val) < count) return false;
     if(CopyBuffer(m_handle_rsi, 1, 0, count, m_buf_rsi_ma) < count) return false;
 
-    // ADXW_Cloud: 0=ADX, 3=DI+, 2=DI-
-    if(CopyBuffer(m_handle_adx, 0, 0, count, m_buf_adx) < count) return false;         // ADX (linha azul)
-    if(CopyBuffer(m_handle_adx, 3, 0, count, m_buf_adx_di_plus) < count) return false; // DI+ line (verde)
-    if(CopyBuffer(m_handle_adx, 2, 0, count, m_buf_adx_di_minus) < count) return false;// DI- line (vermelha)
+    // ADX CopyBuffer REMOVIDO
 
     return true;
 }
@@ -234,9 +215,7 @@ int CSignalVertexFlow::GetSignal()
     // Read Indicators on closed bar (shift=1)
     int    mfi_color    = (int)m_buf_mfi_color[shift];
     double mfi_val      = m_buf_mfi_val[shift];
-    double adx_curr     = m_buf_adx[shift];
-    double adx_di_plus  = m_buf_adx_di_plus[shift];
-    double adx_di_minus = m_buf_adx_di_minus[shift];
+    // ADX leitura REMOVIDA
 
     // FGM Logic (principal gerador de direção)
     bool price_above_all_emas = IsPriceAboveAllEMAs(shift, close_price);
@@ -250,18 +229,7 @@ int CSignalVertexFlow::GetSignal()
                              m_buf_fgm_ema2[shift] < m_buf_fgm_ema3[shift] &&
                              m_buf_fgm_ema3[shift] < m_buf_fgm_ema5[shift]);
 
-    // ADX Logic
-    bool adx_trending = (adx_curr >= Inp_ADX_MinTrend);
-    bool adx_bullish  = (adx_di_plus  > adx_di_minus);   // DI+ acima de DI-
-    bool adx_bearish  = (adx_di_minus > adx_di_plus);    // DI- acima de DI+
-
-    // Strong Direction Check (DI > ADX) - valida força da direção
-    bool adx_strong_bull = (adx_di_plus  > adx_curr);    // DI+ acima da linha ADX
-    bool adx_strong_bear = (adx_di_minus > adx_curr);    // DI- acima da linha ADX
-    
-    // NOVO: Spread mínimo entre DI+ e DI- (evita mercado indeciso)
-    double di_spread = MathAbs(adx_di_plus - adx_di_minus);
-    bool di_spread_ok = (di_spread >= 5.0);  // Mínimo 5 pontos de diferença
+    // ADX Logic REMOVIDA
 
     // MFI Logic - Baseado na COR do indicador (definida por Bulls/Bears Power)
     // Color 0 = Green = buying pressure (compra)
@@ -279,12 +247,9 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_bearish        = (rsi_val < rsi_ma); // vermelha abaixo da azul
     bool rsi_not_overbought = (rsi_val < 75.0);
     bool rsi_not_oversold   = (rsi_val > 25.0);
-    
-    // Pré-calcular filtro ADX combinado para debug
-    bool adx_combo_ok = adx_trending || (adx_curr >= 15.0 && di_spread >= 3.0);
 
-    // Debug principal - mostrar mfi_green e mfi_red também
-    PrintFormat("[DEBUG] %s | Close=%.2f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f)[G=%s R=%s] RSI=%.1f/%.1f(%s) | ADX=%.1f DI+=%.1f DI-=%.1f Spread=%.1f | Filter=%s Dir=%s",
+    // Debug principal - SEM ADX
+    PrintFormat("[DEBUG] %s | Close=%.2f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f)[G=%s R=%s] RSI=%.1f/%.1f(%s)",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                 close_price,
                 price_above_all_emas ? "Y" : "N",
@@ -294,10 +259,7 @@ int CSignalVertexFlow::GetSignal()
                 mfi_color, mfi_val,
                 mfi_green ? "Y" : "N",
                 mfi_red ? "Y" : "N",
-                rsi_val, rsi_ma, rsi_bullish ? "BULL" : "BEAR",
-                adx_curr, adx_di_plus, adx_di_minus, di_spread,
-                adx_combo_ok ? "PASS" : "FAIL",
-                adx_bullish ? "BULL" : (adx_bearish ? "BEAR" : "NEUT"));
+                rsi_val, rsi_ma, rsi_bullish ? "BULL" : "BEAR");
 
     // Controle de reentrada
     datetime current_bar_time = iTime(_Symbol, _Period, 0);
@@ -395,11 +357,10 @@ int CSignalVertexFlow::GetSignal()
     //--------------------------------------------------------------
     if(raw_signal == 1)
     {
-        PrintFormat("[SIGNAL BUY] %s | Close=%.2f | FGM=ABOVE_ALL+FAN RSI=%.1f/%.1f(BULL) | ADX=%.1f(STRONG BULL) DI+=%.1f DI-=%.1f | MFI=%d(%.1f, GREEN)",
+        PrintFormat("[SIGNAL BUY] %s | Close=%.2f | FGM=ABOVE_ALL+FAN RSI=%.1f/%.1f(BULL) | MFI=%d(%.1f, GREEN)",
                     TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                     close_price,
                     rsi_val, rsi_ma,
-                    adx_curr, adx_di_plus, adx_di_minus,
                     mfi_color, mfi_val);
 
         PrintFormat("   EMAs: %.2f / %.2f / %.2f / %.2f / %.2f",
@@ -413,11 +374,10 @@ int CSignalVertexFlow::GetSignal()
 
     if(raw_signal == -1)
     {
-        PrintFormat("[SIGNAL SELL] %s | Close=%.2f | FGM=BELOW_ALL+FAN RSI=%.1f/%.1f(BEAR) | ADX=%.1f(STRONG BEAR) DI+=%.1f DI-=%.1f | MFI=%d(%.1f, RED)",
+        PrintFormat("[SIGNAL SELL] %s | Close=%.2f | FGM=BELOW_ALL+FAN RSI=%.1f/%.1f(BEAR) | MFI=%d(%.1f, RED)",
                     TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                     close_price,
                     rsi_val, rsi_ma,
-                    adx_curr, adx_di_plus, adx_di_minus,
                     mfi_color, mfi_val);
 
         PrintFormat("   EMAs: %.2f / %.2f / %.2f / %.2f / %.2f",

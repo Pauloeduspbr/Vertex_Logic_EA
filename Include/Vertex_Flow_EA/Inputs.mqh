@@ -48,12 +48,7 @@ input int              Inp_RSI_Period    = 14;     // RSI Period
 input int              Inp_RSI_MAPeriod  = 9;      // RSI MA Period
 input ENUM_MA_METHOD   Inp_RSI_MAMethod  = MODE_SMA; // RSI MA Method
 
-//--- ADXW Cloud REMOVIDO - Mantido apenas para referência
-// input group "===== ADXW Cloud Settings ====="
-// input int              Inp_ADX_Period    = 14;     // ADX Period
-// input double           Inp_ADX_MinTrend  = 20.0;   // ADX Min Trend Strength
-const int    Inp_ADX_Period   = 14;     // ADX Period (constante para manter compatibilidade)
-const double Inp_ADX_MinTrend = 20.0;   // ADX Min Trend (constante para manter compatibilidade)
+//--- ADXW Cloud REMOVIDO COMPLETAMENTE
 
 //--- Input Group: Trading Settings
 input group "===== Trading Settings ====="
