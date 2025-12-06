@@ -32,6 +32,9 @@ private:
     datetime       m_last_entry_time;
     int            m_last_entry_direction; // 1=buy, -1=sell, 0=none
     datetime       m_last_bar_processed;   // Last processed bar
+
+    //--- Controle de cruzamento RSI (cooldown para SELL após cruzamento bullish)
+    datetime       m_last_rsi_bullish_cross_time;
     
 public:
     CSignalVertexFlow();
@@ -62,7 +65,8 @@ CSignalVertexFlow::CSignalVertexFlow() :
     m_handle_atr(INVALID_HANDLE),
     m_last_entry_time(0),
     m_last_entry_direction(0),
-    m_last_bar_processed(0)
+    m_last_bar_processed(0),
+    m_last_rsi_bullish_cross_time(0)
 {
 }
 
@@ -288,6 +292,16 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_bullish        = (rsi_val > rsi_ma);
     bool rsi_bearish        = (rsi_val < rsi_ma);
     bool rsi_bearish_prev   = (rsi_val_prev < rsi_ma_prev);
+
+    // Detecta cruzamento bullish do RSI (linha vermelha cruza de baixo para cima a média azul)
+    bool rsi_cross_up = (rsi_val_prev < rsi_ma_prev && rsi_val > rsi_ma);
+    if(rsi_cross_up)
+    {
+        m_last_rsi_bullish_cross_time = iTime(_Symbol, _Period, shift);
+        PrintFormat("[DEBUG] RSI CROSS UP detectado em %s | RSI=%.1f->%.1f MA=%.1f->%.1f",
+                    TimeToString(m_last_rsi_bullish_cross_time, TIME_DATE|TIME_MINUTES),
+                    rsi_val_prev, rsi_val, rsi_ma_prev, rsi_ma);
+    }
     
     // RSI ZONAS EXTREMAS - Não entrar em reversão
     bool rsi_not_overbought = (rsi_val < 70.0);  // Mais rigoroso (era 75)
@@ -331,6 +345,15 @@ int CSignalVertexFlow::GetSignal()
 
     bool can_buy  = (m_last_entry_direction != 1 || bars_since_entry > 10);
     bool can_sell = (m_last_entry_direction != -1 || bars_since_entry > 10);
+
+    // Cooldown de SELL após cruzamento bullish do RSI
+    int  rsi_sell_cooldown_bars = Inp_RSI_SellCooldownBars;
+    bool under_rsi_sell_cooldown = false;
+    if(rsi_sell_cooldown_bars > 0 && m_last_rsi_bullish_cross_time > 0)
+    {
+        int bars_since_rsi_cross = (int)((closed_bar_time - m_last_rsi_bullish_cross_time) / PeriodSeconds(_Period));
+        under_rsi_sell_cooldown  = (bars_since_rsi_cross >= 0 && bars_since_rsi_cross < rsi_sell_cooldown_bars);
+    }
 
     //--------------------------------------------------------------
     // 1) FGM gera o sinal bruto (direção principal)
@@ -400,6 +423,15 @@ int CSignalVertexFlow::GetSignal()
     }
     else if(raw_signal == -1)
     {
+        // SELL cooldown: não vender imediatamente após cruzamento bullish do RSI
+        if(under_rsi_sell_cooldown)
+        {
+            PrintFormat("[BLOCKED] Cooldown RSI após cross bullish - Bloqueando SELL | RSI=%.1f MA=%.1f (último cross em %s)",
+                        rsi_val, rsi_ma,
+                        TimeToString(m_last_rsi_bullish_cross_time, TIME_DATE|TIME_MINUTES));
+            return 0;
+        }
+
         // SELL: precisa estar na faixa saudável
         if(!rsi_healthy_sell)
         {
@@ -426,20 +458,7 @@ int CSignalVertexFlow::GetSignal()
             return 0;
         }
 
-        //----------------------------------------------------------
-        // SELL extra: não vender quando o preço ainda está "abraçado" à EMA14
-        // ou acima dela, mesmo em tendência forte. Evita entrar no meio
-        // do pullback de alta logo após cruzamento do RSIOMA.
-        //----------------------------------------------------------
-        double tolerancia_encosto = atr_val * 0.2; // 20% do ATR como faixa de encosto
-
-        // Se o preço está acima da EMA1 OU muito colado nela, bloqueia SELL
-        if(diff_price_ema1 >= 0.0 || MathAbs(diff_price_ema1) <= tolerancia_encosto)
-        {
-            PrintFormat("[BLOCKED] Preço ainda em pullback/encostado na EMA14 - Bloqueando SELL | Close=%.0f EMA14=%.0f Diff=%.0f (tol=%.0f)",
-                        close_price, m_buf_fgm_ema1[shift], diff_price_ema1, tolerancia_encosto);
-            return 0;
-        }
+        // Removido filtro adicional de EMA14 para SELL: vamos controlar apenas pelo cooldown do RSI
     }
 
     //--------------------------------------------------------------

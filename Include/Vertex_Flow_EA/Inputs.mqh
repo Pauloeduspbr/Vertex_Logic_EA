@@ -44,9 +44,10 @@ input ENUM_APPLIED_VOLUME Inp_MFI_VolType = VOLUME_TICK; // MFI Volume Type
 
 //--- Input Group: Strategy - RSIOMA v2
 input group "===== RSIOMA v2 Settings ====="
-input int              Inp_RSI_Period    = 14;     // RSI Period
-input int              Inp_RSI_MAPeriod  = 9;      // RSI MA Period
-input ENUM_MA_METHOD   Inp_RSI_MAMethod  = MODE_SMA; // RSI MA Method
+input int              Inp_RSI_Period          = 14;     // RSI Period
+input int              Inp_RSI_MAPeriod        = 9;      // RSI MA Period
+input ENUM_MA_METHOD   Inp_RSI_MAMethod        = MODE_SMA; // RSI MA Method
+input int              Inp_RSI_SellCooldownBars = 3;     // Barras de cooldown para SELL após cross bullish do RSI
 
 //--- ADXW Cloud REMOVIDO COMPLETAMENTE
 
