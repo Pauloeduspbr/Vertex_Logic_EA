@@ -229,52 +229,50 @@ int CSignalVertexFlow::GetSignal()
     m_last_bar_processed = closed_bar_time;
 
     int shift = 1;
-    
     double close_price = iClose(_Symbol, _Period, shift);
-    
-    // Read Indicators
-    int mfi_color = (int)m_buf_mfi_color[shift];
-    double mfi_val = m_buf_mfi_val[shift];
-    double adx_curr = m_buf_adx[shift];
-    double adx_di_plus = m_buf_adx_di_plus[shift];
+
+    // Read Indicators on closed bar (shift=1)
+    int    mfi_color    = (int)m_buf_mfi_color[shift];
+    double mfi_val      = m_buf_mfi_val[shift];
+    double adx_curr     = m_buf_adx[shift];
+    double adx_di_plus  = m_buf_adx_di_plus[shift];
     double adx_di_minus = m_buf_adx_di_minus[shift];
-    
-    // FGM Logic
+
+    // FGM Logic (principal gerador de direção)
     bool price_above_all_emas = IsPriceAboveAllEMAs(shift, close_price);
     bool price_below_all_emas = IsPriceBelowAllEMAs(shift, close_price);
-    
-    // Fan Logic
-    bool emas_fanned_bull = (m_buf_fgm_ema1[shift] > m_buf_fgm_ema2[shift] && 
+
+    bool emas_fanned_bull = (m_buf_fgm_ema1[shift] > m_buf_fgm_ema2[shift] &&
                              m_buf_fgm_ema2[shift] > m_buf_fgm_ema3[shift] &&
                              m_buf_fgm_ema3[shift] > m_buf_fgm_ema5[shift]);
 
-    bool emas_fanned_bear = (m_buf_fgm_ema1[shift] < m_buf_fgm_ema2[shift] && 
+    bool emas_fanned_bear = (m_buf_fgm_ema1[shift] < m_buf_fgm_ema2[shift] &&
                              m_buf_fgm_ema2[shift] < m_buf_fgm_ema3[shift] &&
                              m_buf_fgm_ema3[shift] < m_buf_fgm_ema5[shift]);
-    
+
     // ADX Logic
     bool adx_trending = (adx_curr >= Inp_ADX_MinTrend);
-    bool adx_bullish  = (adx_di_plus > adx_di_minus);
-    bool adx_bearish  = (adx_di_minus > adx_di_plus);
-    
-    // NEW: Strong Direction Check (DI > ADX)
-    bool adx_strong_bull = (adx_di_plus > adx_curr);
-    bool adx_strong_bear = (adx_di_minus > adx_curr);
-    
+    bool adx_bullish  = (adx_di_plus  > adx_di_minus);   // DI+ acima de DI-
+    bool adx_bearish  = (adx_di_minus > adx_di_plus);    // DI- acima de DI+
+
+    // Strong Direction Check (DI > ADX) - valida força da direção
+    bool adx_strong_bull = (adx_di_plus  > adx_curr);    // DI+ acima da linha ADX
+    bool adx_strong_bear = (adx_di_minus > adx_curr);    // DI- acima da linha ADX
+
     // MFI Logic
-    bool mfi_green = (mfi_color == 0);
-    bool mfi_red   = (mfi_color == 1);
-    
-    // RSI Logic
+    bool mfi_green = (mfi_color == 0); // fluxo de compra
+    bool mfi_red   = (mfi_color == 1); // fluxo de venda
+
+    // RSI Logic (linha vermelha = valor, linha azul = média)
     double rsi_val = m_buf_rsi_val[shift];
-    double rsi_ma = m_buf_rsi_ma[shift];
-    
-    bool rsi_bullish = (rsi_val > rsi_ma);
-    bool rsi_bearish = (rsi_val < rsi_ma);
-    
+    double rsi_ma  = m_buf_rsi_ma[shift];
+
+    bool rsi_bullish        = (rsi_val > rsi_ma); // vermelha acima da azul
+    bool rsi_bearish        = (rsi_val < rsi_ma); // vermelha abaixo da azul
     bool rsi_not_overbought = (rsi_val < 75.0);
     bool rsi_not_oversold   = (rsi_val > 25.0);
-    
+
+    // Debug principal
     PrintFormat("[DEBUG] %s | Close=%.2f | PriceAboveEMAs=%s PriceBelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f) RSI=%.1f/%.1f(%s) | ADX=%.1f(%s) DI+=%.1f DI-=%.1f | StrongBull=%s StrongBear=%s",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                 close_price,
@@ -288,55 +286,145 @@ int CSignalVertexFlow::GetSignal()
                 adx_di_plus, adx_di_minus,
                 adx_strong_bull ? "YES" : "NO",
                 adx_strong_bear ? "YES" : "NO");
-    
-    // BUY Logic
-    bool buy_fgm_ok     = (price_above_all_emas && emas_fanned_bull);
-    bool buy_adx_ok     = (adx_trending && adx_bullish && adx_strong_bull);
-    bool buy_mfi_ok     = mfi_green;
-    bool buy_rsi_ok     = (rsi_bullish && rsi_not_overbought);
-    
+
+    // Controle de reentrada
     datetime current_bar_time = iTime(_Symbol, _Period, 0);
-    int bars_since_entry = (m_last_entry_time > 0) ? 
+    int bars_since_entry = (m_last_entry_time > 0) ?
                            (int)((current_bar_time - m_last_entry_time) / PeriodSeconds(_Period)) : 999;
-    bool can_buy = (m_last_entry_direction != 1 || bars_since_entry > 10);
-    
-    if(buy_fgm_ok && buy_adx_ok && buy_mfi_ok && buy_rsi_ok && can_buy)
+
+    bool can_buy  = (m_last_entry_direction != 1 || bars_since_entry > 10);
+    bool can_sell = (m_last_entry_direction != -1 || bars_since_entry > 10);
+
+    //--------------------------------------------------------------
+    // 1) FGM gera o sinal bruto (direção principal)
+    //--------------------------------------------------------------
+    int raw_signal = 0; // 1=BUY, -1=SELL, 0=NENHUM
+
+    if(price_above_all_emas && emas_fanned_bull)
+        raw_signal = 1;
+    else if(price_below_all_emas && emas_fanned_bear)
+        raw_signal = -1;
+
+    if(raw_signal == 0)
+        return 0; // sem sinal FGM, não há operação
+
+    //--------------------------------------------------------------
+    // 2) RSI valida sequencialmente
+    //    BUY: vermelha acima da azul E não sobrecomprado
+    //    SELL: vermelha abaixo da azul E não sobrevendido
+    //--------------------------------------------------------------
+    if(raw_signal == 1)
     {
-        PrintFormat("[SIGNAL BUY] %s | Close=%.2f | EMAs=ABOVE_ALL+FANNED ADX=%.1f(BULL+STRONG) MFI=%d RSI=%.1f/%.1f",
+        if(!rsi_bullish)
+            return 0; // linha vermelha não está acima da azul
+        if(!rsi_not_overbought)
+            return 0; // RSI sobrecomprado, cancela BUY
+    }
+    else if(raw_signal == -1)
+    {
+        if(!rsi_bearish)
+            return 0; // linha vermelha não está abaixo da azul
+        if(!rsi_not_oversold)
+            return 0; // RSI sobrevendido, cancela SELL
+    }
+
+    //--------------------------------------------------------------
+    // 3) ADX valida tendência sequencialmente
+    //    BUY: tendência bull (DI+>DI-) e DI+ acima do ADX
+    //    SELL: tendência bear (DI->DI+) e DI- acima do ADX
+    //--------------------------------------------------------------
+    if(raw_signal == 1)
+    {
+        if(!(adx_trending && adx_bullish))
+            return 0; // sem tendência bull suficiente
+        if(!adx_strong_bull)
+            return 0; // DI+ não está acima da linha ADX
+    }
+    else if(raw_signal == -1)
+    {
+        if(!(adx_trending && adx_bearish))
+            return 0; // sem tendência bear suficiente
+        if(!adx_strong_bear)
+            return 0; // DI- não está acima da linha ADX
+    }
+
+    //--------------------------------------------------------------
+    // 4) MFI valida fluxo sequencialmente
+    //    BUY: verde e não extremamente sobrecomprado
+    //    SELL: vermelho e não extremamente sobrevendido
+    //--------------------------------------------------------------
+    if(raw_signal == 1)
+    {
+        if(!mfi_green)
+            return 0; // MFI não está verde, fluxo não favorece compra
+
+        // Exemplo de checagem de "sobrecomprado" via valor MFI (zona alta)
+        if(mfi_val > Inp_MFI_LatEnd)
+        {
+            // MFI muito alto (acima da zona lateral superior), opcionalmente filtrar
+            // Neste exemplo, mantemos apenas como proteção leve, então não cancelamos sempre
+            // Poderia ser: if(mfi_val > 80.0) return 0;
+        }
+    }
+    else if(raw_signal == -1)
+    {
+        if(!mfi_red)
+            return 0; // MFI não está vermelho, fluxo não favorece venda
+
+        if(mfi_val < Inp_MFI_LatStart)
+        {
+            // MFI muito baixo (abaixo da zona lateral inferior), mesma ideia do BUY
+            // Poderia ser endurecido se desejar.
+        }
+    }
+
+    //--------------------------------------------------------------
+    // 5) Controle de reentrada / cooldown
+    //--------------------------------------------------------------
+    if(raw_signal == 1 && !can_buy)
+        return 0;
+    if(raw_signal == -1 && !can_sell)
+        return 0;
+
+    //--------------------------------------------------------------
+    // 6) Se chegou aqui, o sinal sequencial (FGM -> RSI -> ADX -> MFI)
+    //    foi validado. Dispara BUY ou SELL.
+    //--------------------------------------------------------------
+    if(raw_signal == 1)
+    {
+        PrintFormat("[SIGNAL BUY] %s | Close=%.2f | FGM=ABOVE_ALL+FAN RSI=%.1f/%.1f(BULL) | ADX=%.1f(STRONG BULL) DI+=%.1f DI-=%.1f | MFI=%d(%.1f, GREEN)",
                     TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
-                    close_price, adx_curr, mfi_color, rsi_val, rsi_ma);
-        
+                    close_price,
+                    rsi_val, rsi_ma,
+                    adx_curr, adx_di_plus, adx_di_minus,
+                    mfi_color, mfi_val);
+
         PrintFormat("   EMAs: %.2f / %.2f / %.2f / %.2f / %.2f",
                     m_buf_fgm_ema1[shift], m_buf_fgm_ema2[shift], m_buf_fgm_ema3[shift],
                     m_buf_fgm_ema4[shift], m_buf_fgm_ema5[shift]);
-        
-        m_last_entry_time = current_bar_time;
+
+        m_last_entry_time      = current_bar_time;
         m_last_entry_direction = 1;
         return 1;
     }
-    
-    // SELL Logic
-    bool sell_fgm_ok     = (price_below_all_emas && emas_fanned_bear);
-    bool sell_adx_ok     = (adx_trending && adx_bearish && adx_strong_bear);
-    bool sell_mfi_ok     = mfi_red;
-    bool sell_rsi_ok     = (rsi_bearish && rsi_not_oversold);
-    
-    bool can_sell = (m_last_entry_direction != -1 || bars_since_entry > 10);
-    
-    if(sell_fgm_ok && sell_adx_ok && sell_mfi_ok && sell_rsi_ok && can_sell)
+
+    if(raw_signal == -1)
     {
-        PrintFormat("[SIGNAL SELL] %s | Close=%.2f | EMAs=BELOW_ALL+FANNED ADX=%.1f(BEAR+STRONG) MFI=%d RSI=%.1f/%.1f",
+        PrintFormat("[SIGNAL SELL] %s | Close=%.2f | FGM=BELOW_ALL+FAN RSI=%.1f/%.1f(BEAR) | ADX=%.1f(STRONG BEAR) DI+=%.1f DI-=%.1f | MFI=%d(%.1f, RED)",
                     TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
-                    close_price, adx_curr, mfi_color, rsi_val, rsi_ma);
-        
+                    close_price,
+                    rsi_val, rsi_ma,
+                    adx_curr, adx_di_plus, adx_di_minus,
+                    mfi_color, mfi_val);
+
         PrintFormat("   EMAs: %.2f / %.2f / %.2f / %.2f / %.2f",
                     m_buf_fgm_ema1[shift], m_buf_fgm_ema2[shift], m_buf_fgm_ema3[shift],
                     m_buf_fgm_ema4[shift], m_buf_fgm_ema5[shift]);
-        
-        m_last_entry_time = current_bar_time;
+
+        m_last_entry_time      = current_bar_time;
         m_last_entry_direction = -1;
         return -1;
     }
-    
+
     return 0;
 }
