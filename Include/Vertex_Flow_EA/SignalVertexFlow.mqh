@@ -86,7 +86,7 @@ CSignalVertexFlow::~CSignalVertexFlow()
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::Init()
 {
-    Print("Vertex Flow Signal Init - ADXW_Cloud mapping: 0=ADX, 3=DI+, 2=DI-");
+    Print("Vertex Flow Signal Init - ADXW_Cloud mapping CORRIGIDO: 0=ADX, 2=DI+, 3=DI-");
     
     //--- Initialize FGM Indicator
     m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\FGM_Indicator",
@@ -181,10 +181,10 @@ bool CSignalVertexFlow::UpdateBuffers()
     if(CopyBuffer(m_handle_rsi, 0, 0, count, m_buf_rsi_val) < count) return false;
     if(CopyBuffer(m_handle_rsi, 1, 0, count, m_buf_rsi_ma) < count) return false;
 
-    // ADXW_Cloud mapping real: 0=ADX, 3=DI+, 2=DI-
+    // ADXW_Cloud mapping CORRIGIDO: 0=ADX, 2=DI+, 3=DI-
     if(CopyBuffer(m_handle_adx, 0, 0, count, m_buf_adx) < count) return false;         // ADX (linha azul)
-    if(CopyBuffer(m_handle_adx, 3, 0, count, m_buf_adx_di_plus) < count) return false; // DI+ line (verde)
-    if(CopyBuffer(m_handle_adx, 2, 0, count, m_buf_adx_di_minus) < count) return false;// DI- line (vermelha)
+    if(CopyBuffer(m_handle_adx, 2, 0, count, m_buf_adx_di_plus) < count) return false; // DI+ line (verde)
+    if(CopyBuffer(m_handle_adx, 3, 0, count, m_buf_adx_di_minus) < count) return false;// DI- line (vermelha)
 
     return true;
 }
@@ -297,12 +297,20 @@ int CSignalVertexFlow::GetSignal()
 
     //--------------------------------------------------------------
     // 1) FGM gera o sinal bruto (direção principal)
+    //    FLEXIBILIZADO: Preço abaixo/acima de todas EMAs + ADX direção
+    //    OU fan perfeito
     //--------------------------------------------------------------
     int raw_signal = 0; // 1=BUY, -1=SELL, 0=NENHUM
 
+    // Sinal forte: preço além de todas EMAs + fan alinhado
     if(price_above_all_emas && emas_fanned_bull)
         raw_signal = 1;
     else if(price_below_all_emas && emas_fanned_bear)
+        raw_signal = -1;
+    // Sinal moderado: preço além de todas EMAs + ADX confirma direção
+    else if(price_above_all_emas && adx_bullish)
+        raw_signal = 1;
+    else if(price_below_all_emas && adx_bearish)
         raw_signal = -1;
 
     if(raw_signal == 0)
@@ -330,22 +338,18 @@ int CSignalVertexFlow::GetSignal()
 
     //--------------------------------------------------------------
     // 3) ADX valida tendência sequencialmente
-    //    BUY: tendência bull (DI+>DI-) e DI+ acima do ADX
-    //    SELL: tendência bear (DI->DI+) e DI- acima do ADX
+    //    FLEXIBILIZADO: Foca na DIREÇÃO (DI+ vs DI-)
+    //    Não exige mais ADX >= MinTrend nem DI > ADX
     //--------------------------------------------------------------
     if(raw_signal == 1)
     {
-        if(!(adx_trending && adx_bullish))
-            return 0; // sem tendência bull suficiente
-        if(!adx_strong_bull)
-            return 0; // DI+ não está acima da linha ADX
+        if(!adx_bullish)
+            return 0; // DI+ não está acima de DI-
     }
     else if(raw_signal == -1)
     {
-        if(!(adx_trending && adx_bearish))
-            return 0; // sem tendência bear suficiente
-        if(!adx_strong_bear)
-            return 0; // DI- não está acima da linha ADX
+        if(!adx_bearish)
+            return 0; // DI- não está acima de DI+
     }
 
     //--------------------------------------------------------------
