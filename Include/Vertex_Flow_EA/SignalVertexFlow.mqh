@@ -275,20 +275,23 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_bearish        = (rsi_val < rsi_ma); // vermelha abaixo da azul
     bool rsi_not_overbought = (rsi_val < 75.0);
     bool rsi_not_oversold   = (rsi_val > 25.0);
+    
+    // Pré-calcular filtro ADX combinado para debug
+    bool adx_combo_ok = (adx_trending && di_spread >= 3.0) || (adx_curr >= 15.0 && di_spread >= 6.0);
 
     // Debug principal
-    PrintFormat("[DEBUG] %s | Close=%.2f | PriceAboveEMAs=%s PriceBelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f) RSI=%.1f/%.1f(%s) | ADX=%.1f(%s) DI+=%.1f DI-=%.1f Spread=%.1f(%s) | Dir=%s",
+    PrintFormat("[DEBUG] %s | Close=%.2f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f) RSI=%.1f/%.1f(%s) | ADX=%.1f DI+=%.1f DI-=%.1f Spread=%.1f | Filter=%s Dir=%s",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                 close_price,
-                price_above_all_emas ? "YES" : "NO",
-                price_below_all_emas ? "YES" : "NO",
-                emas_fanned_bull ? "YES" : "NO",
-                emas_fanned_bear ? "YES" : "NO",
+                price_above_all_emas ? "Y" : "N",
+                price_below_all_emas ? "Y" : "N",
+                emas_fanned_bull ? "Y" : "N",
+                emas_fanned_bear ? "Y" : "N",
                 mfi_color, mfi_val,
                 rsi_val, rsi_ma, rsi_bullish ? "BULL" : "BEAR",
-                adx_curr, adx_trending ? "TREND" : "LATERAL",
-                adx_di_plus, adx_di_minus, di_spread, di_spread_ok ? "OK" : "WEAK",
-                adx_bullish ? "BULL" : (adx_bearish ? "BEAR" : "NEUTRAL"));
+                adx_curr, adx_di_plus, adx_di_minus, di_spread,
+                adx_combo_ok ? "PASS" : "FAIL",
+                adx_bullish ? "BULL" : (adx_bearish ? "BEAR" : "NEUT"));
 
     // Controle de reentrada
     datetime current_bar_time = iTime(_Symbol, _Period, 0);
@@ -341,19 +344,28 @@ int CSignalVertexFlow::GetSignal()
 
     //--------------------------------------------------------------
     // 3) ADX valida tendência sequencialmente
-    //    Exige: ADX >= MinTrend + DI correto + Spread mínimo
+    //    Lógica COMBINADA: ADX trending OU Spread forte
+    //    - Se ADX >= MinTrend E Spread >= 3 → OK
+    //    - Se ADX >= 15 E Spread >= 6 → OK (spread forte compensa ADX fraco)
     //--------------------------------------------------------------
     
-    // Primeiro: verificar se há tendência mínima E spread suficiente
-    if(!adx_trending)
+    // Lógica combinada: spread forte pode compensar ADX mais fraco
+    bool adx_filter_ok = false;
+    
+    if(adx_trending && di_spread >= 3.0)
     {
-        // ADX abaixo do mínimo = mercado lateral, cancela sinal
-        return 0;
+        // Caso ideal: ADX em tendência + spread razoável
+        adx_filter_ok = true;
+    }
+    else if(adx_curr >= 15.0 && di_spread >= 6.0)
+    {
+        // Caso alternativo: ADX moderado + spread forte
+        adx_filter_ok = true;
     }
     
-    if(!di_spread_ok)
+    if(!adx_filter_ok)
     {
-        // DI+ e DI- muito próximos = mercado indeciso, cancela sinal
+        // Nem tendência+spread razoável, nem ADX moderado+spread forte
         return 0;
     }
     
