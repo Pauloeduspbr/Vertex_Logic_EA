@@ -278,11 +278,14 @@ int CSignalVertexFlow::GetSignal()
     bool mfi_allows_sell = (mfi_red   && !mfi_neutral && mfi_val < 50.0);
 
     // RSI Logic
-    double rsi_val = m_buf_rsi_val[shift];
-    double rsi_ma  = m_buf_rsi_ma[shift];
+    double rsi_val      = m_buf_rsi_val[shift];
+    double rsi_ma       = m_buf_rsi_ma[shift];
+    double rsi_val_prev = m_buf_rsi_val[shift + 1];
+    double rsi_ma_prev  = m_buf_rsi_ma[shift + 1];
 
     bool rsi_bullish        = (rsi_val > rsi_ma);
     bool rsi_bearish        = (rsi_val < rsi_ma);
+    bool rsi_bearish_prev   = (rsi_val_prev < rsi_ma_prev);
     
     // RSI ZONAS EXTREMAS - Não entrar em reversão
     bool rsi_not_overbought = (rsi_val < 70.0);  // Mais rigoroso (era 75)
@@ -412,11 +415,12 @@ int CSignalVertexFlow::GetSignal()
             return 0;
         }
 
-        // SELL: e obrigatoriamente RSI abaixo da média (linha vermelha abaixo da azul)
-        if(!rsi_bearish)
+        // SELL: RSI abaixo da média (linha vermelha abaixo da azul) em DUAS barras consecutivas
+        // (atual e anterior) para evitar vender exatamente no cruzamento visual
+        if(!(rsi_bearish && rsi_bearish_prev))
         {
-            PrintFormat("[BLOCKED] RSI comprador (linha vermelha acima da azul) - Bloqueando SELL | RSI=%.1f MA=%.1f",
-                        rsi_val, rsi_ma);
+            PrintFormat("[BLOCKED] RSI comprador / cruzamento recente - Bloqueando SELL | RSI=%.1f MA=%.1f (prev=%.1f / %.1f)",
+                        rsi_val, rsi_ma, rsi_val_prev, rsi_ma_prev);
             return 0;
         }
     }
