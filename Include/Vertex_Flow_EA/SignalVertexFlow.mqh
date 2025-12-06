@@ -386,6 +386,7 @@ int CSignalVertexFlow::GetSignal()
     //--------------------------------------------------------------
     if(raw_signal == 1)
     {
+        // BUY: apenas faixa saudável 45-65
         if(!rsi_healthy_buy)
         {
             PrintFormat("[BLOCKED] RSI=%.1f fora da zona saudável para BUY (45-65)", rsi_val);
@@ -394,11 +395,20 @@ int CSignalVertexFlow::GetSignal()
     }
     else if(raw_signal == -1)
     {
+        // SELL: precisa estar na faixa saudável
         if(!rsi_healthy_sell)
         {
             double rsi_min = strong_downtrend ? 25.0 : 35.0;
             double rsi_max = strong_downtrend ? 60.0 : 55.0;
             PrintFormat("[BLOCKED] RSI=%.1f fora da zona saudável para SELL (%.1f-%.1f)", rsi_val, rsi_min, rsi_max);
+            return 0;
+        }
+
+        // SELL: e obrigatoriamente RSI abaixo da média (linha vermelha abaixo da azul)
+        if(!rsi_bearish)
+        {
+            PrintFormat("[BLOCKED] RSI comprador (linha vermelha acima da azul) - Bloqueando SELL | RSI=%.1f MA=%.1f",
+                        rsi_val, rsi_ma);
             return 0;
         }
     }
