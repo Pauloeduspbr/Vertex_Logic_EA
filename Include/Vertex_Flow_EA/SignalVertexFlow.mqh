@@ -263,9 +263,9 @@ int CSignalVertexFlow::GetSignal()
     double di_spread = MathAbs(adx_di_plus - adx_di_minus);
     bool di_spread_ok = (di_spread >= 5.0);  // Mínimo 5 pontos de diferença
 
-    // MFI Logic
-    bool mfi_green = (mfi_color == 0); // fluxo de compra
-    bool mfi_red   = (mfi_color == 1); // fluxo de venda
+    // MFI Logic - INVERTIDO: 0=vermelho(venda), 1=verde(compra), 2=neutro
+    bool mfi_green = (mfi_color == 1); // fluxo de compra
+    bool mfi_red   = (mfi_color == 0); // fluxo de venda
 
     // RSI Logic (linha vermelha = valor, linha azul = média)
     double rsi_val = m_buf_rsi_val[shift];
@@ -277,7 +277,7 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_not_oversold   = (rsi_val > 25.0);
     
     // Pré-calcular filtro ADX combinado para debug
-    bool adx_combo_ok = (adx_trending && di_spread >= 3.0) || (adx_curr >= 15.0 && di_spread >= 6.0);
+    bool adx_combo_ok = (adx_trending && di_spread >= 2.0) || (adx_curr >= 12.0 && di_spread >= 4.0);
 
     // Debug principal
     PrintFormat("[DEBUG] %s | Close=%.2f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f) RSI=%.1f/%.1f(%s) | ADX=%.1f DI+=%.1f DI-=%.1f Spread=%.1f | Filter=%s Dir=%s",
@@ -323,21 +323,25 @@ int CSignalVertexFlow::GetSignal()
         return 0; // sem sinal FGM, não há operação
 
     //--------------------------------------------------------------
-    // 2) RSI valida sequencialmente
-    //    BUY: vermelha acima da azul E não sobrecomprado
-    //    SELL: vermelha abaixo da azul E não sobrevendido
+    // 2) RSI valida sequencialmente (FLEXIBILIZADO)
+    //    BUY: vermelha acima da azul OU RSI em zona bullish (>50) E não sobrecomprado
+    //    SELL: vermelha abaixo da azul OU RSI em zona bearish (<50) E não sobrevendido
     //--------------------------------------------------------------
     if(raw_signal == 1)
     {
-        if(!rsi_bullish)
-            return 0; // linha vermelha não está acima da azul
+        // Para BUY: RSI bullish OU RSI acima de 50 (tendência de alta)
+        bool rsi_ok_buy = rsi_bullish || (rsi_val > 50.0);
+        if(!rsi_ok_buy)
+            return 0; // RSI não favorece compra
         if(!rsi_not_overbought)
             return 0; // RSI sobrecomprado, cancela BUY
     }
     else if(raw_signal == -1)
     {
-        if(!rsi_bearish)
-            return 0; // linha vermelha não está abaixo da azul
+        // Para SELL: RSI bearish OU RSI abaixo de 50 (tendência de baixa)
+        bool rsi_ok_sell = rsi_bearish || (rsi_val < 50.0);
+        if(!rsi_ok_sell)
+            return 0; // RSI não favorece venda
         if(!rsi_not_oversold)
             return 0; // RSI sobrevendido, cancela SELL
     }
@@ -345,21 +349,21 @@ int CSignalVertexFlow::GetSignal()
     //--------------------------------------------------------------
     // 3) ADX valida tendência sequencialmente
     //    Lógica COMBINADA: ADX trending OU Spread forte
-    //    - Se ADX >= MinTrend E Spread >= 3 → OK
-    //    - Se ADX >= 15 E Spread >= 6 → OK (spread forte compensa ADX fraco)
+    //    - Se ADX >= MinTrend E Spread >= 2 → OK
+    //    - Se ADX >= 12 E Spread >= 4 → OK (spread forte compensa ADX fraco)
     //--------------------------------------------------------------
     
     // Lógica combinada: spread forte pode compensar ADX mais fraco
     bool adx_filter_ok = false;
     
-    if(adx_trending && di_spread >= 3.0)
+    if(adx_trending && di_spread >= 2.0)
     {
-        // Caso ideal: ADX em tendência + spread razoável
+        // Caso ideal: ADX em tendência + spread mínimo
         adx_filter_ok = true;
     }
-    else if(adx_curr >= 15.0 && di_spread >= 6.0)
+    else if(adx_curr >= 12.0 && di_spread >= 4.0)
     {
-        // Caso alternativo: ADX moderado + spread forte
+        // Caso alternativo: ADX moderado + spread bom
         adx_filter_ok = true;
     }
     
