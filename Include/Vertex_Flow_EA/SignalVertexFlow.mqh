@@ -13,13 +13,13 @@ private:
     int            m_handle_rsi;
     int            m_handle_adx;
     
-    //--- Buffers for reading - FGM EMAs (5 linhas) + dados
-    double         m_buf_fgm_ema1[];   // Buffer 0: EMA mais rápida (14)
-    double         m_buf_fgm_ema2[];   // Buffer 1: EMA (26)
-    double         m_buf_fgm_ema3[];   // Buffer 2: EMA (50)
-    double         m_buf_fgm_ema4[];   // Buffer 3: EMA (100)
-    double         m_buf_fgm_ema5[];   // Buffer 4: EMA mais lenta (200)
-    double         m_buf_fgm_phase[];  // Buffer 7: Fase do mercado
+    //--- Buffers for reading - FGM EMAs (5 lines) + data
+    double         m_buf_fgm_ema1[];   // Buffer 0: EMA 14
+    double         m_buf_fgm_ema2[];   // Buffer 1: EMA 26
+    double         m_buf_fgm_ema3[];   // Buffer 2: EMA 50
+    double         m_buf_fgm_ema4[];   // Buffer 3: EMA 100
+    double         m_buf_fgm_ema5[];   // Buffer 4: EMA 200
+    double         m_buf_fgm_phase[];  // Buffer 7: Phase
     
     //--- Buffers MFI, RSI, ADX
     double         m_buf_mfi_color[];
@@ -27,14 +27,15 @@ private:
     double         m_buf_rsi_val[];
     double         m_buf_rsi_ma[];
     double         m_buf_adx[];
-    // NEW BUFFERS
-    double         m_buf_adx_di_plus[];
-    double         m_buf_adx_di_minus[];
     
-    //--- Controle de re-entrada
+    //--- NEW BUFFERS FOR ADX DIRECTION
+    double         m_buf_adx_di_plus[];  // Buffer 0: DI+
+    double         m_buf_adx_di_minus[]; // Buffer 1: DI-
+    
+    //--- Re-entry control
     datetime       m_last_entry_time;
     int            m_last_entry_direction; // 1=buy, -1=sell, 0=none
-    datetime       m_last_bar_processed;   // Última barra processada (evita duplicatas)
+    datetime       m_last_bar_processed;   // Last processed bar
     
 public:
     CSignalVertexFlow();
@@ -85,22 +86,22 @@ CSignalVertexFlow::~CSignalVertexFlow()
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::Init()
 {
-    Print("Vertex Flow Signal Init - Version with ADX DI Check");
+    Print("Vertex Flow Signal Init - Version with ADX DI Check (Clean Write)");
+    
     //--- Initialize FGM Indicator
-    // CORREÇÃO: Removido o parâmetro extra, pois o indicador foi corrigido (input group removido)
     m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\FGM_Indicator",
-                           Inp_FGM_Period1,  // InpPeriod1
-                           Inp_FGM_Period2,  // InpPeriod2
-                           Inp_FGM_Period3,  // InpPeriod3
-                           Inp_FGM_Period4,  // InpPeriod4
-                           Inp_FGM_Period5,  // InpPeriod5
-                           Inp_FGM_Price,    // InpAppliedPrice
-                           Inp_FGM_Cross,    // InpPrimaryCross
-                           1,                // InpSecondaryCross (default)
-                           1,                // InpCustomCross1 (default)
-                           2,                // InpCustomCross2 (default)
-                           Inp_FGM_Mode,     // InpSignalMode
-                           Inp_FGM_MinStr    // InpMinStrength
+                           Inp_FGM_Period1,
+                           Inp_FGM_Period2,
+                           Inp_FGM_Period3,
+                           Inp_FGM_Period4,
+                           Inp_FGM_Period5,
+                           Inp_FGM_Price,
+                           Inp_FGM_Cross,
+                           1,
+                           1,
+                           2,
+                           Inp_FGM_Mode,
+                           Inp_FGM_MinStr
                            );
                            
     if(m_handle_fgm == INVALID_HANDLE) { Print("Failed to create FGM handle"); return false; }
@@ -108,34 +109,30 @@ bool CSignalVertexFlow::Init()
     //--- Initialize Enhanced MFI
     m_handle_mfi = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\EnhancedMFI",
                            Inp_MFI_Period,
-                           13, // BullsBearsPeriod
-                           5, // VolumePeriod
+                           13,
+                           5,
                            Inp_MFI_LatStart,
                            Inp_MFI_LatEnd,
                            Inp_MFI_VolType,
-                           1.2 // VolumeFactor
+                           1.2
                            );
                            
     if(m_handle_mfi == INVALID_HANDLE) { Print("Failed to create MFI handle"); return false; }
 
     //--- Initialize RSIOMA v2
-    // Último parâmetro (ShowLevels) EM TRUE para exibir os níveis 70/30 no gráfico
-    // Isso permite visualizar claramente o filtro de nível (acima/abaixo de 50) usado pelo EA.
     m_handle_rsi = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\RSIOMA_v2HHLSX_MT5",
                            Inp_RSI_Period,
                            Inp_RSI_MAPeriod,
                            Inp_RSI_MAMethod,
-                           70.0, 30.0, true // Levels
+                           70.0, 30.0, true
                            );
                            
     if(m_handle_rsi == INVALID_HANDLE) { Print("Failed to create RSIOMA handle"); return false; }
 
     //--- Initialize ADXW Cloud
-    // Assuming filename is ADXW_Cloud.mq5 based on "ADXW Cloud 1.0" title
-    // Parameters from image: Period, ADXR Level, BullColor, BearColor, Transparency
     m_handle_adx = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\ADXW_Cloud",
                            Inp_ADX_Period,
-                           Inp_ADX_MinTrend, // Using MinTrend as the ADXR Level input for the indicator
+                           Inp_ADX_MinTrend,
                            clrLightGreen,
                            clrHotPink,
                            80
@@ -153,7 +150,7 @@ bool CSignalVertexFlow::UpdateBuffers()
 {
     int count = 3;
 
-    // Configurar arrays como séries
+    // Set arrays as series
     ArraySetAsSeries(m_buf_fgm_ema1, true);
     ArraySetAsSeries(m_buf_fgm_ema2, true);
     ArraySetAsSeries(m_buf_fgm_ema3, true);
@@ -168,7 +165,7 @@ bool CSignalVertexFlow::UpdateBuffers()
     ArraySetAsSeries(m_buf_adx_di_plus, true);
     ArraySetAsSeries(m_buf_adx_di_minus, true);
 
-    // FGM: Buffers 0-4 = EMAs, Buffer 7 = Phase
+    // FGM
     if(CopyBuffer(m_handle_fgm, 0, 0, count, m_buf_fgm_ema1) < count) return false;
     if(CopyBuffer(m_handle_fgm, 1, 0, count, m_buf_fgm_ema2) < count) return false;
     if(CopyBuffer(m_handle_fgm, 2, 0, count, m_buf_fgm_ema3) < count) return false;
@@ -193,7 +190,7 @@ bool CSignalVertexFlow::UpdateBuffers()
 }
 
 //+------------------------------------------------------------------+
-//| Verifica se o preço está ACIMA de todas as 5 EMAs do FGM        |
+//| Check if price is above all EMAs                                 |
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::IsPriceAboveAllEMAs(int shift, double price)
 {
@@ -205,7 +202,7 @@ bool CSignalVertexFlow::IsPriceAboveAllEMAs(int shift, double price)
 }
 
 //+------------------------------------------------------------------+
-//| Verifica se o preço está ABAIXO de todas as 5 EMAs do FGM       |
+//| Check if price is below all EMAs                                 |
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::IsPriceBelowAllEMAs(int shift, double price)
 {
@@ -224,57 +221,29 @@ int CSignalVertexFlow::GetSignal()
     if(!UpdateBuffers())
         return 0;
 
-    //==========================================================================
-    // CONTROLE CRÍTICO: Só processar UMA VEZ por barra FECHADA
-    // Usamos a barra shift=1 (última fechada), então verificamos se já processamos
-    // a barra que AGORA está em shift=1
-    //==========================================================================
-    datetime closed_bar_time = iTime(_Symbol, _Period, 1);  // Tempo da barra FECHADA
+    datetime closed_bar_time = iTime(_Symbol, _Period, 1);
     
     if(m_last_bar_processed == closed_bar_time)
-        return 0;  // Já processamos esta barra
+        return 0;
     
     m_last_bar_processed = closed_bar_time;
 
-    // Analisamos a última barra FECHADA (shift=1)
     int shift = 1;
     
-    //==========================================================================
-    // ESTRATÉGIA SIMPLIFICADA:
-    //
-    // INDICADOR PRINCIPAL: FGM (5 EMAs)
-    // - BUY:  Candle FECHA ACIMA de TODAS as 5 EMAs
-    // - SELL: Candle FECHA ABAIXO de TODAS as 5 EMAs
-    //
-    // FILTROS DE CONFIRMAÇÃO (todos devem concordar):
-    // 1. ADX > 20 (existe tendência, não está lateralizado)
-    // 2. MFI: Verde(0) para BUY, Vermelho(1) para SELL
-    // 3. RSI > MA para BUY, RSI < MA para SELL
-    //
-    // SEM TRIGGERS - se condições estão OK, ENTRA!
-    //==========================================================================
-    
-    //--- Obter preço de fechamento da barra
     double close_price = iClose(_Symbol, _Period, shift);
     
-    //--- Leitura dos indicadores
+    // Read Indicators
     int mfi_color = (int)m_buf_mfi_color[shift];
     double mfi_val = m_buf_mfi_val[shift];
     double adx_curr = m_buf_adx[shift];
     double adx_di_plus = m_buf_adx_di_plus[shift];
     double adx_di_minus = m_buf_adx_di_minus[shift];
     
-    //==========================================================================
-    // CONDIÇÃO PRINCIPAL DO FGM: Preço vs EMAs + ALINHAMENTO (FAN)
-    //==========================================================================
+    // FGM Logic
     bool price_above_all_emas = IsPriceAboveAllEMAs(shift, close_price);
     bool price_below_all_emas = IsPriceBelowAllEMAs(shift, close_price);
     
-    //--- FILTRO DE TENDÊNCIA E ALINHAMENTO (FAN)
-    // Para evitar entradas em mercados "embolados" ou contra a tendência maior:
-    // BUY:  EMA1 > EMA2 > EMA3 (Curto prazo forte) E EMA3 > EMA5 (Médio prazo acima do Longo)
-    // SELL: EMA1 < EMA2 < EMA3 (Curto prazo forte) E EMA3 < EMA5 (Médio prazo abaixo do Longo)
-    
+    // Fan Logic
     bool emas_fanned_bull = (m_buf_fgm_ema1[shift] > m_buf_fgm_ema2[shift] && 
                              m_buf_fgm_ema2[shift] > m_buf_fgm_ema3[shift] &&
                              m_buf_fgm_ema3[shift] > m_buf_fgm_ema5[shift]);
@@ -283,32 +252,25 @@ int CSignalVertexFlow::GetSignal()
                              m_buf_fgm_ema2[shift] < m_buf_fgm_ema3[shift] &&
                              m_buf_fgm_ema3[shift] < m_buf_fgm_ema5[shift]);
     
-    //==========================================================================
-    // FILTROS DE CONFIRMAÇÃO
-    //==========================================================================
-    
-    //--- ADX: Deve indicar tendência (não lateralizado) E DIREÇÃO CORRETA
+    // ADX Logic
     bool adx_trending = (adx_curr >= Inp_ADX_MinTrend);
     bool adx_bullish  = (adx_di_plus > adx_di_minus);
     bool adx_bearish  = (adx_di_minus > adx_di_plus);
     
-    //--- MFI: Verde=compra, Vermelho=venda, Amarelo=neutro
+    // MFI Logic
     bool mfi_green = (mfi_color == 0);
     bool mfi_red   = (mfi_color == 1);
     
-    //--- RSI: Acima da MA = alta, Abaixo da MA = baixa
+    // RSI Logic
+    double rsi_val = m_buf_rsi_val[shift];
+    double rsi_ma = m_buf_rsi_ma[shift];
+    
     bool rsi_bullish = (rsi_val > rsi_ma);
     bool rsi_bearish = (rsi_val < rsi_ma);
     
-    //--- FILTRO DE EXAUSTÃO (RSI): Evita comprar no topo ou vender no fundo
-    // Se RSI > 75, o mercado está esticado demais para comprar (perigo de reversão)
-    // Se RSI < 25, o mercado está esticado demais para vender
     bool rsi_not_overbought = (rsi_val < 75.0);
     bool rsi_not_oversold   = (rsi_val > 25.0);
     
-    //==========================================================================
-    // DEBUG LOG
-    //==========================================================================
     PrintFormat("[DEBUG] %s | Close=%.2f | PriceAboveEMAs=%s PriceBelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f) RSI=%.1f/%.1f(%s) | ADX=%.1f(%s) DI+=%.1f DI-=%.1f",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                 close_price,
@@ -321,22 +283,12 @@ int CSignalVertexFlow::GetSignal()
                 adx_curr, adx_trending ? "TREND" : "LATERAL",
                 adx_di_plus, adx_di_minus);
     
-    //==========================================================================
-    // LÓGICA DE BUY
-    //==========================================================================
-    // ESTRATÉGIA SIMPLIFICADA:
-    // 1. Preço ACIMA de TODAS as 5 EMAs (tendência de alta confirmada)
-    // 2. EMAs Alinhadas (Fan Bullish: 1>2>3 e 3>5)
-    // 3. ADX > 20 (existe tendência) E DI+ > DI- (Tendência é de ALTA)
-    // 4. MFI verde (volume comprando)
-    // 5. RSI acima da sua MA (momento altista) E não sobrecomprado (>75)
-    
+    // BUY Logic
     bool buy_fgm_ok     = (price_above_all_emas && emas_fanned_bull);
     bool buy_adx_ok     = (adx_trending && adx_bullish);
     bool buy_mfi_ok     = mfi_green;
     bool buy_rsi_ok     = (rsi_bullish && rsi_not_overbought);
     
-    // Evitar re-entrada na mesma direção muito rápido (mínimo 10 barras = 50 min)
     datetime current_bar_time = iTime(_Symbol, _Period, 0);
     int bars_since_entry = (m_last_entry_time > 0) ? 
                            (int)((current_bar_time - m_last_entry_time) / PeriodSeconds(_Period)) : 999;
@@ -357,16 +309,7 @@ int CSignalVertexFlow::GetSignal()
         return 1;
     }
     
-    //==========================================================================
-    // LÓGICA DE SELL
-    //==========================================================================
-    // ESTRATÉGIA SIMPLIFICADA:
-    // 1. Preço ABAIXO de TODAS as 5 EMAs (tendência de baixa confirmada)
-    // 2. EMAs Alinhadas (Fan Bearish: 1<2<3 e 3<5)
-    // 3. ADX > 20 (existe tendência) E DI- > DI+ (Tendência é de BAIXA)
-    // 4. MFI vermelho (volume vendendo)
-    // 5. RSI abaixo da sua MA (momento baixista) E não sobrevendido (<25)
-    
+    // SELL Logic
     bool sell_fgm_ok     = (price_below_all_emas && emas_fanned_bear);
     bool sell_adx_ok     = (adx_trending && adx_bearish);
     bool sell_mfi_ok     = mfi_red;
