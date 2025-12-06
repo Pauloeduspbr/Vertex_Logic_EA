@@ -246,7 +246,15 @@ int CSignalVertexFlow::GetSignal()
     
     // 2) DISTÂNCIA DO PREÇO À EMA RÁPIDA - Se muito longe = entrada atrasada
     double dist_to_ema1 = MathAbs(close_price - m_buf_fgm_ema1[shift]);
-    double max_dist_to_ema = atr_val * 1.5;  // Máximo 1.5x ATR (reduzido de 3x - estava permitindo entradas muito tardias)
+
+    // Tolerância base da distância em função do ATR
+    // Em tendência forte (EMAs alinhadas e preço totalmente acima/abaixo),
+    // permitimos um pouco mais de distância para não entrar tarde demais.
+    double atr_mult_base = 1.5;     // cenário padrão
+    if((price_above_all_emas && emas_fanned_bull) || (price_below_all_emas && emas_fanned_bear))
+        atr_mult_base = 2.5;        // tendência forte: aceitar pullbacks um pouco mais distantes
+
+    double max_dist_to_ema = atr_val * atr_mult_base;
     bool price_not_too_far = (dist_to_ema1 <= max_dist_to_ema);
     
     // 3) EMA1 deve estar se movendo na direção correta (momentum)
@@ -275,7 +283,17 @@ int CSignalVertexFlow::GetSignal()
     
     // RSI zona saudável para entrada - evitar zonas extremas onde reversão é provável
     bool rsi_healthy_buy  = (rsi_val > 45.0 && rsi_val < 65.0);  // Zona saudável para BUY (max 65, não 70)
-    bool rsi_healthy_sell = (rsi_val < 55.0 && rsi_val > 40.0);  // Zona saudável para SELL (min 40, não 30 - evitar oversold)
+
+    // Para SELL usamos uma zona dinâmica:
+    //  - em tendência forte de baixa (preço abaixo de todas EMAs, EMAs em leque de baixa e MFI vermelho),
+    //    aceitamos RSI mais baixo (25-60) para não atrasar demais a entrada em tendência.
+    //  - em cenários normais, mantemos uma zona mais conservadora (35-55).
+    bool strong_downtrend = (price_below_all_emas && emas_fanned_bear && mfi_red);
+    bool rsi_healthy_sell = false;
+    if(strong_downtrend)
+        rsi_healthy_sell = (rsi_val > 25.0 && rsi_val < 60.0);
+    else
+        rsi_healthy_sell = (rsi_val > 35.0 && rsi_val < 55.0);
 
     // Debug principal
     PrintFormat("[DEBUG] %s | Close=%.0f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | EMAsprd=%.0f(%.0f-%.0f) | DistEMA1=%.0f(max%.0f) | EMA1chg=%.0f(%s) | MFI=%d[G=%s R=%s] RSI=%.1f ATR=%.0f",
@@ -363,7 +381,7 @@ int CSignalVertexFlow::GetSignal()
     {
         if(!rsi_healthy_buy)
         {
-            PrintFormat("[BLOCKED] RSI=%.1f fora da zona saudável para BUY (45-70)", rsi_val);
+            PrintFormat("[BLOCKED] RSI=%.1f fora da zona saudável para BUY (45-65)", rsi_val);
             return 0;
         }
     }
@@ -371,7 +389,9 @@ int CSignalVertexFlow::GetSignal()
     {
         if(!rsi_healthy_sell)
         {
-            PrintFormat("[BLOCKED] RSI=%.1f fora da zona saudável para SELL (30-55)", rsi_val);
+            double rsi_min = strong_downtrend ? 25.0 : 35.0;
+            double rsi_max = strong_downtrend ? 60.0 : 55.0;
+            PrintFormat("[BLOCKED] RSI=%.1f fora da zona saudável para SELL (%.1f-%.1f)", rsi_val, rsi_min, rsi_max);
             return 0;
         }
     }
