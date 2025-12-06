@@ -137,7 +137,7 @@ bool CSignalVertexFlow::Init()
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::UpdateBuffers()
 {
-    int count = 3;
+    int count = 5;  // Precisa de mais barras para calcular momentum
 
     // Set arrays as series
     ArraySetAsSeries(m_buf_fgm_ema1, true);
@@ -234,21 +234,24 @@ int CSignalVertexFlow::GetSignal()
                              m_buf_fgm_ema3[shift] < m_buf_fgm_ema5[shift]);
 
     //==========================================================
-    // NOVOS FILTROS ANTI-ENTRADA-ATRASADA E ANTI-FALSO-SINAL
+    // FILTROS ANTI-ENTRADA-ATRASADA E ANTI-FALSO-SINAL
     //==========================================================
     
     // 1) SPREAD ENTRE EMAs - Se EMAs muito próximas = mercado lateral
     double ema_spread = MathAbs(m_buf_fgm_ema1[shift] - m_buf_fgm_ema5[shift]);
-    double min_ema_spread = atr_val * 1.5;  // Mínimo 1.5x ATR de spread
+    double min_ema_spread = atr_val * 0.5;  // Mínimo 0.5x ATR de spread (era 1.5x - muito rigoroso)
     bool emas_well_spread = (ema_spread >= min_ema_spread);
     
     // 2) DISTÂNCIA DO PREÇO À EMA RÁPIDA - Se muito longe = entrada atrasada
     double dist_to_ema1 = MathAbs(close_price - m_buf_fgm_ema1[shift]);
-    double max_dist_to_ema = atr_val * 2.0;  // Máximo 2x ATR de distância
+    double max_dist_to_ema = atr_val * 3.0;  // Máximo 3x ATR de distância (era 2x - muito rigoroso)
     bool price_not_too_far = (dist_to_ema1 <= max_dist_to_ema);
     
     // 3) EMA1 deve estar se movendo na direção correta (momentum)
-    double ema1_change = m_buf_fgm_ema1[shift] - m_buf_fgm_ema1[shift+1 < 3 ? shift : 0];
+    //    Comparar EMA1 atual (shift=1) com EMA1 anterior (shift=2)
+    double ema1_curr = m_buf_fgm_ema1[shift];     // barra fechada atual
+    double ema1_prev = m_buf_fgm_ema1[shift + 1]; // barra fechada anterior
+    double ema1_change = ema1_curr - ema1_prev;
     bool ema1_rising  = (ema1_change > 0);
     bool ema1_falling = (ema1_change < 0);
 
@@ -273,7 +276,7 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_healthy_sell = (rsi_val < 55.0 && rsi_val > 30.0);  // Zona saudável para SELL
 
     // Debug principal
-    PrintFormat("[DEBUG] %s | Close=%.0f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | EMAspread=%.0f(min%.0f) | DistEMA1=%.0f(max%.0f) | MFI=%d[G=%s R=%s] RSI=%.1f(%s) ATR=%.0f",
+    PrintFormat("[DEBUG] %s | Close=%.0f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | EMAspread=%.0f(min%.0f) | DistEMA1=%.0f(max%.0f) | EMA1chg=%.0f(%s) | MFI=%d[G=%s R=%s] RSI=%.1f ATR=%.0f",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                 close_price,
                 price_above_all_emas ? "Y" : "N",
@@ -282,10 +285,11 @@ int CSignalVertexFlow::GetSignal()
                 emas_fanned_bear ? "Y" : "N",
                 ema_spread, min_ema_spread,
                 dist_to_ema1, max_dist_to_ema,
+                ema1_change, ema1_rising ? "UP" : (ema1_falling ? "DN" : "FLAT"),
                 mfi_color,
                 mfi_green ? "Y" : "N",
                 mfi_red ? "Y" : "N",
-                rsi_val, rsi_bullish ? "BULL" : "BEAR",
+                rsi_val,
                 atr_val);
 
     // Controle de reentrada
