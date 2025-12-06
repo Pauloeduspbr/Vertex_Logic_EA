@@ -265,10 +265,17 @@ int CSignalVertexFlow::GetSignal()
     bool ema1_rising  = (ema1_change > 0);
     bool ema1_falling = (ema1_change < 0);
 
-    // MFI Logic - Baseado na COR do indicador
+    // MFI Logic - Baseado na COR e no VALOR do indicador
     bool mfi_green   = (mfi_color == 0);
     bool mfi_red     = (mfi_color == 1);
     bool mfi_neutral = (mfi_color == 2);
+
+    // Regras adicionais de fluxo (50/50):
+    //  - Para COMPRAS só aceitamos quando MFI > 50
+    //  - Para VENDAS só aceitamos quando MFI < 50
+    //  - Qualquer cor AMARELA (mfi_neutral) bloqueia sinais de tendência
+    bool mfi_allows_buy  = (mfi_green && !mfi_neutral && mfi_val > 50.0);
+    bool mfi_allows_sell = (mfi_red   && !mfi_neutral && mfi_val < 50.0);
 
     // RSI Logic
     double rsi_val = m_buf_rsi_val[shift];
@@ -397,21 +404,23 @@ int CSignalVertexFlow::GetSignal()
     }
 
     //--------------------------------------------------------------
-    // 6) MFI valida fluxo
+    // 6) MFI valida fluxo (REGRA 50/50)
     //--------------------------------------------------------------
     if(raw_signal == 1)
     {
-        if(!mfi_green)
+        if(!mfi_allows_buy)
         {
-            PrintFormat("[BLOCKED] MFI não está verde - Sem fluxo comprador");
+            PrintFormat("[BLOCKED] MFI BUY bloqueado | Val=%.1f Cor=%d (requer verde e >50, sem amarelo)",
+                        mfi_val, mfi_color);
             return 0;
         }
     }
     else if(raw_signal == -1)
     {
-        if(!mfi_red)
+        if(!mfi_allows_sell)
         {
-            PrintFormat("[BLOCKED] MFI não está vermelho - Sem fluxo vendedor");
+            PrintFormat("[BLOCKED] MFI SELL bloqueado | Val=%.1f Cor=%d (requer vermelho e <50, sem amarelo)",
+                        mfi_val, mfi_color);
             return 0;
         }
     }
