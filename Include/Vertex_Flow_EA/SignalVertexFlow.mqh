@@ -237,14 +237,16 @@ int CSignalVertexFlow::GetSignal()
     // FILTROS ANTI-ENTRADA-ATRASADA E ANTI-FALSO-SINAL
     //==========================================================
     
-    // 1) SPREAD ENTRE EMAs - Se EMAs muito próximas = mercado lateral
+    // 1) SPREAD ENTRE EMAs - Se EMAs muito próximas = mercado lateral, muito espalhadas = movimento já aconteceu
     double ema_spread = MathAbs(m_buf_fgm_ema1[shift] - m_buf_fgm_ema5[shift]);
-    double min_ema_spread = atr_val * 0.5;  // Mínimo 0.5x ATR de spread (era 1.5x - muito rigoroso)
+    double min_ema_spread = atr_val * 0.5;  // Mínimo 0.5x ATR de spread
+    double max_ema_spread = atr_val * 8.0;  // Máximo 8x ATR de spread (se maior, movimento já aconteceu)
     bool emas_well_spread = (ema_spread >= min_ema_spread);
+    bool emas_not_too_spread = (ema_spread <= max_ema_spread);
     
     // 2) DISTÂNCIA DO PREÇO À EMA RÁPIDA - Se muito longe = entrada atrasada
     double dist_to_ema1 = MathAbs(close_price - m_buf_fgm_ema1[shift]);
-    double max_dist_to_ema = atr_val * 3.0;  // Máximo 3x ATR de distância (era 2x - muito rigoroso)
+    double max_dist_to_ema = atr_val * 1.5;  // Máximo 1.5x ATR (reduzido de 3x - estava permitindo entradas muito tardias)
     bool price_not_too_far = (dist_to_ema1 <= max_dist_to_ema);
     
     // 3) EMA1 deve estar se movendo na direção correta (momentum)
@@ -271,19 +273,19 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_not_overbought = (rsi_val < 70.0);  // Mais rigoroso (era 75)
     bool rsi_not_oversold   = (rsi_val > 30.0);  // Mais rigoroso (era 25)
     
-    // RSI zona saudável para entrada
-    bool rsi_healthy_buy  = (rsi_val > 45.0 && rsi_val < 70.0);  // Zona saudável para BUY
-    bool rsi_healthy_sell = (rsi_val < 55.0 && rsi_val > 30.0);  // Zona saudável para SELL
+    // RSI zona saudável para entrada - evitar zonas extremas onde reversão é provável
+    bool rsi_healthy_buy  = (rsi_val > 45.0 && rsi_val < 65.0);  // Zona saudável para BUY (max 65, não 70)
+    bool rsi_healthy_sell = (rsi_val < 55.0 && rsi_val > 40.0);  // Zona saudável para SELL (min 40, não 30 - evitar oversold)
 
     // Debug principal
-    PrintFormat("[DEBUG] %s | Close=%.0f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | EMAspread=%.0f(min%.0f) | DistEMA1=%.0f(max%.0f) | EMA1chg=%.0f(%s) | MFI=%d[G=%s R=%s] RSI=%.1f ATR=%.0f",
+    PrintFormat("[DEBUG] %s | Close=%.0f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | EMAsprd=%.0f(%.0f-%.0f) | DistEMA1=%.0f(max%.0f) | EMA1chg=%.0f(%s) | MFI=%d[G=%s R=%s] RSI=%.1f ATR=%.0f",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                 close_price,
                 price_above_all_emas ? "Y" : "N",
                 price_below_all_emas ? "Y" : "N",
                 emas_fanned_bull ? "Y" : "N",
                 emas_fanned_bear ? "Y" : "N",
-                ema_spread, min_ema_spread,
+                ema_spread, min_ema_spread, max_ema_spread,
                 dist_to_ema1, max_dist_to_ema,
                 ema1_change, ema1_rising ? "UP" : (ema1_falling ? "DN" : "FLAT"),
                 mfi_color,
@@ -319,6 +321,15 @@ int CSignalVertexFlow::GetSignal()
     if(!emas_well_spread)
     {
         PrintFormat("[BLOCKED] EMAs muito próximas (spread=%.0f < min=%.0f) - Mercado lateral", ema_spread, min_ema_spread);
+        return 0;
+    }
+    
+    //--------------------------------------------------------------
+    // 2B) FILTRO ANTI-MOVIMENTO-EXAURIDO - EMAs não podem estar muito espalhadas
+    //--------------------------------------------------------------
+    if(!emas_not_too_spread)
+    {
+        PrintFormat("[BLOCKED] EMAs muito espalhadas (spread=%.0f > max=%.0f) - Movimento já aconteceu/exaurido", ema_spread, max_ema_spread);
         return 0;
     }
 
