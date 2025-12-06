@@ -385,10 +385,6 @@ int CSignalVertexFlow::GetSignal()
         m_last_entry_time = current_bar_time;
         m_last_entry_direction = -1;
         return -1;
-    }   
-        m_last_entry_time = current_bar_time;
-        m_last_entry_direction = -1;
-        return -1;
     }
     
     return 0;
