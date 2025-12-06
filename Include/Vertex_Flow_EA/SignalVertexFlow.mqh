@@ -316,22 +316,22 @@ int CSignalVertexFlow::GetSignal()
     // LÓGICA DE BUY
     //==========================================================================
     // Condições obrigatórias:
-    // 1. Preço fechou ACIMA de TODAS as 5 EMAs do FGM
-    // 2. FGM Phase deve ser POSITIVA (+1 Weak Bull ou +2 Strong Bull)
-    // 3. ADX indica tendência (não lateralizado)
-    // 4. MFI verde (volume comprando)
-    // 5. RSI acima da sua MA (momento altista)
-    // 6. Não está em sobrecompra extrema
-    // 7. Houve um trigger recente (breakout ou MFI virou verde)
+    // 1. Preço fechou ACIMA de TODAS as 5 EMAs do FGM (PRINCIPAL!)
+    // 2. ADX indica tendência (não lateralizado)
+    // 3. MFI verde (volume comprando)
+    // 4. RSI acima da sua MA (momento altista)
+    // 5. Não está em sobrecompra extrema
+    // 6. Houve um trigger recente (breakout ou MFI virou verde)
+    //
+    // NOTA: FGM Phase NÃO é usado! Phase mede ordem das EMAs entre si,
+    // não a posição do preço. Demoraria muito para Phase mudar.
     
-    bool buy_price_ok   = price_above_all_emas;
-    bool buy_phase_ok   = (fgm_phase >= 1);  // Phase +1 (Weak Bull) ou +2 (Strong Bull)
-    bool buy_fgm_ok     = buy_price_ok && buy_phase_ok;
+    bool buy_fgm_ok     = price_above_all_emas;  // APENAS preço vs EMAs!
     bool buy_adx_ok     = adx_trending;
     bool buy_mfi_ok     = mfi_green;
     bool buy_rsi_ok     = rsi_bullish;  // Linha vermelha ACIMA da azul
     bool buy_not_extreme = (!mfi_extreme_high && !rsi_extreme_high);
-    bool buy_trigger    = (breakout_up || mfi_turned_green || phase_turned_bull);  // Breakout, MFI ou Phase mudou
+    bool buy_trigger    = (breakout_up || mfi_turned_green);  // Breakout ou MFI mudou
     
     // Evitar re-entrada na mesma direção muito rápido
     datetime current_bar_time = iTime(_Symbol, _Period, 0);
@@ -341,15 +341,14 @@ int CSignalVertexFlow::GetSignal()
     
     if(buy_fgm_ok && buy_adx_ok && buy_mfi_ok && buy_rsi_ok && buy_not_extreme && buy_trigger && can_buy)
     {
-        PrintFormat("[SIGNAL BUY] %s | Close=%.2f | Price=%s Phase=%d(%s) ADX=%s MFI=%s RSI=%s Trigger=%s",
+        PrintFormat("[SIGNAL BUY] %s | Close=%.2f | PriceVsEMAs=%s ADX=%s MFI=%s RSI=%s Trigger=%s",
                     TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                     close_price,
-                    buy_price_ok ? "OK" : "NO",
-                    fgm_phase, buy_phase_ok ? "BULL" : "NEUTRAL/BEAR",
+                    buy_fgm_ok ? "ABOVE_ALL" : "NOT_ABOVE",
                     buy_adx_ok ? "OK" : "NO",
                     buy_mfi_ok ? "OK" : "NO",
                     buy_rsi_ok ? "OK" : "NO",
-                    breakout_up ? "BREAKOUT" : (mfi_turned_green ? "MFI" : (phase_turned_bull ? "PHASE" : "UNKNOWN")));
+                    breakout_up ? "BREAKOUT" : (mfi_turned_green ? "MFI" : "CONTINUATION"));
         
         PrintFormat("   EMAs: %.2f / %.2f / %.2f / %.2f / %.2f",
                     m_buf_fgm_ema1[shift], m_buf_fgm_ema2[shift], m_buf_fgm_ema3[shift],
@@ -364,36 +363,35 @@ int CSignalVertexFlow::GetSignal()
     // LÓGICA DE SELL
     //==========================================================================
     // Condições obrigatórias:
-    // 1. Preço fechou ABAIXO de TODAS as 5 EMAs do FGM
-    // 2. FGM Phase deve ser NEGATIVA (-1 Weak Bear ou -2 Strong Bear)
-    // 3. ADX indica tendência (não lateralizado)
-    // 4. MFI vermelho (volume vendendo)
-    // 5. RSI abaixo da sua MA (momento baixista)
-    // 6. Não está em sobrevenda extrema
-    // 7. Houve um trigger recente (breakdown ou MFI virou vermelho)
+    // 1. Preço fechou ABAIXO de TODAS as 5 EMAs do FGM (PRINCIPAL!)
+    // 2. ADX indica tendência (não lateralizado)
+    // 3. MFI vermelho (volume vendendo)
+    // 4. RSI abaixo da sua MA (momento baixista)
+    // 5. Não está em sobrevenda extrema
+    // 6. Houve um trigger recente (breakdown ou MFI virou vermelho)
+    //
+    // NOTA: FGM Phase NÃO é usado! Phase mede ordem das EMAs entre si,
+    // não a posição do preço. Demoraria muito para Phase mudar.
     
-    bool sell_price_ok   = price_below_all_emas;
-    bool sell_phase_ok   = (fgm_phase <= -1);  // Phase -1 (Weak Bear) ou -2 (Strong Bear)
-    bool sell_fgm_ok     = sell_price_ok && sell_phase_ok;
+    bool sell_fgm_ok     = price_below_all_emas;  // APENAS preço vs EMAs!
     bool sell_adx_ok     = adx_trending;
     bool sell_mfi_ok     = mfi_red;
     bool sell_rsi_ok     = rsi_bearish;  // Linha vermelha ABAIXO da azul
     bool sell_not_extreme = (!mfi_extreme_low && !rsi_extreme_low);
-    bool sell_trigger    = (breakout_down || mfi_turned_red || phase_turned_bear);  // Breakdown, MFI ou Phase mudou
+    bool sell_trigger    = (breakout_down || mfi_turned_red);  // Breakdown ou MFI mudou
     
     bool can_sell = (m_last_entry_direction != -1 || bars_since_entry > 5);
     
     if(sell_fgm_ok && sell_adx_ok && sell_mfi_ok && sell_rsi_ok && sell_not_extreme && sell_trigger && can_sell)
     {
-        PrintFormat("[SIGNAL SELL] %s | Close=%.2f | Price=%s Phase=%d(%s) ADX=%s MFI=%s RSI=%s Trigger=%s",
+        PrintFormat("[SIGNAL SELL] %s | Close=%.2f | PriceVsEMAs=%s ADX=%s MFI=%s RSI=%s Trigger=%s",
                     TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                     close_price,
-                    sell_price_ok ? "OK" : "NO",
-                    fgm_phase, sell_phase_ok ? "BEAR" : "NEUTRAL/BULL",
+                    sell_fgm_ok ? "BELOW_ALL" : "NOT_BELOW",
                     sell_adx_ok ? "OK" : "NO",
                     sell_mfi_ok ? "OK" : "NO",
                     sell_rsi_ok ? "OK" : "NO",
-                    breakout_down ? "BREAKOUT" : (mfi_turned_red ? "MFI" : (phase_turned_bear ? "PHASE" : "UNKNOWN")));
+                    breakout_down ? "BREAKOUT" : (mfi_turned_red ? "MFI" : "CONTINUATION"));
         
         PrintFormat("   EMAs: %.2f / %.2f / %.2f / %.2f / %.2f",
                     m_buf_fgm_ema1[shift], m_buf_fgm_ema2[shift], m_buf_fgm_ema3[shift],
