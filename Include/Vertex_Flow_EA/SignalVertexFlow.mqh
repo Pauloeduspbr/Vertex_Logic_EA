@@ -246,6 +246,8 @@ int CSignalVertexFlow::GetSignal()
     
     // 2) DISTÂNCIA DO PREÇO À EMA RÁPIDA - Se muito longe = entrada atrasada
     double dist_to_ema1 = MathAbs(close_price - m_buf_fgm_ema1[shift]);
+    //    Desvio assinado em relação à EMA1 (positivo = preço acima da EMA, negativo = abaixo)
+    double diff_price_ema1 = close_price - m_buf_fgm_ema1[shift];
 
     // Tolerância base da distância em função do ATR
     // Em tendência forte (EMAs alinhadas e preço totalmente acima/abaixo),
@@ -421,6 +423,21 @@ int CSignalVertexFlow::GetSignal()
         {
             PrintFormat("[BLOCKED] RSI comprador / cruzamento recente - Bloqueando SELL | RSI=%.1f MA=%.1f (prev=%.1f / %.1f)",
                         rsi_val, rsi_ma, rsi_val_prev, rsi_ma_prev);
+            return 0;
+        }
+
+        //----------------------------------------------------------
+        // SELL extra: não vender quando o preço ainda está "abraçado" à EMA14
+        // ou acima dela, mesmo em tendência forte. Evita entrar no meio
+        // do pullback de alta logo após cruzamento do RSIOMA.
+        //----------------------------------------------------------
+        double tolerancia_encosto = atr_val * 0.2; // 20% do ATR como faixa de encosto
+
+        // Se o preço está acima da EMA1 OU muito colado nela, bloqueia SELL
+        if(diff_price_ema1 >= 0.0 || MathAbs(diff_price_ema1) <= tolerancia_encosto)
+        {
+            PrintFormat("[BLOCKED] Preço ainda em pullback/encostado na EMA14 - Bloqueando SELL | Close=%.0f EMA14=%.0f Diff=%.0f (tol=%.0f)",
+                        close_price, m_buf_fgm_ema1[shift], diff_price_ema1, tolerancia_encosto);
             return 0;
         }
     }
