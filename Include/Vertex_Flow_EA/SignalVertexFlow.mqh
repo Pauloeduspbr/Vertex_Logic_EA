@@ -86,7 +86,7 @@ CSignalVertexFlow::~CSignalVertexFlow()
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::Init()
 {
-    Print("Vertex Flow Signal Init - Version with ADX DI Check (Clean Write)");
+    Print("Vertex Flow Signal Init - Version with ADX DI > ADX Check");
     
     //--- Initialize FGM Indicator
     m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\FGM_Indicator",
@@ -257,6 +257,10 @@ int CSignalVertexFlow::GetSignal()
     bool adx_bullish  = (adx_di_plus > adx_di_minus);
     bool adx_bearish  = (adx_di_minus > adx_di_plus);
     
+    // NEW: Strong Direction Check (DI > ADX)
+    bool adx_strong_bull = (adx_di_plus > adx_curr);
+    bool adx_strong_bear = (adx_di_minus > adx_curr);
+    
     // MFI Logic
     bool mfi_green = (mfi_color == 0);
     bool mfi_red   = (mfi_color == 1);
@@ -271,7 +275,7 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_not_overbought = (rsi_val < 75.0);
     bool rsi_not_oversold   = (rsi_val > 25.0);
     
-    PrintFormat("[DEBUG] %s | Close=%.2f | PriceAboveEMAs=%s PriceBelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f) RSI=%.1f/%.1f(%s) | ADX=%.1f(%s) DI+=%.1f DI-=%.1f",
+    PrintFormat("[DEBUG] %s | Close=%.2f | PriceAboveEMAs=%s PriceBelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f) RSI=%.1f/%.1f(%s) | ADX=%.1f(%s) DI+=%.1f DI-=%.1f | StrongBull=%s StrongBear=%s",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                 close_price,
                 price_above_all_emas ? "YES" : "NO",
@@ -281,11 +285,13 @@ int CSignalVertexFlow::GetSignal()
                 mfi_color, mfi_val,
                 rsi_val, rsi_ma, rsi_bullish ? "BULL" : "BEAR",
                 adx_curr, adx_trending ? "TREND" : "LATERAL",
-                adx_di_plus, adx_di_minus);
+                adx_di_plus, adx_di_minus,
+                adx_strong_bull ? "YES" : "NO",
+                adx_strong_bear ? "YES" : "NO");
     
     // BUY Logic
     bool buy_fgm_ok     = (price_above_all_emas && emas_fanned_bull);
-    bool buy_adx_ok     = (adx_trending && adx_bullish);
+    bool buy_adx_ok     = (adx_trending && adx_bullish && adx_strong_bull);
     bool buy_mfi_ok     = mfi_green;
     bool buy_rsi_ok     = (rsi_bullish && rsi_not_overbought);
     
@@ -296,7 +302,7 @@ int CSignalVertexFlow::GetSignal()
     
     if(buy_fgm_ok && buy_adx_ok && buy_mfi_ok && buy_rsi_ok && can_buy)
     {
-        PrintFormat("[SIGNAL BUY] %s | Close=%.2f | EMAs=ABOVE_ALL+FANNED ADX=%.1f(BULL) MFI=%d RSI=%.1f/%.1f",
+        PrintFormat("[SIGNAL BUY] %s | Close=%.2f | EMAs=ABOVE_ALL+FANNED ADX=%.1f(BULL+STRONG) MFI=%d RSI=%.1f/%.1f",
                     TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                     close_price, adx_curr, mfi_color, rsi_val, rsi_ma);
         
@@ -311,7 +317,7 @@ int CSignalVertexFlow::GetSignal()
     
     // SELL Logic
     bool sell_fgm_ok     = (price_below_all_emas && emas_fanned_bear);
-    bool sell_adx_ok     = (adx_trending && adx_bearish);
+    bool sell_adx_ok     = (adx_trending && adx_bearish && adx_strong_bear);
     bool sell_mfi_ok     = mfi_red;
     bool sell_rsi_ok     = (rsi_bearish && rsi_not_oversold);
     
@@ -319,7 +325,7 @@ int CSignalVertexFlow::GetSignal()
     
     if(sell_fgm_ok && sell_adx_ok && sell_mfi_ok && sell_rsi_ok && can_sell)
     {
-        PrintFormat("[SIGNAL SELL] %s | Close=%.2f | EMAs=BELOW_ALL+FANNED ADX=%.1f(BEAR) MFI=%d RSI=%.1f/%.1f",
+        PrintFormat("[SIGNAL SELL] %s | Close=%.2f | EMAs=BELOW_ALL+FANNED ADX=%.1f(BEAR+STRONG) MFI=%d RSI=%.1f/%.1f",
                     TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                     close_price, adx_curr, mfi_color, rsi_val, rsi_ma);
         
