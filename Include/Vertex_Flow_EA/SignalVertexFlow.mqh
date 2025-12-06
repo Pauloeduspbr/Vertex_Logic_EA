@@ -86,7 +86,7 @@ CSignalVertexFlow::~CSignalVertexFlow()
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::Init()
 {
-    Print("Vertex Flow Signal Init - ADXW_Cloud mapping: 0=ADX, 2=DI+, 3=DI-");
+    Print("Vertex Flow Signal Init - ADXW_Cloud mapping: 0=ADX, 3=DI+, 2=DI-");
     
     //--- Initialize FGM Indicator
     m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\FGM_Indicator",
@@ -181,10 +181,10 @@ bool CSignalVertexFlow::UpdateBuffers()
     if(CopyBuffer(m_handle_rsi, 0, 0, count, m_buf_rsi_val) < count) return false;
     if(CopyBuffer(m_handle_rsi, 1, 0, count, m_buf_rsi_ma) < count) return false;
 
-    // ADXW_Cloud: 0=ADX, 2=DI+, 3=DI-
+    // ADXW_Cloud: 0=ADX, 3=DI+, 2=DI-
     if(CopyBuffer(m_handle_adx, 0, 0, count, m_buf_adx) < count) return false;         // ADX (linha azul)
-    if(CopyBuffer(m_handle_adx, 2, 0, count, m_buf_adx_di_plus) < count) return false; // DI+ line (verde)
-    if(CopyBuffer(m_handle_adx, 3, 0, count, m_buf_adx_di_minus) < count) return false;// DI- line (vermelha)
+    if(CopyBuffer(m_handle_adx, 3, 0, count, m_buf_adx_di_plus) < count) return false; // DI+ line (verde)
+    if(CopyBuffer(m_handle_adx, 2, 0, count, m_buf_adx_di_minus) < count) return false;// DI- line (vermelha)
 
     return true;
 }
@@ -263,9 +263,13 @@ int CSignalVertexFlow::GetSignal()
     double di_spread = MathAbs(adx_di_plus - adx_di_minus);
     bool di_spread_ok = (di_spread >= 5.0);  // Mínimo 5 pontos de diferença
 
-    // MFI Logic - INVERTIDO: 0=vermelho(venda), 1=verde(compra), 2=neutro
-    bool mfi_green = (mfi_color == 1); // fluxo de compra
-    bool mfi_red   = (mfi_color == 0); // fluxo de venda
+    // MFI Logic - Baseado na COR do indicador (definida por Bulls/Bears Power)
+    // Color 0 = Green = buying pressure (compra)
+    // Color 1 = Red = selling pressure (venda)
+    // Color 2 = Yellow = lateral (neutro)
+    bool mfi_green = (mfi_color == 0); // fluxo de compra
+    bool mfi_red   = (mfi_color == 1); // fluxo de venda
+    bool mfi_neutral = (mfi_color == 2); // lateral
 
     // RSI Logic (linha vermelha = valor, linha azul = média)
     double rsi_val = m_buf_rsi_val[shift];
@@ -277,10 +281,10 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_not_oversold   = (rsi_val > 25.0);
     
     // Pré-calcular filtro ADX combinado para debug
-    bool adx_combo_ok = (adx_trending && di_spread >= 2.0) || (adx_curr >= 12.0 && di_spread >= 4.0);
+    bool adx_combo_ok = adx_trending || (adx_curr >= 15.0 && di_spread >= 3.0);
 
-    // Debug principal
-    PrintFormat("[DEBUG] %s | Close=%.2f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f) RSI=%.1f/%.1f(%s) | ADX=%.1f DI+=%.1f DI-=%.1f Spread=%.1f | Filter=%s Dir=%s",
+    // Debug principal - mostrar mfi_green e mfi_red também
+    PrintFormat("[DEBUG] %s | Close=%.2f | AboveEMAs=%s BelowEMAs=%s | FanBull=%s FanBear=%s | MFI=%d(%.1f)[G=%s R=%s] RSI=%.1f/%.1f(%s) | ADX=%.1f DI+=%.1f DI-=%.1f Spread=%.1f | Filter=%s Dir=%s",
                 TimeToString(iTime(_Symbol, _Period, shift), TIME_DATE|TIME_MINUTES),
                 close_price,
                 price_above_all_emas ? "Y" : "N",
@@ -288,6 +292,8 @@ int CSignalVertexFlow::GetSignal()
                 emas_fanned_bull ? "Y" : "N",
                 emas_fanned_bear ? "Y" : "N",
                 mfi_color, mfi_val,
+                mfi_green ? "Y" : "N",
+                mfi_red ? "Y" : "N",
                 rsi_val, rsi_ma, rsi_bullish ? "BULL" : "BEAR",
                 adx_curr, adx_di_plus, adx_di_minus, di_spread,
                 adx_combo_ok ? "PASS" : "FAIL",
@@ -303,8 +309,7 @@ int CSignalVertexFlow::GetSignal()
 
     //--------------------------------------------------------------
     // 1) FGM gera o sinal bruto (direção principal)
-    //    FLEXIBILIZADO: Preço abaixo/acima de todas EMAs + ADX direção
-    //    OU fan perfeito
+    //    Preço além de todas EMAs + Fan alinhado
     //--------------------------------------------------------------
     int raw_signal = 0; // 1=BUY, -1=SELL, 0=NENHUM
 
@@ -312,11 +317,6 @@ int CSignalVertexFlow::GetSignal()
     if(price_above_all_emas && emas_fanned_bull)
         raw_signal = 1;
     else if(price_below_all_emas && emas_fanned_bear)
-        raw_signal = -1;
-    // Sinal moderado: preço além de todas EMAs + ADX confirma direção
-    else if(price_above_all_emas && adx_bullish)
-        raw_signal = 1;
-    else if(price_below_all_emas && adx_bearish)
         raw_signal = -1;
 
     if(raw_signal == 0)
@@ -347,43 +347,9 @@ int CSignalVertexFlow::GetSignal()
     }
 
     //--------------------------------------------------------------
-    // 3) ADX valida tendência sequencialmente
-    //    Lógica COMBINADA: ADX trending OU Spread forte
-    //    - Se ADX >= MinTrend E Spread >= 2 → OK
-    //    - Se ADX >= 12 E Spread >= 4 → OK (spread forte compensa ADX fraco)
+    // 3) ADX REMOVIDO - Não validar mais ADX
+    //    FGM + RSI + MFI são suficientes para gerar sinal
     //--------------------------------------------------------------
-    
-    // Lógica combinada: spread forte pode compensar ADX mais fraco
-    bool adx_filter_ok = false;
-    
-    if(adx_trending && di_spread >= 2.0)
-    {
-        // Caso ideal: ADX em tendência + spread mínimo
-        adx_filter_ok = true;
-    }
-    else if(adx_curr >= 12.0 && di_spread >= 4.0)
-    {
-        // Caso alternativo: ADX moderado + spread bom
-        adx_filter_ok = true;
-    }
-    
-    if(!adx_filter_ok)
-    {
-        // Nem tendência+spread razoável, nem ADX moderado+spread forte
-        return 0;
-    }
-    
-    // Agora validar direção do DI
-    if(raw_signal == 1)
-    {
-        if(!adx_bullish)
-            return 0; // DI+ não está acima de DI-
-    }
-    else if(raw_signal == -1)
-    {
-        if(!adx_bearish)
-            return 0; // DI- não está acima de DI+
-    }
 
     //--------------------------------------------------------------
     // 4) MFI valida fluxo sequencialmente
