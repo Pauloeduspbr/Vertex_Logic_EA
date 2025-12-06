@@ -83,8 +83,7 @@ CSignalVertexFlow::~CSignalVertexFlow()
 bool CSignalVertexFlow::Init()
 {
     //--- Initialize FGM Indicator
-    // CORREÇÃO CRÍTICA: A ordem dos parâmetros deve corresponder EXATAMENTE ao FGM_Indicator.mq5
-    // Antes estava passando Period1 duas vezes, deslocando todos os outros parâmetros!
+    // CORREÇÃO: Removido o parâmetro extra, pois o indicador foi corrigido (input group removido)
     m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\FGM_Indicator",
                            Inp_FGM_Period1,  // InpPeriod1
                            Inp_FGM_Period2,  // InpPeriod2

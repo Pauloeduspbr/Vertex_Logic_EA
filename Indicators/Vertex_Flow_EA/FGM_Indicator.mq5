@@ -79,7 +79,7 @@ enum CROSSOVER_TYPE {
 };
 
 //--- Input parameters
-input group "===== EMA Periods Configuration ====="
+//===== EMA Periods Configuration =====
 input int              InpPeriod1   = 5;      // EMA 1 Period (Fastest)
 input int              InpPeriod2   = 8;      // EMA 2 Period (Fast)
 input int              InpPeriod3   = 21;     // EMA 3 Period (Medium)
@@ -87,26 +87,26 @@ input int              InpPeriod4   = 50;     // EMA 4 Period (Slow)
 input int              InpPeriod5   = 200;    // EMA 5 Period (Slowest)
 input ENUM_APPLIED_PRICE InpAppliedPrice = PRICE_CLOSE; // Applied Price
 
-input group "===== Crossover Configuration ====="
+//===== Crossover Configuration =====
 input CROSSOVER_TYPE   InpPrimaryCross = CROSS_EMA1_EMA2;    // Primary Crossover Signal
 input CROSSOVER_TYPE   InpSecondaryCross = CROSS_EMA2_EMA3;  // Secondary Confirmation
 input int              InpCustomCross1 = 1;   // Custom Cross EMA Index 1 (1-5)
 input int              InpCustomCross2 = 2;   // Custom Cross EMA Index 2 (1-5)
 
-input group "===== Signal Configuration ====="
+//===== Signal Configuration =====
 input SIGNAL_MODE      InpSignalMode = MODE_MODERATE;  // Signal Mode
 input int              InpMinStrength = 3;             // Minimum Strength Required (1-5)
 input double           InpConfluenceThreshold = 50.0;  // Min Confluence Level (0-100%)
 input bool             InpRequireConfluence = false;   // Require Confluence Filter
 
-input group "===== ATR Configuration ====="
+//===== ATR Configuration =====
 input int              InpATRPeriod = 14;              // ATR Period for Confluence
 input double           InpATRMultiplier1 = 0.5;        // ATR Multiplier for Max Confluence
 input double           InpATRMultiplier2 = 1.0;        // ATR Multiplier for High Confluence
 input double           InpATRMultiplier3 = 2.0;        // ATR Multiplier for Med Confluence
 input double           InpATRMultiplier4 = 3.0;        // ATR Multiplier for Low Confluence
 
-input group "===== Visual Settings ====="
+//===== Visual Settings =====
 input bool             InpShowArrows = true;           // Show Signal Arrows
 input int              InpArrowDistance = 10;          // Arrow Distance (points)
 input bool             InpShowEMA1 = true;             // Show EMA 1
@@ -115,21 +115,21 @@ input bool             InpShowEMA3 = true;             // Show EMA 3
 input bool             InpShowEMA4 = true;             // Show EMA 4
 input bool             InpShowEMA5 = true;             // Show EMA 5
 
-input group "===== Alert Configuration ====="
+//===== Alert Configuration =====
 input bool             InpEnableAlerts = true;         // Enable Popup Alerts
 input bool             InpEnablePush = false;          // Enable Push Notifications
 input bool             InpEnableEmail = false;         // Enable Email Alerts
 input bool             InpAlertOnBarClose = true;      // Alert Only on Bar Close
 input int              InpAlertCooldown = 5;           // Alert Cooldown (bars)
 
-input group "===== Display Options ====="
+//===== Display Options =====
 input bool             InpShowEMAValues = true;        // Show EMA Values in Alert
 input bool             InpShowPriceValue = true;       // Show Price in Alert
 input bool             InpShowMarketPhase = true;      // Show Market Phase
 input bool             InpShowConfluence = true;       // Show Confluence Level
 input bool             InpShowStrength = true;         // Show Signal Strength
 
-input group "===== Position Sizing Configuration ====="
+//===== Position Sizing Configuration =====
 input double           InpPosSize1Star = 0.25;         // Position Size for 1-Star Signal
 input double           InpPosSize2Star = 0.50;         // Position Size for 2-Star Signal
 input double           InpPosSize3Star = 1.00;         // Position Size for 3-Star Signal
