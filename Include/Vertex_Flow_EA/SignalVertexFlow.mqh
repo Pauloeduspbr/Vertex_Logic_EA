@@ -404,6 +404,14 @@ int CSignalVertexFlow::GetSignal()
             return 0;
         }
 
+        // SELL extra: proteger contra venda com RSI ainda muito alto (respirando pra cima)
+        if(rsi_val >= 50.0)
+        {
+            PrintFormat("[BLOCKED] RSI acima de 50 - Bloqueando SELL de proteção | RSI=%.1f MA=%.1f",
+                        rsi_val, rsi_ma);
+            return 0;
+        }
+
         // SELL: e obrigatoriamente RSI abaixo da média (linha vermelha abaixo da azul)
         if(!rsi_bearish)
         {
