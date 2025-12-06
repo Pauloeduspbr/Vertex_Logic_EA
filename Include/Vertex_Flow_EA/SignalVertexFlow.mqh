@@ -27,8 +27,9 @@ private:
     double         m_buf_rsi_val[];
     double         m_buf_rsi_ma[];
     double         m_buf_adx[];
-    double         m_buf_adx_di_plus[];  // Buffer 0: DI+
-    double         m_buf_adx_di_minus[]; // Buffer 1: DI-
+    // NEW BUFFERS
+    double         m_buf_adx_di_plus[];
+    double         m_buf_adx_di_minus[];
     
     //--- Controle de re-entrada
     datetime       m_last_entry_time;
@@ -84,6 +85,7 @@ CSignalVertexFlow::~CSignalVertexFlow()
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::Init()
 {
+    Print("Vertex Flow Signal Init - Version with ADX DI Check");
     //--- Initialize FGM Indicator
     // CORREÇÃO: Removido o parâmetro extra, pois o indicador foi corrigido (input group removido)
     m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\FGM_Indicator",
