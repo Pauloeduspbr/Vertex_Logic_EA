@@ -86,7 +86,7 @@ CSignalVertexFlow::~CSignalVertexFlow()
 //+------------------------------------------------------------------+
 bool CSignalVertexFlow::Init()
 {
-    Print("Vertex Flow Signal Init - Version with Corrected ADX Buffers (0=ADX, 1=DI+, 2=DI-)");
+    Print("Vertex Flow Signal Init - ADXW_Cloud mapping: 0=ADX, 3=DI+, 2=DI-");
     
     //--- Initialize FGM Indicator
     m_handle_fgm = iCustom(_Symbol, _Period, "Vertex_Flow_EA\\FGM_Indicator",
@@ -181,10 +181,10 @@ bool CSignalVertexFlow::UpdateBuffers()
     if(CopyBuffer(m_handle_rsi, 0, 0, count, m_buf_rsi_val) < count) return false;
     if(CopyBuffer(m_handle_rsi, 1, 0, count, m_buf_rsi_ma) < count) return false;
 
-    // ADX (Buffer 0=ADX, 1=+DI, 2=-DI) - Corrected Mapping
-    if(CopyBuffer(m_handle_adx, 0, 0, count, m_buf_adx) < count) return false;
-    if(CopyBuffer(m_handle_adx, 1, 0, count, m_buf_adx_di_plus) < count) return false;
-    if(CopyBuffer(m_handle_adx, 2, 0, count, m_buf_adx_di_minus) < count) return false;
+    // ADXW_Cloud mapping real: 0=ADX, 3=DI+, 2=DI-
+    if(CopyBuffer(m_handle_adx, 0, 0, count, m_buf_adx) < count) return false;         // ADX (linha azul)
+    if(CopyBuffer(m_handle_adx, 3, 0, count, m_buf_adx_di_plus) < count) return false; // DI+ line (verde)
+    if(CopyBuffer(m_handle_adx, 2, 0, count, m_buf_adx_di_minus) < count) return false;// DI- line (vermelha)
 
     return true;
 }
