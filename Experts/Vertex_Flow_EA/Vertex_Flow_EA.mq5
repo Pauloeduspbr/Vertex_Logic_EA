@@ -53,12 +53,12 @@ int OnInit()
     if(!ChartIndicatorAdd(chart_id, 1, g_signal.GetHandleRSI()))
         Print("Failed to attach RSIOMA to chart");
         
-    // ADX (Subwindow 2)
-    if(!ChartIndicatorAdd(chart_id, 2, g_signal.GetHandleADX()))
-        Print("Failed to attach ADX to chart");
+    // ADX REMOVIDO da lógica de sinal - mantido apenas para visualização opcional
+    // if(!ChartIndicatorAdd(chart_id, 2, g_signal.GetHandleADX()))
+    //     Print("Failed to attach ADX to chart");
         
-    // Enhanced MFI (Subwindow 3)
-    if(!ChartIndicatorAdd(chart_id, 3, g_signal.GetHandleMFI()))
+    // Enhanced MFI (Subwindow 2 - era 3)
+    if(!ChartIndicatorAdd(chart_id, 2, g_signal.GetHandleMFI()))
         Print("Failed to attach Enhanced MFI to chart");
         
     Print("Vertex Flow EA Initialized Successfully");
