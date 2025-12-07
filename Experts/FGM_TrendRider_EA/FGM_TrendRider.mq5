@@ -443,31 +443,54 @@ void ProcessSignals()
       return;
    }
    
+   //--- DEBUG: Log valores lidos do indicador
+   g_Stats.LogDebug(StringFormat("FGM Data: Strength=%.0f, Entry=%.0f, Confluence=%.1f%%", 
+                                 fgmData.strength, fgmData.entry, fgmData.confluence));
+   
+   //--- Verificar sinal de entrada PRIMEIRO (antes dos outros filtros)
+   double entrySignal = fgmData.entry;
+   if(entrySignal == 0)
+   {
+      // Não logar para cada barra sem sinal - muito spam
+      return;
+   }
+   
+   //--- Log sinal detectado
+   g_Stats.LogNormal(StringFormat("Sinal detectado! Entry=%.0f, Strength=%.0f, Confluence=%.1f%%",
+                                  entrySignal, fgmData.strength, fgmData.confluence));
+   
    //--- Verificar força mínima do sinal
    int signalStrength = (int)fgmData.strength;
    if(signalStrength < Inp_MinStrength)
    {
-      g_Stats.LogDebug(StringFormat("Força insuficiente: F%d (mín: F%d)", 
+      g_Stats.LogNormal(StringFormat("Força insuficiente: F%d (mín: F%d)", 
                                     signalStrength, Inp_MinStrength));
       return;
    }
    
-   //--- Verificar confluência mínima
+   //--- Verificar confluência
+   //--- NOTA: No indicador FGM, confluência BAIXA = EMAs separadas = tendência FORTE
+   //--- Confluência ALTA = EMAs comprimidas = mercado lateral
+   //--- Para sinais de tendência (F4-F5), baixa confluência é DESEJÁVEL
    double confluence = fgmData.confluence;
-   if(confluence < Inp_MinConfluence)
+   
+   //--- Para sinais fortes (F4-F5), aceitar baixa confluência (EMAs separadas = tendência)
+   //--- Para sinais médios (F3), requer confluência moderada (filtro de qualidade)
+   double requiredConfluence = Inp_MinConfluence;
+   if(signalStrength >= 5)
+      requiredConfluence = 0;  // F5: não requer confluência mínima (tendência forte confirmada)
+   else if(signalStrength >= 4)
+      requiredConfluence = MathMin(Inp_MinConfluence, 25.0);  // F4: confluência reduzida
+   
+   if(confluence < requiredConfluence)
    {
-      g_Stats.LogDebug(StringFormat("Confluência insuficiente: %.1f%% (mín: %.1f%%)",
-                                    confluence, Inp_MinConfluence));
+      g_Stats.LogNormal(StringFormat("Confluência insuficiente para F%d: %.1f%% (mín: %.1f%%)",
+                                    signalStrength, confluence, requiredConfluence));
       return;
    }
    
-   //--- Verificar sinal de entrada
-   double entrySignal = fgmData.entry;
-   if(entrySignal == 0)
-   {
-      g_Stats.LogDebug("Sem sinal de entrada");
-      return;
-   }
+   g_Stats.LogNormal(StringFormat("Sinal aprovado! F%d, Confluência=%.1f%% (req: %.1f%%)",
+                                  signalStrength, confluence, requiredConfluence));
    
    //--- Determinar direção
    bool isBuy = (entrySignal > 0);
