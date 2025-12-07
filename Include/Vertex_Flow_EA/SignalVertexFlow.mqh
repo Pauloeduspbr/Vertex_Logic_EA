@@ -244,7 +244,7 @@ int CSignalVertexFlow::GetSignal()
     
     // 1) SPREAD ENTRE EMAs - Se EMAs muito próximas = mercado lateral, muito espalhadas = movimento já aconteceu
     double ema_spread = MathAbs(m_buf_fgm_ema1[shift] - m_buf_fgm_ema5[shift]);
-    double min_ema_spread = atr_val * 1.0;  // AUMENTADO: Mínimo 1.0x ATR (evita chop)
+    double min_ema_spread = atr_val * 1.5;  // AUMENTADO: Mínimo 1.5x ATR (era 1.0) - Mais rigoroso contra lateralização
     double max_ema_spread = atr_val * 8.0;  // Máximo 8x ATR de spread (se maior, movimento já aconteceu)
     bool emas_well_spread = (ema_spread >= min_ema_spread);
     bool emas_not_too_spread = (ema_spread <= max_ema_spread);
@@ -271,6 +271,10 @@ int CSignalVertexFlow::GetSignal()
     double ema1_change = ema1_curr - ema1_prev;
     bool ema1_rising  = (ema1_change > 0);
     bool ema1_falling = (ema1_change < 0);
+    
+    // NEW: Minimum Momentum (Slope) - Evita entrar quando a EMA está "flat"
+    double min_momentum = atr_val * 0.25; // Requer inclinação mínima de 0.25 ATR
+    bool has_momentum = (MathAbs(ema1_change) >= min_momentum);
 
     // MFI Logic - Baseado na COR e no VALOR do indicador
     bool mfi_green   = (mfi_color == 0);
@@ -409,6 +413,13 @@ int CSignalVertexFlow::GetSignal()
     if(raw_signal == -1 && !ema1_falling)
     {
         PrintFormat("[BLOCKED] EMA1 não está caindo - Sem momentum de baixa");
+        return 0;
+    }
+    
+    // 4B) FILTRO DE INCLINAÇÃO (SLOPE) - Evita mercados flat
+    if(!has_momentum)
+    {
+        PrintFormat("[BLOCKED] EMA1 muito flat (chg=%.2f < min=%.2f) - Sem momentum real", ema1_change, min_momentum);
         return 0;
     }
 
