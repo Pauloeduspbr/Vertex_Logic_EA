@@ -282,8 +282,8 @@ void CFilters::SetDefaultConfig()
    //    Estes valores trabalham EM CONJUNTO com os inputs do EA (Inp_MaxConf_F3/F4/F5)
    //    para evitar entradas em mercado lateral (EMAs muito comprimidas).
    m_config.confluenceMaxF3 = 60.0;   // até 60% para F3
-   m_config.confluenceMaxF4 = 100.0;  // liberado para F4
-   m_config.confluenceMaxF5 = 100.0;  // liberado para F5
+   m_config.confluenceMaxF4 = 60.0;   // até 60% para F4 (evita entradas em 100% de confluência)
+   m_config.confluenceMaxF5 = 100.0;  // F5 liberado (sinais muito fortes)
    
    //--- Fase
    m_config.phaseFilterActive = true;
