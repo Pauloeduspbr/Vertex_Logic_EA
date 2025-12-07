@@ -219,6 +219,7 @@ int CSignalVertexFlow::GetSignal()
 
     int shift = 1;
     double close_price = iClose(_Symbol, _Period, shift);
+    double open_price  = iOpen(_Symbol, _Period, shift); // Necessário para filtro de cor do candle
 
     // Read Indicators on closed bar (shift=1)
     int    mfi_color = (int)m_buf_mfi_color[shift];
@@ -243,7 +244,7 @@ int CSignalVertexFlow::GetSignal()
     
     // 1) SPREAD ENTRE EMAs - Se EMAs muito próximas = mercado lateral, muito espalhadas = movimento já aconteceu
     double ema_spread = MathAbs(m_buf_fgm_ema1[shift] - m_buf_fgm_ema5[shift]);
-    double min_ema_spread = atr_val * 0.5;  // Mínimo 0.5x ATR de spread
+    double min_ema_spread = atr_val * 1.0;  // AUMENTADO: Mínimo 1.0x ATR (evita chop)
     double max_ema_spread = atr_val * 8.0;  // Máximo 8x ATR de spread (se maior, movimento já aconteceu)
     bool emas_well_spread = (ema_spread >= min_ema_spread);
     bool emas_not_too_spread = (ema_spread <= max_ema_spread);
@@ -255,10 +256,10 @@ int CSignalVertexFlow::GetSignal()
 
     // Tolerância base da distância em função do ATR
     // Em tendência forte (EMAs alinhadas e preço totalmente acima/abaixo),
-    // permitimos um pouco mais de distância para não entrar tarde demais.
-    double atr_mult_base = 1.5;     // cenário padrão
+    // permitimos um pouco mais de distância, mas REDUZIMOS para evitar comprar topo.
+    double atr_mult_base = 1.2;     // REDUZIDO: cenário padrão (era 1.5)
     if((price_above_all_emas && emas_fanned_bull) || (price_below_all_emas && emas_fanned_bear))
-        atr_mult_base = 2.5;        // tendência forte: aceitar pullbacks um pouco mais distantes
+        atr_mult_base = 2.0;        // REDUZIDO: tendência forte (era 2.5)
 
     double max_dist_to_ema = atr_val * atr_mult_base;
     bool price_not_too_far = (dist_to_ema1 <= max_dist_to_ema);
@@ -307,17 +308,17 @@ int CSignalVertexFlow::GetSignal()
     bool rsi_not_overbought = (rsi_val < 70.0);  // Mais rigoroso (era 75)
     bool rsi_not_oversold   = (rsi_val > 30.0);  // Mais rigoroso (era 25)
     
-    // RSI zona saudável para entrada - evitar zonas extremas onde reversão é provável
-    bool rsi_healthy_buy  = (rsi_val > 45.0 && rsi_val < 65.0);  // Zona saudável para BUY (max 65, não 70)
+    // RSI zona saudável para entrada - AJUSTE CONSERVADOR (Sniper)
+    // Voltamos a ser mais exigentes, mas aceitando levemente mais que o original para não perder tudo.
+    bool rsi_healthy_buy  = (rsi_val > 45.0 && rsi_val < 68.0);  // 45-68 (Original era 45-65, anterior 40-70)
 
-    // Para SELL usamos uma zona dinâmica:
-    //  - em tendência forte de baixa (preço abaixo de todas EMAs, EMAs em leque de baixa e MFI vermelho),
-    //    aceitamos RSI mais baixo (25-60) para não atrasar demais a entrada em tendência.
-    //  - em cenários normais, mantemos uma zona mais conservadora (35-55).
+    // Para SELL:
     bool strong_downtrend = (price_below_all_emas && emas_fanned_bear && mfi_red);
     bool rsi_healthy_sell = false;
+    
+    // Se tendência forte, aceita até 60 (pullback). Se normal, até 55.
     if(strong_downtrend)
-        rsi_healthy_sell = (rsi_val > 25.0 && rsi_val < 60.0);
+        rsi_healthy_sell = (rsi_val > 30.0 && rsi_val < 60.0); 
     else
         rsi_healthy_sell = (rsi_val > 35.0 && rsi_val < 55.0);
 
@@ -398,6 +399,8 @@ int CSignalVertexFlow::GetSignal()
     //--------------------------------------------------------------
     // 4) FILTRO DE MOMENTUM - EMA1 deve estar se movendo na direção do trade
     //--------------------------------------------------------------
+    // 4) FILTRO DE MOMENTUM - EMA1 deve estar se movendo na direção do trade
+    //--------------------------------------------------------------
     if(raw_signal == 1 && !ema1_rising)
     {
         PrintFormat("[BLOCKED] EMA1 não está subindo - Sem momentum de alta");
@@ -410,6 +413,20 @@ int CSignalVertexFlow::GetSignal()
     }
 
     //--------------------------------------------------------------
+    // 4B) FILTRO DE PRICE ACTION (CANDLE COLOR) - Anti-Sinal Falso
+    //--------------------------------------------------------------
+    // Não comprar se o candle de sinal for negativo (pavio superior grande ou reversão)
+    if(raw_signal == 1 && close_price < open_price)
+    {
+        PrintFormat("[BLOCKED] Candle de sinal é de BAIXA (Close < Open) - Aguardando força compradora");
+        return 0;
+    }
+    // Não vender se o candle de sinal for positivo
+    if(raw_signal == -1 && close_price > open_price)
+    {
+        PrintFormat("[BLOCKED] Candle de sinal é de ALTA (Close > Open) - Aguardando força vendedora");
+        return 0;
+    }/--------------------------------------------------------------
     // 5) RSI valida - MAIS RIGOROSO
     //--------------------------------------------------------------
     if(raw_signal == 1)
@@ -439,13 +456,13 @@ int CSignalVertexFlow::GetSignal()
             double rsi_max = strong_downtrend ? 60.0 : 55.0;
             PrintFormat("[BLOCKED] RSI=%.1f fora da zona saudável para SELL (%.1f-%.1f)", rsi_val, rsi_min, rsi_max);
             return 0;
-        }
-
-        // SELL extra: proteger contra venda com RSI ainda muito alto (respirando pra cima)
-        if(rsi_val >= 50.0)
+        // SELL extra: proteger contra venda com RSI EXTREMAMENTE alto
+        // RELAXADO: Só bloqueia se RSI > 60 (permitir pullbacks até a zona neutra/alta)
+        if(rsi_val >= 60.0)
         {
-            PrintFormat("[BLOCKED] RSI acima de 50 - Bloqueando SELL de proteção | RSI=%.1f MA=%.1f",
-                        rsi_val, rsi_ma);
+            PrintFormat("[BLOCKED] RSI muito alto (>60) - Bloqueando SELL | RSI=%.1f", rsi_val);
+            return 0;
+        }               rsi_val, rsi_ma);
             return 0;
         }
 
