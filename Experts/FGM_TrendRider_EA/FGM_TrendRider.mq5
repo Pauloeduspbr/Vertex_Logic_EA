@@ -513,9 +513,11 @@ void ProcessSignals()
    FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength);
    if(!filterResult.passed)
    {
-      g_Stats.LogDebug(StringFormat("Filtro bloqueou: %s", filterResult.failReason));
+      g_Stats.LogNormal(StringFormat("FILTRO BLOQUEOU: %s", filterResult.failReason));
       return;
    }
+   
+   g_Stats.LogNormal("Todos os filtros passaram - Preparando ordem...");
    
    //--- Detectar regime de mercado
    ENUM_MARKET_REGIME regime = REGIME_TRENDING;
