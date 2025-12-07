@@ -102,7 +102,7 @@ input double   Inp_TP3_Percent     = 20.0;             // TP3: Percentual do vol
 input group "═══════════════ BREAK-EVEN ═══════════════"
 input bool     Inp_UseBE           = true;             // Usar Break-Even
 input int      Inp_BE_Trigger      = 100;              // Trigger BE (pontos de lucro)
-input int      Inp_BE_Offset       = 10;               // Offset após BE (pontos)
+input int      Inp_BE_Offset       = 10;               // Offset proteção spread (pontos)
 
 //--- Trailing Stop
 input group "═══════════════ TRAILING STOP ═══════════════"
@@ -181,6 +181,11 @@ double            g_positionSL = 0;
 double            g_positionVolume = 0;
 ENUM_POSITION_TYPE g_positionType;
 int               g_partialCloseStep = 0; // 0=nenhum, 1=TP1 fechado, 2=TP2 fechado
+
+//--- Tracking de Break-Even e Trailing Stop
+bool              g_beExecuted = false;           // BE foi executado (apenas uma vez)
+double            g_lastTrailingPrice = 0;        // Último preço onde TS foi movido
+double            g_trailingSL = 0;               // Último SL do trailing
 
 //--- Tracking para evitar múltiplas entradas na mesma tendência
 int               g_lastTrendDirection = 0;   // +1=compra, -1=venda, 0=neutro
@@ -712,6 +717,11 @@ void ProcessSignals()
       g_partialCloseStep = 0;
       g_todayTrades++;
       
+      //--- Reset variáveis de BE e Trailing para nova posição
+      g_beExecuted = false;
+      g_lastTrailingPrice = 0;
+      g_trailingSL = 0;
+      
       //--- Atualizar tracking de tendência para evitar múltiplas entradas
       //--- Crossover direto reseta o tracking (nova tendência)
       //--- Entrada por tendência estabelecida marca a direção
@@ -775,14 +785,14 @@ void ManagePosition()
       ManageTripleExit(profitPoints, currentPrice);
    }
    
-   //--- Break-Even
-   if(Inp_UseBE && g_partialCloseStep >= 1) // Após TP1
+   //--- Break-Even (ativado apenas UMA vez, independente de TP1)
+   if(Inp_UseBE && !g_beExecuted)
    {
       ManageBreakEven(profitPoints, currentPrice);
    }
    
-   //--- Trailing Stop
-   if(Inp_UseTrailing && g_partialCloseStep >= 2) // Após TP2
+   //--- Trailing Stop (só atua APÓS BE ser executado)
+   if(Inp_UseTrailing && g_beExecuted)
    {
       ManageTrailingStop(profitPoints, currentPrice);
    }
@@ -872,28 +882,91 @@ void ManageTripleExit(double profitPoints, double currentPrice)
 
 //+------------------------------------------------------------------+
 //| Gerenciar Break-Even                                             |
+//| REGRAS:                                                          |
+//| 1. BE é ativado APENAS UMA VEZ por trade                         |
+//| 2. Move SL para Ask (compra) ou Bid (venda) + offset spread      |
+//| 3. Após executar, NÃO atua mais no trade                         |
 //+------------------------------------------------------------------+
 void ManageBreakEven(double profitPoints, double currentPrice)
 {
-   //--- Verificar se já está em BE
-   if(g_TradeEngine.IsBEActivated())
+   //--- SE JÁ EXECUTOU BE, NÃO FAZER MAIS NADA
+   if(g_beExecuted)
       return;
    
    //--- Mover para BE se trigger atingido
    if(profitPoints >= Inp_BE_Trigger)
    {
-      if(g_TradeEngine.MoveToBreakeven(Inp_BE_Offset))
+      double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
+      double offsetPoints = Inp_BE_Offset * point;
+      double newSL = 0;
+      
+      if(g_positionType == POSITION_TYPE_BUY)
       {
-         g_Stats.LogNormal("Break-Even ativado");
+         //--- Para COMPRA: SL = Ask atual + offset (protege spread)
+         //--- Usamos Ask porque se o mercado cair, queremos sair no Ask
+         double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+         newSL = g_positionOpenPrice + offsetPoints;  // Preço de entrada + offset (garante lucro mínimo)
+         
+         //--- Garantir que novo SL é melhor que o atual
+         if(g_positionSL > 0 && newSL <= g_positionSL)
+         {
+            g_Stats.LogDebug("BE: Novo SL não é melhor que atual para compra");
+            return;
+         }
+      }
+      else
+      {
+         //--- Para VENDA: SL = Bid atual - offset (protege spread)
+         //--- Usamos Bid porque se o mercado subir, queremos sair no Bid
+         double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+         newSL = g_positionOpenPrice - offsetPoints;  // Preço de entrada - offset (garante lucro mínimo)
+         
+         //--- Garantir que novo SL é melhor que o atual
+         if(g_positionSL > 0 && newSL >= g_positionSL)
+         {
+            g_Stats.LogDebug("BE: Novo SL não é melhor que atual para venda");
+            return;
+         }
+      }
+      
+      //--- Normalizar SL
+      newSL = NormalizeDouble(newSL, _Digits);
+      
+      //--- Executar modificação diretamente
+      TradeResult result = g_TradeEngine.ModifySL(newSL);
+      
+      if(result.success)
+      {
+         g_beExecuted = true;  // MARCA QUE BE FOI EXECUTADO - NÃO ATUA MAIS
+         g_positionSL = newSL;
+         g_trailingSL = newSL;  // Inicializa trailing a partir do BE
+         g_lastTrailingPrice = currentPrice;  // Marca preço onde BE foi ativado
+         g_TradeEngine.SetBEActivated(true);
+         
+         g_Stats.LogNormal(StringFormat("Break-Even EXECUTADO (único): SL movido para %.2f (offset: %d pts)", 
+                                        newSL, Inp_BE_Offset));
       }
    }
 }
 
 //+------------------------------------------------------------------+
 //| Gerenciar Trailing Stop                                          |
+//| REGRAS:                                                          |
+//| 1. Só atua APÓS proteção do lucro (BE ativado)                   |
+//| 2. SL só é alterado quando preço está A FAVOR da tendência       |
+//| 3. Quando preço faz correção/recuo, o passo é PAUSADO            |
+//| 4. SL NUNCA é movido para trás (apenas para melhorar posição)    |
 //+------------------------------------------------------------------+
 void ManageTrailingStop(double profitPoints, double currentPrice)
 {
+   //--- REGRA 1: Só atua se BE foi executado (proteção do lucro garantida)
+   if(!g_beExecuted)
+   {
+      g_Stats.LogDebug("Trailing: Aguardando BE ser executado");
+      return;
+   }
+   
+   //--- Verificar se atingiu trigger mínimo
    if(profitPoints < Inp_Trail_Trigger)
       return;
    
@@ -901,9 +974,68 @@ void ManageTrailingStop(double profitPoints, double currentPrice)
    double distance = Inp_Trail_Distance * point;
    double step = Inp_Trail_Step * point;
    
-   if(g_TradeEngine.TrailingByFixed(distance, step))
+   //--- REGRA 2 e 3: Verificar se preço está avançando A FAVOR da tendência
+   //--- Para COMPRA: preço atual deve ser MAIOR que último preço de referência
+   //--- Para VENDA: preço atual deve ser MENOR que último preço de referência
+   //--- Se preço está recuando (correção), NÃO mover SL - PAUSAR
+   
+   bool priceAdvancing = false;
+   
+   if(g_positionType == POSITION_TYPE_BUY)
    {
-      g_Stats.LogDebug("Trailing Stop atualizado");
+      //--- COMPRA: preço avançando = preço subindo acima do último ponto
+      priceAdvancing = (currentPrice > g_lastTrailingPrice + step);
+   }
+   else
+   {
+      //--- VENDA: preço avançando = preço caindo abaixo do último ponto  
+      priceAdvancing = (currentPrice < g_lastTrailingPrice - step);
+   }
+   
+   //--- Se preço não está avançando, PAUSAR trailing (não fazer nada)
+   if(!priceAdvancing)
+   {
+      return;  // PAUSA - preço em correção ou estável
+   }
+   
+   //--- Calcular novo SL baseado no preço atual
+   double newSL = 0;
+   
+   if(g_positionType == POSITION_TYPE_BUY)
+   {
+      //--- COMPRA: SL = preço atual - distância
+      newSL = currentPrice - distance;
+      
+      //--- REGRA 4: SL só pode SUBIR (melhorar posição)
+      //--- Se novo SL não é melhor que atual, não fazer nada
+      if(newSL <= g_trailingSL)
+         return;
+   }
+   else
+   {
+      //--- VENDA: SL = preço atual + distância
+      newSL = currentPrice + distance;
+      
+      //--- REGRA 4: SL só pode DESCER (melhorar posição)
+      //--- Se novo SL não é melhor que atual, não fazer nada
+      if(newSL >= g_trailingSL)
+         return;
+   }
+   
+   //--- Normalizar SL
+   newSL = NormalizeDouble(newSL, _Digits);
+   
+   //--- Executar modificação
+   TradeResult result = g_TradeEngine.ModifySL(newSL);
+   
+   if(result.success)
+   {
+      g_trailingSL = newSL;
+      g_lastTrailingPrice = currentPrice;  // Atualiza ponto de referência
+      g_positionSL = newSL;
+      
+      g_Stats.LogDebug(StringFormat("Trailing Stop movido: SL=%.2f | Preço=%.2f | Dist=%d pts", 
+                                    newSL, currentPrice, Inp_Trail_Distance));
    }
 }
 
@@ -982,6 +1114,11 @@ void OnPositionClosed()
    g_positionOpenPrice = 0;
    g_positionSL = 0;
    g_positionVolume = 0;
+   
+   //--- Reset variáveis de BE e Trailing
+   g_beExecuted = false;
+   g_lastTrailingPrice = 0;
+   g_trailingSL = 0;
    
    g_Stats.LogNormal(StringFormat("Posição fechada - Lucro: %.2f | Razão: %s", 
                                   lastProfit, closeReason));
