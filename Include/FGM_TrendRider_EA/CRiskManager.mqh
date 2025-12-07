@@ -29,6 +29,9 @@ struct RiskParams
    
    //--- Stop Loss
    int      slMode;               // 0=Fixed, 1=ATR, 2=Swing, 3=Hybrid
+   int      slFixedPoints;        // SL fixo em pontos (NOVO!)
+   int      slMinPoints;          // SL mínimo em pontos (NOVO!)
+   int      slMaxPoints;          // SL máximo em pontos (NOVO!)
    double   slATRMult;            // Multiplicador ATR normal
    double   slATRMultVolatile;    // Multiplicador ATR em regime volátil
    double   slBufferATR;          // Buffer adicional (fração do ATR)
@@ -218,7 +221,10 @@ CRiskManager::CRiskManager()
    m_params.maxLotWIN = 50;
    m_params.maxLotWDO = 20;
    m_params.maxLotForex = 1.0;
-   m_params.slMode = 3; // Hybrid
+   m_params.slMode = 0; // Fixed por padrão (respeitando input do usuário)
+   m_params.slFixedPoints = 150;
+   m_params.slMinPoints = 50;
+   m_params.slMaxPoints = 500;
    m_params.slATRMult = 1.5;
    m_params.slATRMultVolatile = 2.0;
    m_params.slBufferATR = 0.3;
@@ -454,8 +460,8 @@ double CRiskManager::CalculateSLPoints(bool isBuy, bool isVolatile = false)
    
    switch(m_params.slMode)
    {
-      case 0: // Fixed
-         slPoints = (m_asset.GetSLMin() + m_asset.GetSLMax()) / 2.0;
+      case 0: // Fixed - USA O VALOR DO INPUT DIRETAMENTE
+         slPoints = (double)m_params.slFixedPoints;
          break;
          
       case 1: // ATR
@@ -484,15 +490,39 @@ double CRiskManager::CalculateSLPoints(bool isBuy, bool isVolatile = false)
          }
          break;
          
-      case 3: // Hybrid (recomendado)
+      case 3: // Hybrid (ATR + Swing - usa o maior)
       default:
-         slPoints = CalculateSLHybrid(isBuy, isVolatile) / m_asset.GetPointValue();
+         {
+            //--- Calcular por ATR
+            double atr = GetATR(1);
+            double mult = isVolatile ? m_params.slATRMultVolatile : m_params.slATRMult;
+            double slATRPoints = m_asset.PriceToPoints(atr * mult);
+            
+            //--- Calcular por Swing
+            double bid = SymbolInfoDouble(m_asset.GetSymbol(), SYMBOL_BID);
+            double ask = SymbolInfoDouble(m_asset.GetSymbol(), SYMBOL_ASK);
+            double slSwingPoints = 0;
+            
+            if(isBuy)
+            {
+               double swingLow = FindSwingLow(3, 1);
+               slSwingPoints = m_asset.PriceToPoints(bid - swingLow);
+            }
+            else
+            {
+               double swingHigh = FindSwingHigh(3, 1);
+               slSwingPoints = m_asset.PriceToPoints(swingHigh - ask);
+            }
+            
+            //--- Usar o MAIOR dos dois (mais conservador)
+            slPoints = MathMax(slATRPoints, slSwingPoints);
+         }
          break;
    }
    
-   //--- Aplicar limites
-   slPoints = MathMax(slPoints, (double)m_asset.GetSLMin());
-   slPoints = MathMin(slPoints, (double)m_asset.GetSLMax());
+   //--- Aplicar limites mínimo e máximo do INPUT
+   slPoints = MathMax(slPoints, (double)m_params.slMinPoints);
+   slPoints = MathMin(slPoints, (double)m_params.slMaxPoints);
    
    return slPoints;
 }

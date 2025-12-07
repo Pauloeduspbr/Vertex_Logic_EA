@@ -114,8 +114,22 @@ input int      Inp_Trail_Distance  = 100;              // Distância do Trailing
 //--- Horários de Operação
 input group "═══════════════ HORÁRIOS ═══════════════"
 input bool     Inp_UseTimeFilter   = true;             // Usar Filtro de Horário
+input string   Inp_StartTime       = "09:00";          // Horário Início (HH:MM)
+input string   Inp_EndTime         = "17:30";          // Horário Fim (HH:MM)
 input bool     Inp_CloseEOD        = true;             // Fechar posições fim do dia
+input int      Inp_SoftExitMin     = 45;               // Soft Exit (min antes do fim)
+input int      Inp_HardExitMin     = 15;               // Hard Exit (min antes do fim)
 input int      Inp_BrokerOffset    = 0;                // Offset do broker (horas)
+
+//--- Dias da Semana
+input group "═══════════════ DIAS DA SEMANA ═══════════════"
+input bool     Inp_Monday          = true;             // Segunda-feira
+input bool     Inp_Tuesday         = true;             // Terça-feira
+input bool     Inp_Wednesday       = true;             // Quarta-feira
+input bool     Inp_Thursday        = true;             // Quinta-feira
+input bool     Inp_Friday          = true;             // Sexta-feira
+input bool     Inp_Saturday        = false;            // Sábado
+input bool     Inp_Sunday          = false;            // Domingo
 
 //--- Parâmetros do Indicador FGM
 input group "═══════════════ INDICADOR FGM ═══════════════"
@@ -240,6 +254,14 @@ int OnInit()
    riskParams.riskMultF3 = Inp_ForceMultF3;
    riskParams.maxDailyDD = Inp_MaxDailyDD;
    riskParams.maxConsecStops = Inp_MaxConsecLoss;
+   //--- Parâmetros de SL
+   riskParams.slMode = (int)Inp_SLMode;
+   riskParams.slATRMult = Inp_SL_ATR_Mult;
+   riskParams.slATRMultVolatile = Inp_SL_ATR_Mult * 1.5;
+   riskParams.slFixedPoints = Inp_SL_Points;
+   riskParams.slMinPoints = Inp_SL_Min;
+   riskParams.slMaxPoints = Inp_SL_Max;
+   //--- Parâmetros de TP
    riskParams.tp1RR = Inp_TP1_RR;
    riskParams.tp2RR = Inp_TP2_RR;
    riskParams.tp1ClosePercent = (int)Inp_TP1_Percent;
@@ -265,6 +287,29 @@ int OnInit()
       Print("[FGM] Erro ao inicializar Time Filter");
       return INIT_FAILED;
    }
+   
+   //--- Configurar horários e dias da semana do TimeFilter
+   B3TimeConfig b3Config = g_TimeFilter.GetB3Config();
+   b3Config.mondayActive = Inp_Monday;
+   b3Config.tuesdayActive = Inp_Tuesday;
+   b3Config.wednesdayActive = Inp_Wednesday;
+   b3Config.thursdayActive = Inp_Thursday;
+   b3Config.fridayActive = Inp_Friday;
+   b3Config.saturdayActive = Inp_Saturday;
+   b3Config.sundayActive = Inp_Sunday;
+   b3Config.mondayStart = Inp_StartTime;
+   b3Config.mondayEnd = Inp_EndTime;
+   b3Config.tuesdayStart = Inp_StartTime;
+   b3Config.tuesdayEnd = Inp_EndTime;
+   b3Config.wednesdayStart = Inp_StartTime;
+   b3Config.wednesdayEnd = Inp_EndTime;
+   b3Config.thursdayStart = Inp_StartTime;
+   b3Config.thursdayEnd = Inp_EndTime;
+   b3Config.fridayStart = Inp_StartTime;
+   b3Config.fridayEnd = Inp_EndTime;
+   b3Config.softExitMinutes = Inp_SoftExitMin;
+   b3Config.hardExitMinutes = Inp_HardExitMin;
+   g_TimeFilter.SetB3Config(b3Config);
    
    //--- Inicializar Regime Detector
    if(!g_RegimeDetector.Init(&g_AssetSpecs))
