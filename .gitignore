@@ -28,3 +28,7 @@ compile_log.txt
 Experts/FGM_TrendRider_EA/FGM_TrendRider.ex5
 compile_log2.txt
 compile_final.txt
+compile_fix2.txt
+*.txt
+*.ex5
+*.log

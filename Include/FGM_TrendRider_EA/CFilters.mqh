@@ -372,8 +372,9 @@ bool CFilters::CheckVolume(int strength)
    if(!m_config.volumeActive || !m_asset.IsB3())
       return true;
    
+   //--- strength já vem como valor absoluto do caller
    //--- Ignorar para força 5
-   if(m_config.volumeIgnoreF5 && MathAbs(strength) >= 5)
+   if(m_config.volumeIgnoreF5 && strength >= 5)
       return true;
    
    //--- Obter volume atual
@@ -403,7 +404,8 @@ bool CFilters::CheckConfluence(int strength)
       return true;
    
    double confluence = m_signal.GetConfluence(1);
-   int absStrength = MathAbs(strength);
+   //--- strength já vem como valor absoluto
+   int absStrength = strength;
    
    double minConfluence = 0;
    
@@ -446,7 +448,8 @@ bool CFilters::CheckStrength(int minStrength)
    if(m_signal == NULL)
       return false;
    
-   int strength = (int)m_signal.GetStrength(1);
+   //--- Usar valor absoluto - Strength é negativo para SELL
+   int strength = (int)MathAbs(m_signal.GetStrength(1));
    
    return (strength >= minStrength);
 }
@@ -482,8 +485,9 @@ bool CFilters::CheckCooldown(int strength)
    if(!m_config.cooldownActive)
       return true;
    
+   //--- strength já vem como valor absoluto
    //--- Ignorar para força 5
-   if(m_config.cooldownIgnoreF5 && MathAbs(strength) >= 5)
+   if(m_config.cooldownIgnoreF5 && strength >= 5)
       return true;
    
    return (m_cooldownCounter <= 0);
@@ -525,7 +529,8 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength)
    if(m_signal != NULL)
    {
       result.currentConfluence = m_signal.GetConfluence(1);
-      result.currentStrength = (int)m_signal.GetStrength(1);
+      //--- Usar valor absoluto - Strength é negativo para SELL
+      result.currentStrength = (int)MathAbs(m_signal.GetStrength(1));
       result.currentPhase = (int)m_signal.GetPhase(1);
    }
    
