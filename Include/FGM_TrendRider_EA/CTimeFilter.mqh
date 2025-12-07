@@ -265,21 +265,21 @@ void CTimeFilter::SetDefaultB3Config()
    m_b3Config.fridayActive = true;
    m_b3Config.saturdayActive = false;
    
-   //--- Horários (BRT)
-   m_b3Config.mondayStart = "09:20";      // Segunda mais tarde
-   m_b3Config.mondayEnd = "16:45";
-   m_b3Config.tuesdayStart = "09:15";
-   m_b3Config.tuesdayEnd = "16:45";
-   m_b3Config.wednesdayStart = "09:15";
-   m_b3Config.wednesdayEnd = "16:45";
-   m_b3Config.thursdayStart = "09:15";
-   m_b3Config.thursdayEnd = "16:45";
-   m_b3Config.fridayStart = "09:15";
-   m_b3Config.fridayEnd = "15:30";        // Sexta mais cedo
+   //--- Horários (BRT) - Abertura real do mercado
+   m_b3Config.mondayStart = "09:05";      // Logo após abertura
+   m_b3Config.mondayEnd = "17:30";
+   m_b3Config.tuesdayStart = "09:05";
+   m_b3Config.tuesdayEnd = "17:30";
+   m_b3Config.wednesdayStart = "09:05";
+   m_b3Config.wednesdayEnd = "17:30";
+   m_b3Config.thursdayStart = "09:05";
+   m_b3Config.thursdayEnd = "17:30";
+   m_b3Config.fridayStart = "09:05";
+   m_b3Config.fridayEnd = "17:30";
    
-   //--- Pausa almoço
-   m_b3Config.lunchPauseActive = true;
-   m_b3Config.lunchStart = "11:15";
+   //--- Pausa almoço - DESATIVADA (mercado opera normalmente)
+   m_b3Config.lunchPauseActive = false;
+   m_b3Config.lunchStart = "12:00";
    m_b3Config.lunchEnd = "13:00";
    
    //--- Soft/Hard Exit

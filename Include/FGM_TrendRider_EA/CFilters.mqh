@@ -380,9 +380,9 @@ bool CFilters::CheckVolume(int strength)
    if(!m_config.volumeActive || !m_asset.IsB3())
       return true;
    
-   //--- strength já vem como valor absoluto do caller
-   //--- Ignorar para força 5
-   if(m_config.volumeIgnoreF5 && strength >= 5)
+   //--- Ignorar para F4 e F5 (sinais fortes já confirmados pelo indicador)
+   //--- O indicador FGM já analisa força da tendência com 5 EMAs
+   if(strength >= 4)
       return true;
    
    //--- Obter volume atual
