@@ -459,8 +459,8 @@ void ProcessSignals()
    g_Stats.LogNormal(StringFormat("Sinal detectado! Entry=%.0f, Strength=%.0f, Confluence=%.1f%%",
                                   entrySignal, fgmData.strength, fgmData.confluence));
    
-   //--- Verificar força mínima do sinal
-   int signalStrength = (int)fgmData.strength;
+   //--- Verificar força mínima do sinal (usar valor absoluto - negativo para SELL)
+   int signalStrength = (int)MathAbs(fgmData.strength);
    if(signalStrength < Inp_MinStrength)
    {
       g_Stats.LogNormal(StringFormat("Força insuficiente: F%d (mín: F%d)", 
