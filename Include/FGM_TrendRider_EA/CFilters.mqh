@@ -278,12 +278,13 @@ void CFilters::SetDefaultConfig()
    m_config.volumeMultiplier = 0.7;
    m_config.volumeIgnoreF5 = true;
    
-   //--- Confluência (limites MÁXIMOS, alinhados ao EA)
-   //    Estes valores trabalham EM CONJUNTO com os inputs do EA (Inp_MaxConf_F3/F4/F5)
-   //    para evitar entradas em mercado lateral (EMAs muito comprimidas).
-   m_config.confluenceMaxF3 = 60.0;   // até 60% para F3
-   m_config.confluenceMaxF4 = 60.0;   // até 60% para F4 (evita entradas em 100% de confluência)
-   m_config.confluenceMaxF5 = 100.0;  // F5 liberado (sinais muito fortes)
+   //--- Confluência (limites MÁXIMOS)
+   //    NOTA: O EA já valida confluência com seus próprios inputs (Inp_MaxConf_F3/F4/F5)
+   //    ANTES de chamar CFilters. Portanto, usamos 100.0 como padrão aqui para 
+   //    evitar bloqueio duplo. O EA pode sobrescrever esses valores via SetConfig().
+   m_config.confluenceMaxF3 = 100.0;   // Padrão: não bloquear (EA já validou)
+   m_config.confluenceMaxF4 = 100.0;   // Padrão: não bloquear (EA já validou)
+   m_config.confluenceMaxF5 = 100.0;   // Padrão: não bloquear (EA já validou)
    
    //--- Fase
    m_config.phaseFilterActive = true;
@@ -306,6 +307,15 @@ void CFilters::SetDefaultConfig()
 void CFilters::SetConfig(const FilterConfig& config)
 {
    m_config = config;
+   
+   //--- DEBUG: Log da configuração recebida
+   Print("CFilters::SetConfig - Confluência máxima configurada:");
+   Print(StringFormat("  F3: %.1f%% | F4: %.1f%% | F5: %.1f%%", 
+                      m_config.confluenceMaxF3, m_config.confluenceMaxF4, m_config.confluenceMaxF5));
+   Print(StringFormat("  Slope ativo: %s | Volume ativo: %s | Cooldown: %d barras",
+                      m_config.slopeActive ? "SIM" : "NÃO",
+                      m_config.volumeActive ? "SIM" : "NÃO",
+                      m_config.cooldownBarsAfterStop));
 }
 
 //+------------------------------------------------------------------+
@@ -433,6 +443,10 @@ bool CFilters::CheckConfluence(int strength)
       case 3: maxConfluence = m_config.confluenceMaxF3; break;
       default: maxConfluence = m_config.confluenceMaxF3; break;
    }
+
+   //--- DEBUG: Log para diagnóstico
+   Print(StringFormat("CFilters::CheckConfluence - F%d: Confluência=%.1f%% (máx=%.1f%%)", 
+                      absStrength, confluence, maxConfluence));
 
    //--- Se maxConfluence <= 0, não aplicar filtro de confluência aqui
    if(maxConfluence <= 0.0)

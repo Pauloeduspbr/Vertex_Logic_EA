@@ -271,6 +271,17 @@ int OnInit()
       return INIT_FAILED;
    }
    
+   //--- Configurar limites de confluência dos filtros para corresponder aos inputs do EA
+   FilterConfig filterConfig = g_Filters.GetConfig();
+   filterConfig.confluenceMaxF3 = Inp_MaxConf_F3;
+   filterConfig.confluenceMaxF4 = Inp_MaxConf_F4;
+   filterConfig.confluenceMaxF5 = Inp_MaxConf_F5;
+   filterConfig.slopeActive = Inp_UseSlopeFilter;
+   filterConfig.volumeActive = Inp_UseVolumeFilter;
+   filterConfig.cooldownActive = true;
+   filterConfig.cooldownBarsAfterStop = Inp_CooldownBars;
+   g_Filters.SetConfig(filterConfig);
+   
    //--- Inicializar Stats
    if(!g_Stats.Init(Inp_MagicNumber, Inp_LogLevel,
                Inp_TrackByDay, Inp_TrackByHour,
@@ -470,6 +481,11 @@ void ProcessSignals()
    g_Stats.LogDebug(StringFormat("FGM Data (bar %d): Strength=%.0f, Entry=%.0f, Confluence=%.1f%%", 
                                  signalBar, fgmData.strength, fgmData.entry, fgmData.confluence));
    
+   //--- DEBUG: Log valores das EMAs para análise
+   g_Stats.LogDebug(StringFormat("EMAs: EMA8=%.2f EMA21=%.2f EMA50=%.2f EMA100=%.2f EMA200=%.2f",
+                                 fgmData.ema1, fgmData.ema2, fgmData.ema3, fgmData.ema4, fgmData.ema5));
+   g_Stats.LogDebug(StringFormat("Phase=%.0f | Signal=%.0f", fgmData.phase, fgmData.signal));
+   
    //--- Verificar sinal de entrada
    double entrySignal = fgmData.entry;
    
@@ -531,7 +547,24 @@ void ProcessSignals()
    }
    
    //--- Aplicar filtros
+   //--- NOTA: A confluência já foi validada acima pelo EA. CFilters verifica outros filtros
+   //---       (spread, ATR, slope, volume, cooldown, etc.) mas NÃO deve bloquear por confluência
+   //---       novamente pois usamos os mesmos limites já validados.
+   g_Stats.LogDebug(StringFormat("Aplicando filtros para %s (Força F%d)...", isBuy ? "COMPRA" : "VENDA", signalStrength));
+   
    FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength);
+   
+   //--- Log detalhado do resultado dos filtros
+   g_Stats.LogDebug(StringFormat("Filtros: Spread=%s ATR=%s Slope=%s Volume=%s Phase=%s EMA200=%s Cooldown=%s Confluência=%s",
+                                 filterResult.spreadOK ? "OK" : "FALHOU",
+                                 filterResult.atrOK ? "OK" : "FALHOU",
+                                 filterResult.slopeOK ? "OK" : "FALHOU",
+                                 filterResult.volumeOK ? "OK" : "FALHOU",
+                                 filterResult.phaseOK ? "OK" : "FALHOU",
+                                 filterResult.ema200OK ? "OK" : "FALHOU",
+                                 filterResult.cooldownOK ? "OK" : "FALHOU",
+                                 filterResult.confluenceOK ? "OK" : "FALHOU"));
+   
    if(!filterResult.passed)
    {
       g_Stats.LogNormal(StringFormat("FILTRO BLOQUEOU: %s", filterResult.failReason));
