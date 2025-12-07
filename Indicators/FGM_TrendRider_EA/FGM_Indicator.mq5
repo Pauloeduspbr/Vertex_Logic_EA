@@ -463,7 +463,13 @@ int OnCalculate(const int rates_total,
     }
     
     //--- Check for alerts
-    int check_shift = InpAlertOnBarClose ? 1 : 0;
+    // Ajuste para alinhar visualmente o alerta com o candle em que
+    // o cruzamento/sinal está sendo considerado pelo EA.
+    // Quando InpAlertOnBarClose=true, o EA agora prioriza a barra 0
+    // (barra atual/fechamento recente) via GetData(0). Para que o
+    // alerta apareça no MESMO candle em que o EA detecta o sinal,
+    // usamos shift 0 também.
+    int check_shift = InpAlertOnBarClose ? 0 : 0;
     if(rates_total > check_shift + 1)
     {
         CheckForAlerts(check_shift, time[check_shift], close[check_shift]);

@@ -435,24 +435,26 @@ void ProcessSignals()
    }
    
    //--- Verificar sinal de entrada em AMBAS as barras (0 e 1)
-   //--- O indicador FGM emite Entry apenas na barra do cruzamento
-   //--- Precisamos verificar barra 0 (atual) e barra 1 (fechada recentemente)
+   //--- Ajuste: priorizar barra 0 (barra atual / fechamento recente)
+   //--- para reduzir atraso na entrada em relação ao início da tendência.
    FGM_DATA fgmData;
    int signalBar = -1;
    
-   //--- Primeiro verificar barra 1 (candle fechado - mais confiável)
-   fgmData = g_SignalFGM.GetData(1);
+   //--- Primeiro verificar barra 0 (barra atual). Se o cruzamento ocorreu
+   //--- nesta barra, o EA pode entrar imediatamente ao início da nova barra
+   //--- (com Inp_TradeOnNewBar=true) ou até intrabar (se TradeOnNewBar=false).
+   fgmData = g_SignalFGM.GetData(0);
    if(fgmData.isValid && fgmData.entry != 0)
    {
-      signalBar = 1;
+      signalBar = 0;
    }
    else
    {
-      //--- Se não tem sinal na barra 1, verificar barra 0 (atual)
-      fgmData = g_SignalFGM.GetData(0);
+      //--- Se não há sinal na barra 0, verificar barra 1 (barra recém-fechada)
+      fgmData = g_SignalFGM.GetData(1);
       if(fgmData.isValid && fgmData.entry != 0)
       {
-         signalBar = 0;
+         signalBar = 1;
       }
    }
    
@@ -482,29 +484,35 @@ void ProcessSignals()
       return;
    }
    
-   //--- Verificar confluência
-   //--- NOTA: No indicador FGM, confluência BAIXA = EMAs separadas = tendência FORTE
-   //--- Confluência ALTA = EMAs comprimidas = mercado lateral
-   //--- Para sinais de tendência (F4-F5), baixa confluência é DESEJÁVEL
+   //--- Verificar confluência (compressão das EMAs)
+   //--- IMPORTANTE: neste indicador, confluência ALTA = EMAs MUITO próximas = MERCADO LATERAL
+   //---              confluência BAIXA = EMAs afastadas = TENDÊNCIA FORTE
    double confluence = fgmData.confluence;
-   
-   //--- Para sinais fortes (F4-F5), aceitar baixa confluência (EMAs separadas = tendência)
-   //--- Para sinais médios (F3), requer confluência moderada (filtro de qualidade)
-   double requiredConfluence = Inp_MinConfluence;
+
+   //--- Em tendências fortes (F4-F5) queremos evitar alta confluência (lateralização).
+   //--- Por isso trabalhamos com um LIMITE MÁXIMO de confluência aceitável.
+   double maxConfluenceAllowed = Inp_MinConfluence; // parâmetro passa a ser "compressão máxima" aceitável
+
    if(signalStrength >= 5)
-      requiredConfluence = 0;  // F5: não requer confluência mínima (tendência forte confirmada)
-   else if(signalStrength >= 4)
-      requiredConfluence = MathMin(Inp_MinConfluence, 25.0);  // F4: confluência reduzida
-   
-   if(confluence < requiredConfluence)
    {
-      g_Stats.LogNormal(StringFormat("Confluência insuficiente para F%d: %.1f%% (mín: %.1f%%)",
-                                    signalStrength, confluence, requiredConfluence));
+      // F5: tendência muito forte. Ainda assim, evitar confluência extrema (>50%).
+      maxConfluenceAllowed = 50.0;
+   }
+   else if(signalStrength >= 4)
+   {
+      // F4: aceitar compressão moderada, mas bloquear lateral (>=50%).
+      maxConfluenceAllowed = MathMin((double)Inp_MinConfluence, 50.0);
+   }
+
+   if(confluence > maxConfluenceAllowed)
+   {
+      g_Stats.LogNormal(StringFormat("Confluência alta demais (mercado lateral) para F%d: %.1f%% (máx: %.1f%%)",
+                                    signalStrength, confluence, maxConfluenceAllowed));
       return;
    }
-   
-   g_Stats.LogNormal(StringFormat("Sinal aprovado! F%d, Confluência=%.1f%% (req: %.1f%%)",
-                                  signalStrength, confluence, requiredConfluence));
+
+   g_Stats.LogNormal(StringFormat("Sinal aprovado! F%d, Confluência=%.1f%% (máx: %.1f%%)",
+                                  signalStrength, confluence, maxConfluenceAllowed));
    
    //--- Determinar direção
    bool isBuy = (entrySignal > 0);
