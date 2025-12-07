@@ -603,7 +603,9 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength)
    if(!result.confluenceOK)
    {
       result.passed = false;
-      result.failReason = StringFormat("Confluência baixa: %.1f%%", result.currentConfluence);
+      // Agora a lógica bloqueia quando a confluência está ALTA demais (EMAs comprimidas = lateral).
+      // Ajustamos a mensagem para refletir corretamente esse comportamento.
+      result.failReason = StringFormat("Confluência ALTA demais (lateral): %.1f%%", result.currentConfluence);
       return result;
    }
    
@@ -736,7 +738,9 @@ double CFilters::GetCurrentSlope(bool isBuy = true)
    if(m_signal == NULL)
       return 0;
    
-   return m_signal.CalculateSlope(m_config.slopePeriod, 1);
+   // Usar o MESMO shift 0 que é utilizado em CheckSlope/ProcessSignals
+   // para manter o alinhamento dos logs com a lógica real do filtro.
+   return m_signal.CalculateSlope(m_config.slopePeriod, 0);
 }
 
 //+------------------------------------------------------------------+
