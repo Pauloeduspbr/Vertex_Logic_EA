@@ -125,7 +125,9 @@ input int      Inp_FGM_Period3     = 50;               // Período EMA 3
 input int      Inp_FGM_Period4     = 100;              // Período EMA 4
 input int      Inp_FGM_Period5     = 200;              // Período EMA 5
 input int      Inp_MinStrength     = 3;                // Força Mínima (3-5)
-input double   Inp_MinConfluence   = 60.0;             // Confluência Mínima (%)
+input double   Inp_MaxConf_F3      = 60.0;             // Máx Confluência para F3 (%)
+input double   Inp_MaxConf_F4      = 100.0;            // Máx Confluência para F4 (%)
+input double   Inp_MaxConf_F5      = 100.0;            // Máx Confluência para F5 (%)
 
 //--- Filtros Adicionais
 input group "═══════════════ FILTROS ═══════════════"
@@ -489,20 +491,17 @@ void ProcessSignals()
    //---              confluência BAIXA = EMAs afastadas = TENDÊNCIA FORTE
    double confluence = fgmData.confluence;
 
-   //--- Em tendências fortes (F4-F5) queremos evitar alta confluência (lateralização).
-   //--- Por isso trabalhamos com um LIMITE MÁXIMO de confluência aceitável.
-   double maxConfluenceAllowed = Inp_MinConfluence; // parâmetro passa a ser "compressão máxima" aceitável
+   //--- Limite máximo de confluência aceitável por força do sinal.
+   //--- Estes limites são ajustáveis por input para não descaracterizar
+   //--- o EA em outros ativos/mercados.
+   double maxConfluenceAllowed = 100.0;
 
    if(signalStrength >= 5)
-   {
-      // F5: tendência muito forte. Ainda assim, evitar confluência extrema (>50%).
-      maxConfluenceAllowed = 50.0;
-   }
-   else if(signalStrength >= 4)
-   {
-      // F4: aceitar compressão moderada, mas bloquear lateral (>=50%).
-      maxConfluenceAllowed = MathMin((double)Inp_MinConfluence, 50.0);
-   }
+      maxConfluenceAllowed = Inp_MaxConf_F5;
+   else if(signalStrength == 4)
+      maxConfluenceAllowed = Inp_MaxConf_F4;
+   else if(signalStrength == 3)
+      maxConfluenceAllowed = Inp_MaxConf_F3;
 
    if(confluence > maxConfluenceAllowed)
    {
