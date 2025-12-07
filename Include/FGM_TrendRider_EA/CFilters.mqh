@@ -64,10 +64,14 @@ struct FilterConfig
    double   volumeMultiplier;    // Volume > MA × mult
    bool     volumeIgnoreF5;      // Ignorar para força 5
    
-   //--- Confluência por força
-   double   confluenceMinF3;     // Confluência mínima para força 3
-   double   confluenceMinF4;     // Confluência mínima para força 4
-   double   confluenceMinF5;     // Confluência mínima para força 5 (0 = ignorar)
+   //--- Confluência por força (limite MÁXIMO de compressão aceitável)
+   //    Lembrando: no indicador FGM, confluência ALTA (75-100%) = EMAs comprimidas = mercado lateral
+   //                confluência BAIXA (10-25%) = EMAs afastadas = tendência forte.
+   //    Aqui usamos o MESMO conceito do EA: bloquear somente quando a confluência
+   //    ultrapassa um limite máximo configurado por força do sinal.
+   double   confluenceMaxF3;     // Confluência MÁXIMA aceitável para força 3 (0 = ignorar)
+   double   confluenceMaxF4;     // Confluência MÁXIMA aceitável para força 4 (0 = ignorar)
+   double   confluenceMaxF5;     // Confluência MÁXIMA aceitável para força 5 (0 = ignorar)
    
    //--- Fase de mercado
    bool     phaseFilterActive;   // Filtro de fase ativo
@@ -274,10 +278,12 @@ void CFilters::SetDefaultConfig()
    m_config.volumeMultiplier = 0.7;
    m_config.volumeIgnoreF5 = true;
    
-   //--- Confluência
-   m_config.confluenceMinF3 = 60.0;
-   m_config.confluenceMinF4 = 50.0;
-   m_config.confluenceMinF5 = 0.0;
+   //--- Confluência (limites MÁXIMOS, alinhados ao EA)
+   //    Estes valores trabalham EM CONJUNTO com os inputs do EA (Inp_MaxConf_F3/F4/F5)
+   //    para evitar entradas em mercado lateral (EMAs muito comprimidas).
+   m_config.confluenceMaxF3 = 60.0;   // até 60% para F3
+   m_config.confluenceMaxF4 = 100.0;  // liberado para F4
+   m_config.confluenceMaxF5 = 100.0;  // liberado para F5
    
    //--- Fase
    m_config.phaseFilterActive = true;
@@ -348,14 +354,14 @@ bool CFilters::CheckSlope(bool isBuy)
       return true;
    
    //--- Obter força do sinal atual
-   int strength = (int)MathAbs(m_signal.GetStrength(1));
+   int strength = (int)MathAbs(m_signal.GetStrength(0));
    
    //--- F4-F5: Ignorar slope completamente (tendência confirmada pelo indicador)
    //--- O indicador FGM já fez a análise de tendência com 5 EMAs
    if(strength >= 4)
       return true;
    
-   double slope = m_signal.CalculateSlope(m_config.slopePeriod, 1);
+   double slope = m_signal.CalculateSlope(m_config.slopePeriod, 0);
    
    double minSlope;
    if(m_asset.IsWIN())
@@ -411,25 +417,30 @@ bool CFilters::CheckConfluence(int strength)
    if(m_signal == NULL)
       return true;
    
-   double confluence = m_signal.GetConfluence(1);
+   //--- Ler a confluência na MESMA barra usada pelo EA (shift 0)
+   double confluence = m_signal.GetConfluence(0);
+
    //--- strength já vem como valor absoluto
    int absStrength = strength;
-   
-   double minConfluence = 0;
-   
+
+   //--- Limite MÁXIMO de confluência permitido por força
+   double maxConfluence = 0.0;
+
    switch(absStrength)
    {
-      case 5: minConfluence = m_config.confluenceMinF5; break;
-      case 4: minConfluence = m_config.confluenceMinF4; break;
-      case 3: minConfluence = m_config.confluenceMinF3; break;
-      default: minConfluence = m_config.confluenceMinF3; break;
+      case 5: maxConfluence = m_config.confluenceMaxF5; break;
+      case 4: maxConfluence = m_config.confluenceMaxF4; break;
+      case 3: maxConfluence = m_config.confluenceMaxF3; break;
+      default: maxConfluence = m_config.confluenceMaxF3; break;
    }
-   
-   //--- Se minConfluence é 0, ignora o filtro
-   if(minConfluence <= 0)
+
+   //--- Se maxConfluence <= 0, não aplicar filtro de confluência aqui
+   if(maxConfluence <= 0.0)
       return true;
-   
-   return (confluence >= minConfluence);
+
+   //--- Aprovar somente se a compressão das EMAs NÃO estiver alta demais
+   //    (confluência acima do limite => mercado lateral => bloquear).
+   return (confluence <= maxConfluence);
 }
 
 //+------------------------------------------------------------------+
@@ -440,7 +451,7 @@ bool CFilters::CheckPhase(bool isBuy)
    if(!m_config.phaseFilterActive || m_signal == NULL)
       return true;
    
-   int phase = (int)m_signal.GetPhase(1);
+   int phase = (int)m_signal.GetPhase(0);
    
    if(isBuy)
       return (phase >= m_config.minPhaseBuy);
@@ -457,7 +468,7 @@ bool CFilters::CheckStrength(int minStrength)
       return false;
    
    //--- Usar valor absoluto - Strength é negativo para SELL
-   int strength = (int)MathAbs(m_signal.GetStrength(1));
+   int strength = (int)MathAbs(m_signal.GetStrength(0));
    
    return (strength >= minStrength);
 }
@@ -470,7 +481,7 @@ bool CFilters::CheckEMA200(bool isBuy)
    if(!m_config.ema200FilterActive || m_signal == NULL)
       return true;
    
-   double ema200 = m_signal.GetEMA5(1);
+   double ema200 = m_signal.GetEMA5(0);
    
    double closes[];
    ArraySetAsSeries(closes, true);
@@ -536,10 +547,11 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength)
    
    if(m_signal != NULL)
    {
-      result.currentConfluence = m_signal.GetConfluence(1);
+      // Sempre usar shift 0 para manter alinhamento com o EA (ProcessSignals)
+      result.currentConfluence = m_signal.GetConfluence(0);
       //--- Usar valor absoluto - Strength é negativo para SELL
-      result.currentStrength = (int)MathAbs(m_signal.GetStrength(1));
-      result.currentPhase = (int)m_signal.GetPhase(1);
+      result.currentStrength = (int)MathAbs(m_signal.GetStrength(0));
+      result.currentPhase = (int)m_signal.GetPhase(0);
    }
    
    //--- Verificar cada filtro
