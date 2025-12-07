@@ -266,15 +266,17 @@ void CTimeFilter::SetDefaultB3Config()
    m_b3Config.saturdayActive = false;
    
    //--- Horários (BRT) - Abertura real do mercado
-   m_b3Config.mondayStart = "09:05";      // Logo após abertura
+   //--- IMPORTANTE: Usar 09:00 para capturar sinais logo na abertura.
+   //--- O mercado B3 abre oficialmente às 09:00 para mini-índice.
+   m_b3Config.mondayStart = "09:00";      // Abertura do mercado
    m_b3Config.mondayEnd = "17:30";
-   m_b3Config.tuesdayStart = "09:05";
+   m_b3Config.tuesdayStart = "09:00";
    m_b3Config.tuesdayEnd = "17:30";
-   m_b3Config.wednesdayStart = "09:05";
+   m_b3Config.wednesdayStart = "09:00";
    m_b3Config.wednesdayEnd = "17:30";
-   m_b3Config.thursdayStart = "09:05";
+   m_b3Config.thursdayStart = "09:00";
    m_b3Config.thursdayEnd = "17:30";
-   m_b3Config.fridayStart = "09:05";
+   m_b3Config.fridayStart = "09:00";
    m_b3Config.fridayEnd = "17:30";
    
    //--- Pausa almoço - DESATIVADA (mercado opera normalmente)
