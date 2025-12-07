@@ -458,6 +458,8 @@ int CSignalVertexFlow::GetSignal()
             double rsi_max = strong_downtrend ? 60.0 : 55.0;
             PrintFormat("[BLOCKED] RSI=%.1f fora da zona saudável para SELL (%.1f-%.1f)", rsi_val, rsi_min, rsi_max);
             return 0;
+        }
+
         // SELL extra: proteger contra venda com RSI EXTREMAMENTE alto
         // RELAXADO: Só bloqueia se RSI > 60 (permitir pullbacks até a zona neutra/alta)
         if(rsi_val >= 60.0)
