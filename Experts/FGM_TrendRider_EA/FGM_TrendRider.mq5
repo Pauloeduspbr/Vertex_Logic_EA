@@ -261,8 +261,11 @@ int OnInit()
    riskParams.slFixedPoints = Inp_SL_Points;
    riskParams.slMinPoints = Inp_SL_Min;
    riskParams.slMaxPoints = Inp_SL_Max;
-   //--- Parâmetros de TP
-   riskParams.tp1RR = Inp_TP1_RR;
+   //--- Parâmetros de TP (MODO E VALORES)
+   riskParams.tpMode = (int)Inp_TPMode;
+   riskParams.tpFixedPoints = Inp_TP_Points;
+   riskParams.tpATRMult = Inp_TP_ATR_Mult;
+   riskParams.tp1RR = Inp_TP_RR_Ratio;  // Usa o RR geral, não do Triple Exit
    riskParams.tp2RR = Inp_TP2_RR;
    riskParams.tp1ClosePercent = (int)Inp_TP1_Percent;
    riskParams.tp2ClosePercent = (int)Inp_TP2_Percent;

@@ -37,6 +37,9 @@ struct RiskParams
    double   slBufferATR;          // Buffer adicional (fração do ATR)
    
    //--- Take Profit
+   int      tpMode;               // 0=Fixed, 1=RR, 2=ATR
+   int      tpFixedPoints;        // TP fixo em pontos
+   double   tpATRMult;            // Multiplicador ATR para TP
    double   tp1RR;                // Risk:Reward TP1
    double   tp2RR;                // Risk:Reward TP2
    int      tp1ClosePercent;      // % a fechar no TP1
@@ -228,6 +231,9 @@ CRiskManager::CRiskManager()
    m_params.slATRMult = 1.5;
    m_params.slATRMultVolatile = 2.0;
    m_params.slBufferATR = 0.3;
+   m_params.tpMode = 1;  // RR por padrão
+   m_params.tpFixedPoints = 300;
+   m_params.tpATRMult = 3.0;
    m_params.tp1RR = 1.0;
    m_params.tp2RR = 2.0;
    m_params.tp1ClosePercent = 50;
@@ -817,9 +823,47 @@ PositionCalcResult CRiskManager::CalculatePosition(double entryPrice, bool isBuy
    result.lotRaw = lot;
    result.lotSize = m_asset.NormalizeLot(lot);
    
-   //--- Calcular Take Profits
-   result.tp1Price = CalculateTP1(entryPrice, slPoints, isBuy);
-   result.tp2Price = CalculateTP2(entryPrice, slPoints, isBuy);
+   //--- Calcular Take Profits baseado no modo configurado
+   double tpPoints = 0;
+   
+   switch(m_params.tpMode)
+   {
+      case 0: // Fixed - TP fixo em pontos
+         tpPoints = (double)m_params.tpFixedPoints;
+         break;
+         
+      case 1: // RR - Razão Risco/Retorno
+         tpPoints = slPoints * m_params.tp1RR;  // TP baseado em R:R
+         break;
+         
+      case 2: // ATR - Baseado em ATR
+         {
+            double atr = GetATR(1);
+            tpPoints = m_asset.PriceToPoints(atr * m_params.tpATRMult);
+         }
+         break;
+         
+      default:
+         tpPoints = slPoints * m_params.tp1RR;
+         break;
+   }
+   
+   //--- Calcular preço do TP principal
+   double tpDistance = tpPoints * m_asset.GetPointValue();
+   if(isBuy)
+      result.tp1Price = m_asset.NormalizeTP(entryPrice + tpDistance, isBuy);
+   else
+      result.tp1Price = m_asset.NormalizeTP(entryPrice - tpDistance, isBuy);
+   
+   //--- TP2 e TP3 para Triple Exit (só se não for TP fixo)
+   if(m_params.tpMode == 1) // Modo R:R
+   {
+      result.tp2Price = CalculateTP2(entryPrice, slPoints, isBuy);
+   }
+   else
+   {
+      result.tp2Price = result.tp1Price; // Mesmo que TP1 para modos fixos
+   }
    result.tp3Price = 0; // Trailing
    
    //--- Calcular volumes para parciais
