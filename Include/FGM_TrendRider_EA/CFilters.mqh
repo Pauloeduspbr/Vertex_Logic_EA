@@ -347,6 +347,13 @@ bool CFilters::CheckSlope(bool isBuy)
    if(!m_config.slopeActive || m_signal == NULL)
       return true;
    
+   //--- Obter força do sinal atual
+   int strength = (int)MathAbs(m_signal.GetStrength(1));
+   
+   //--- F5: Ignorar slope completamente (tendência confirmada pelo indicador)
+   if(strength >= 5)
+      return true;
+   
    double slope = m_signal.CalculateSlope(m_config.slopePeriod, 1);
    
    double minSlope;
@@ -356,6 +363,10 @@ bool CFilters::CheckSlope(bool isBuy)
       minSlope = m_config.slopeMinWDO;
    else
       minSlope = m_config.slopeMinForex;
+   
+   //--- F4: Reduzir requisito de slope (tendência forte)
+   if(strength >= 4)
+      minSlope = minSlope * 0.5;
    
    if(isBuy)
       return (slope >= minSlope);
