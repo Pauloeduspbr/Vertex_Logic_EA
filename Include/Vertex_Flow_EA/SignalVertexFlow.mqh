@@ -426,7 +426,9 @@ int CSignalVertexFlow::GetSignal()
     {
         PrintFormat("[BLOCKED] Candle de sinal é de ALTA (Close > Open) - Aguardando força vendedora");
         return 0;
-    }/--------------------------------------------------------------
+    }
+
+    //--------------------------------------------------------------
     // 5) RSI valida - MAIS RIGOROSO
     //--------------------------------------------------------------
     if(raw_signal == 1)
@@ -461,8 +463,6 @@ int CSignalVertexFlow::GetSignal()
         if(rsi_val >= 60.0)
         {
             PrintFormat("[BLOCKED] RSI muito alto (>60) - Bloqueando SELL | RSI=%.1f", rsi_val);
-            return 0;
-        }               rsi_val, rsi_ma);
             return 0;
         }
 
