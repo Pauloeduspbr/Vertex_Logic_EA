@@ -488,10 +488,9 @@ TradeResult CTradeEngine::OpenPosition(bool isBuy, double volume, double sl, dou
       else
          success = m_trade.Sell(volume, m_asset.GetSymbol(), price, sl, tp, orderComment);
       
-      tradeResult = m_trade.ResultRetcode() == TRADE_RETCODE_DONE ? m_trade.Result() : tradeResult;
-      
       if(m_trade.ResultRetcode() == TRADE_RETCODE_DONE)
       {
+         m_trade.Result(tradeResult);
          success = true;
          break;
       }
@@ -507,7 +506,9 @@ TradeResult CTradeEngine::OpenPosition(bool isBuy, double volume, double sl, dou
    }
    
    //--- Processar resultado
-   result = ProcessResult(success, m_trade.Result(), isBuy ? "BUY" : "SELL");
+   MqlTradeResult finalResult;
+   m_trade.Result(finalResult);
+   result = ProcessResult(success, finalResult, isBuy ? "BUY" : "SELL");
    
    //--- Se sucesso, atualizar dados
    if(result.success)
@@ -553,7 +554,9 @@ TradeResult CTradeEngine::ClosePosition()
    //--- Fechar posição
    bool success = m_trade.PositionClose(m_currentPos.ticket);
    
-   result = ProcessResult(success, m_trade.Result(), "CLOSE");
+   MqlTradeResult closeResult;
+   m_trade.Result(closeResult);
+   result = ProcessResult(success, closeResult, "CLOSE");
    
    if(result.success)
    {
@@ -612,7 +615,9 @@ TradeResult CTradeEngine::ClosePositionPartial(double volumeToClose)
    //--- Fechar parcial
    bool success = m_trade.PositionClosePartial(m_currentPos.ticket, volumeToClose);
    
-   result = ProcessResult(success, m_trade.Result(), "PARTIAL_CLOSE");
+   MqlTradeResult partialResult;
+   m_trade.Result(partialResult);
+   result = ProcessResult(success, partialResult, "PARTIAL_CLOSE");
    
    if(result.success)
    {
@@ -733,7 +738,9 @@ TradeResult CTradeEngine::ModifySL(double newSL)
    //--- Modificar
    bool success = m_trade.PositionModify(m_currentPos.ticket, newSL, m_currentPos.tp);
    
-   result = ProcessResult(success, m_trade.Result(), "MODIFY_SL");
+   MqlTradeResult modifySLResult;
+   m_trade.Result(modifySLResult);
+   result = ProcessResult(success, modifySLResult, "MODIFY_SL");
    
    if(result.success)
       UpdatePositionData();
@@ -772,7 +779,9 @@ TradeResult CTradeEngine::ModifyTP(double newTP)
    //--- Modificar
    bool success = m_trade.PositionModify(m_currentPos.ticket, m_currentPos.sl, newTP);
    
-   result = ProcessResult(success, m_trade.Result(), "MODIFY_TP");
+   MqlTradeResult modifyTPResult;
+   m_trade.Result(modifyTPResult);
+   result = ProcessResult(success, modifyTPResult, "MODIFY_TP");
    
    if(result.success)
       UpdatePositionData();
@@ -812,7 +821,9 @@ TradeResult CTradeEngine::ModifySLTP(double newSL, double newTP)
    //--- Modificar
    bool success = m_trade.PositionModify(m_currentPos.ticket, newSL, newTP);
    
-   result = ProcessResult(success, m_trade.Result(), "MODIFY_SLTP");
+   MqlTradeResult modifySLTPResult;
+   m_trade.Result(modifySLTPResult);
+   result = ProcessResult(success, modifySLTPResult, "MODIFY_SLTP");
    
    if(result.success)
       UpdatePositionData();

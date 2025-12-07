@@ -82,17 +82,20 @@ private:
    int               m_lastCopyBars;
    
    //--- Índices dos buffers no indicador
-   static const int  BUFFER_EMA1 = 0;
-   static const int  BUFFER_EMA2 = 1;
-   static const int  BUFFER_EMA3 = 2;
-   static const int  BUFFER_EMA4 = 3;
-   static const int  BUFFER_EMA5 = 4;
-   static const int  BUFFER_SIGNAL = 5;
-   static const int  BUFFER_STRENGTH = 6;
-   static const int  BUFFER_PHASE = 7;
-   static const int  BUFFER_ENTRY = 8;
-   static const int  BUFFER_EXIT = 9;
-   static const int  BUFFER_CONFLUENCE = 10;
+   enum ENUM_BUFFER_INDEX
+   {
+      BUFFER_EMA1 = 0,
+      BUFFER_EMA2 = 1,
+      BUFFER_EMA3 = 2,
+      BUFFER_EMA4 = 3,
+      BUFFER_EMA5 = 4,
+      BUFFER_SIGNAL = 5,
+      BUFFER_STRENGTH = 6,
+      BUFFER_PHASE = 7,
+      BUFFER_ENTRY = 8,
+      BUFFER_EXIT = 9,
+      BUFFER_CONFLUENCE = 10
+   };
    
 public:
                      CSignalFGM();

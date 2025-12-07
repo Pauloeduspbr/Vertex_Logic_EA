@@ -23,3 +23,8 @@ TestResults.xml
 20251203.log
 20251204.log
 20251205.log
+compile_log.txt
+.gitignore
+Experts/FGM_TrendRider_EA/FGM_TrendRider.ex5
+compile_log2.txt
+compile_final.txt

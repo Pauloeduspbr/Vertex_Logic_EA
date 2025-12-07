@@ -114,14 +114,11 @@ input int      Inp_Trail_Distance  = 100;              // Distância do Trailing
 //--- Horários de Operação
 input group "═══════════════ HORÁRIOS ═══════════════"
 input bool     Inp_UseTimeFilter   = true;             // Usar Filtro de Horário
-input string   Inp_StartTime       = "09:15";          // Horário Início
-input string   Inp_EndTime         = "17:30";          // Horário Fim (Soft Exit)
-input string   Inp_HardExit        = "17:50";          // Hard Exit (força fechamento)
 input bool     Inp_CloseEOD        = true;             // Fechar posições fim do dia
+input int      Inp_BrokerOffset    = 0;                // Offset do broker (horas)
 
 //--- Parâmetros do Indicador FGM
 input group "═══════════════ INDICADOR FGM ═══════════════"
-input string   Inp_FGM_Path        = "FGM_TrendRider_EA\\FGM_Indicator"; // Caminho do Indicador
 input int      Inp_FGM_Period1     = 8;                // Período EMA 1
 input int      Inp_FGM_Period2     = 21;               // Período EMA 2
 input int      Inp_FGM_Period3     = 50;               // Período EMA 3
@@ -133,17 +130,13 @@ input double   Inp_MinConfluence   = 60.0;             // Confluência Mínima (
 //--- Filtros Adicionais
 input group "═══════════════ FILTROS ═══════════════"
 input bool     Inp_UseSlopeFilter  = true;             // Usar Filtro de Slope
-input double   Inp_MinSlope        = 0.0001;           // Slope Mínimo
 input bool     Inp_UseVolumeFilter = true;             // Usar Filtro de Volume (B3)
-input double   Inp_VolumeMultMin   = 0.5;              // Volume Mínimo (x média)
 input bool     Inp_UseATRFilter    = true;             // Usar Filtro ATR
 input int      Inp_CooldownBars    = 3;                // Cooldown após trade (barras)
 
 //--- Regime de Mercado
 input group "═══════════════ REGIME DE MERCADO ═══════════════"
 input bool     Inp_UseRegime       = true;             // Usar Detecção de Regime
-input double   Inp_RegimeTrend     = 1.2;              // Threshold Trending (ATR ratio)
-input double   Inp_RegimeVolatile  = 2.0;              // Threshold Volatile (ATR ratio)
 input double   Inp_TrendMult       = 1.0;              // Multiplicador Trending
 input double   Inp_RangeMult       = 0.5;              // Multiplicador Ranging
 input double   Inp_VolatileMult    = 0.3;              // Multiplicador Volatile
@@ -213,7 +206,7 @@ int OnInit()
    }
    
    //--- Inicializar Signal FGM
-   if(!g_SignalFGM.Init(Symbol(), Period(), Inp_FGM_Path,
+   if(!g_SignalFGM.Init(Symbol(), Period(),
                         Inp_FGM_Period1, Inp_FGM_Period2, Inp_FGM_Period3,
                         Inp_FGM_Period4, Inp_FGM_Period5))
    {
@@ -222,37 +215,69 @@ int OnInit()
    }
    
    //--- Inicializar Risk Manager
-   g_RiskManager.Init(Symbol(), Inp_MagicNumber, Inp_RiskPercent,
-                     Inp_MaxDailyDD, Inp_MaxTotalDD, Inp_MaxConsecLoss,
-                     Inp_ForceMultF3, Inp_ForceMultF4, Inp_ForceMultF5);
+   if(!g_RiskManager.Init(&g_AssetSpecs, 14))
+   {
+      Print("[FGM] Erro ao inicializar Risk Manager");
+      return INIT_FAILED;
+   }
+   
+   //--- Configurar parâmetros de risco
+   RiskParams riskParams;
+   riskParams.riskPercent = Inp_RiskPercent;
+   riskParams.riskMultF5 = Inp_ForceMultF5;
+   riskParams.riskMultF4 = Inp_ForceMultF4;
+   riskParams.riskMultF3 = Inp_ForceMultF3;
+   riskParams.maxDailyDD = Inp_MaxDailyDD;
+   riskParams.maxConsecStops = Inp_MaxConsecLoss;
+   riskParams.tp1RR = Inp_TP1_RR;
+   riskParams.tp2RR = Inp_TP2_RR;
+   riskParams.tp1ClosePercent = (int)Inp_TP1_Percent;
+   riskParams.tp2ClosePercent = (int)Inp_TP2_Percent;
+   riskParams.tp3ClosePercent = (int)Inp_TP3_Percent;
+   riskParams.beActive = Inp_UseBE;
+   riskParams.beOffsetWIN = Inp_BE_Offset;
+   riskParams.beOffsetWDO = Inp_BE_Offset;
+   riskParams.beOffsetForex = Inp_BE_Offset;
+   riskParams.dailyProtection = true;
+   g_RiskManager.SetRiskParams(riskParams);
    
    //--- Inicializar Trade Engine
-   if(!g_TradeEngine.Init(Symbol(), Inp_MagicNumber, Inp_EAComment,
-                         3, 10)) // 3 tentativas, 10 slippage
+   if(!g_TradeEngine.Init(&g_AssetSpecs, (long)Inp_MagicNumber, Inp_EAComment, 10))
    {
       Print("[FGM] Erro ao inicializar Trade Engine");
       return INIT_FAILED;
    }
    
    //--- Inicializar Time Filter
-   g_TimeFilter.Init(Inp_StartTime, Inp_EndTime, Inp_HardExit, Inp_CloseEOD);
+   if(!g_TimeFilter.Init(&g_AssetSpecs, Inp_BrokerOffset))
+   {
+      Print("[FGM] Erro ao inicializar Time Filter");
+      return INIT_FAILED;
+   }
    
    //--- Inicializar Regime Detector
-   g_RegimeDetector.Init(Symbol(), Period(), 14, 50, 
-                        Inp_RegimeTrend, Inp_RegimeVolatile);
+   if(!g_RegimeDetector.Init(&g_AssetSpecs))
+   {
+      Print("[FGM] Erro ao inicializar Regime Detector");
+      return INIT_FAILED;
+   }
    
    //--- Inicializar Filters
-   g_Filters.Init(Symbol(), Period(),
-                 Inp_MinSlope, Inp_MaxSpread,
-                 Inp_VolumeMultMin, 1.5,   // Volume min/max
-                 0.5, 2.5,                  // ATR min/max ratio
-                 Inp_CooldownBars);
+   if(!g_Filters.Init(&g_AssetSpecs, &g_SignalFGM, &g_RegimeDetector))
+   {
+      Print("[FGM] Erro ao inicializar Filters");
+      return INIT_FAILED;
+   }
    
    //--- Inicializar Stats
-   g_Stats.Init(Inp_MagicNumber, Inp_LogLevel,
+   if(!g_Stats.Init(Inp_MagicNumber, Inp_LogLevel,
                Inp_TrackByDay, Inp_TrackByHour,
                Inp_TrackByStrength, Inp_TrackBySession,
-               Inp_ExportStats, "FGM_Stats");
+               Inp_ExportStats, "FGM_Stats"))
+   {
+      Print("[FGM] Erro ao inicializar Stats");
+      return INIT_FAILED;
+   }
    
    //--- Salvar balance inicial
    g_dailyStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -298,22 +323,15 @@ void OnTick()
    if(Inp_TradeOnNewBar && !isNewBar && !g_hasPosition)
       return;
    
-   //--- Atualizar métricas de risco
-   g_RiskManager.UpdateDailyDrawdown(g_dailyStartBalance);
+   //--- Atualizar cooldown dos filtros
+   if(isNewBar)
+      g_Filters.OnNewBar();
    
-   //--- Verificar drawdown
-   if(g_RiskManager.IsMaxDailyDDReached() || g_RiskManager.IsMaxTotalDDReached())
+   //--- Verificar proteção diária
+   if(!g_RiskManager.CheckDailyProtection())
    {
       if(isNewBar)
-         g_Stats.LogMinimal("Drawdown máximo atingido - Trading pausado");
-      return;
-   }
-   
-   //--- Verificar perdas consecutivas
-   if(g_RiskManager.ShouldPauseTrading())
-   {
-      if(isNewBar)
-         g_Stats.LogNormal("Máximo de perdas consecutivas atingido - Aguardando");
+         g_Stats.LogMinimal("Proteção diária ativada - Trading pausado");
       return;
    }
    
@@ -324,7 +342,7 @@ void OnTick()
    }
    
    //--- Verificar hard exit
-   if(Inp_UseTimeFilter && g_TimeFilter.IsHardExit())
+   if(Inp_UseTimeFilter && g_TimeFilter.IsHardExitPeriod())
    {
       if(g_hasPosition)
       {
@@ -339,7 +357,7 @@ void OnTick()
       return;
    
    //--- Verificar cooldown
-   if(!g_Filters.CanTradeAfterCooldown())
+   if(g_Filters.IsInCooldown())
    {
       g_Stats.LogDebug("Cooldown ativo - Aguardando");
       return;
@@ -402,29 +420,31 @@ void ProcessSignals()
    //--- Verificar horário de trading
    if(Inp_UseTimeFilter)
    {
-      if(!g_TimeFilter.IsTradingAllowed())
+      if(!g_TimeFilter.CanOpenNewPosition())
       {
-         g_Stats.LogDebug("Fora do horário de trading");
-         return;
-      }
-      
-      if(g_TimeFilter.IsSoftExit())
-      {
-         g_Stats.LogDebug("Soft Exit - Não abrindo novas posições");
+         g_Stats.LogDebug("Fora do horário de trading ou Soft Exit ativo");
          return;
       }
    }
    
-   //--- Ler dados do indicador
-   FGM_DATA fgmData;
-   if(!g_SignalFGM.ReadData(fgmData, 1)) // Candle fechado
+   //--- Atualizar buffers do indicador
+   if(!g_SignalFGM.Update(5))
    {
-      g_Stats.LogDebug("Erro ao ler dados do indicador");
+      g_Stats.LogDebug("Erro ao atualizar dados do indicador");
+      return;
+   }
+   
+   //--- Ler dados do indicador
+   FGM_DATA fgmData = g_SignalFGM.GetData(1); // Candle fechado
+   
+   if(!fgmData.isValid)
+   {
+      g_Stats.LogDebug("Dados do indicador inválidos");
       return;
    }
    
    //--- Verificar força mínima do sinal
-   int signalStrength = fgmData.Strength;
+   int signalStrength = (int)fgmData.strength;
    if(signalStrength < Inp_MinStrength)
    {
       g_Stats.LogDebug(StringFormat("Força insuficiente: F%d (mín: F%d)", 
@@ -433,16 +453,16 @@ void ProcessSignals()
    }
    
    //--- Verificar confluência mínima
-   double confluence = fgmData.Confluence;
-   if(confluence < Inp_MinConfluence / 100.0)
+   double confluence = fgmData.confluence;
+   if(confluence < Inp_MinConfluence)
    {
       g_Stats.LogDebug(StringFormat("Confluência insuficiente: %.1f%% (mín: %.1f%%)",
-                                    confluence * 100, Inp_MinConfluence));
+                                    confluence, Inp_MinConfluence));
       return;
    }
    
    //--- Verificar sinal de entrada
-   int entrySignal = fgmData.Entry;
+   double entrySignal = fgmData.entry;
    if(entrySignal == 0)
    {
       g_Stats.LogDebug("Sem sinal de entrada");
@@ -467,8 +487,10 @@ void ProcessSignals()
    }
    
    //--- Aplicar filtros
-   if(!ApplyFilters(isBuy ? ORDER_TYPE_BUY : ORDER_TYPE_SELL))
+   FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength);
+   if(!filterResult.passed)
    {
+      g_Stats.LogDebug(StringFormat("Filtro bloqueou: %s", filterResult.failReason));
       return;
    }
    
@@ -478,7 +500,7 @@ void ProcessSignals()
    
    if(Inp_UseRegime)
    {
-      regime = g_RegimeDetector.DetectRegime();
+      regime = g_RegimeDetector.GetCurrentRegime();
       
       switch(regime)
       {
@@ -494,214 +516,61 @@ void ProcessSignals()
       }
       
       g_Stats.LogDebug(StringFormat("Regime: %s | Mult: %.2f", 
-                                    EnumToString(regime), regimeMultiplier));
+                                    g_RegimeDetector.GetRegimeString(regime), regimeMultiplier));
    }
    
    //--- Log do sinal
-   g_Stats.LogSignal(signalStrength, confluence, isBuy ? "BUY" : "SELL");
+   g_Stats.LogSignal(signalStrength, confluence / 100.0, isBuy ? "BUY" : "SELL");
    
-   //--- Calcular Stop Loss
-   double sl = CalculateStopLoss(isBuy);
+   //--- Calcular posição usando RiskManager
+   double entryPrice = isBuy ? SymbolInfoDouble(Symbol(), SYMBOL_ASK) 
+                            : SymbolInfoDouble(Symbol(), SYMBOL_BID);
    
-   //--- Calcular Take Profit
-   double tp = CalculateTakeProfit(isBuy, sl);
+   bool isVolatile = (regime == REGIME_VOLATILE);
+   PositionCalcResult posCalc = g_RiskManager.CalculatePosition(entryPrice, isBuy, signalStrength, isVolatile);
    
-   //--- Calcular lote
-   double slDistance = MathAbs(SymbolInfoDouble(Symbol(), SYMBOL_ASK) - sl);
-   double lot = g_RiskManager.CalculateLot(slDistance, signalStrength, regimeMultiplier);
-   lot = g_AssetSpecs.NormalizeLot(lot);
-   
-   if(lot <= 0)
+   if(!posCalc.isValid)
    {
-      g_Stats.LogError("Lote calculado inválido");
+      g_Stats.LogError(StringFormat("Cálculo de posição inválido: %s", posCalc.errorMessage));
       return;
    }
    
    //--- Armazenar força e sessão
    g_currentStrength = signalStrength;
-   g_currentSession = g_TimeFilter.GetCurrentSession();
+   g_currentSession = g_TimeFilter.GetSessionName(g_TimeFilter.GetCurrentForexSession());
    
    //--- Executar entrada
-   bool success = false;
+   TradeResult tradeResult;
    
    if(isBuy)
-      success = g_TradeEngine.OpenPosition(ORDER_TYPE_BUY, lot, sl, tp);
+      tradeResult = g_TradeEngine.OpenBuy(posCalc.lotSize, posCalc.slPrice, posCalc.tp1Price);
    else
-      success = g_TradeEngine.OpenPosition(ORDER_TYPE_SELL, lot, sl, tp);
+      tradeResult = g_TradeEngine.OpenSell(posCalc.lotSize, posCalc.slPrice, posCalc.tp1Price);
    
-   if(success)
+   if(tradeResult.success)
    {
       g_hasPosition = true;
       g_positionOpenTime = TimeCurrent();
-      g_positionOpenPrice = isBuy ? SymbolInfoDouble(Symbol(), SYMBOL_ASK) 
-                                  : SymbolInfoDouble(Symbol(), SYMBOL_BID);
-      g_positionSL = sl;
-      g_positionVolume = lot;
+      g_positionOpenPrice = tradeResult.price > 0 ? tradeResult.price : entryPrice;
+      g_positionSL = posCalc.slPrice;
+      g_positionVolume = posCalc.lotSize;
       g_positionType = isBuy ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
       g_partialCloseStep = 0;
       g_todayTrades++;
       
-      g_Filters.RegisterTrade(); // Ativar cooldown
+      //--- Armazenar TPs no trade engine
+      g_TradeEngine.SetTP1Price(posCalc.tp1Price);
+      g_TradeEngine.SetTP2Price(posCalc.tp2Price);
+      g_TradeEngine.SetBEPrice(posCalc.bePrice);
+      g_TradeEngine.SetOriginalVolume(posCalc.lotSize);
       
-      g_Stats.LogTrade(isBuy ? "BUY" : "SELL", g_positionOpenPrice, lot, sl, tp);
+      g_Stats.LogTrade(isBuy ? "BUY" : "SELL", g_positionOpenPrice, posCalc.lotSize, 
+                       posCalc.slPrice, posCalc.tp1Price);
    }
    else
    {
-      g_Stats.LogError("Falha ao abrir posição");
+      g_Stats.LogError(StringFormat("Falha ao abrir posição: %s", tradeResult.message));
    }
-}
-
-//+------------------------------------------------------------------+
-//| Aplicar filtros de entrada                                       |
-//+------------------------------------------------------------------+
-bool ApplyFilters(ENUM_ORDER_TYPE orderType)
-{
-   //--- Filtro de spread
-   if(!g_Filters.CheckSpread(Inp_MaxSpread))
-   {
-      g_Stats.LogFilter("Spread", false, StringFormat("%.1f > %d", 
-                       SymbolInfoInteger(Symbol(), SYMBOL_SPREAD), Inp_MaxSpread));
-      return false;
-   }
-   g_Stats.LogFilter("Spread", true);
-   
-   //--- Filtro de slope
-   if(Inp_UseSlopeFilter)
-   {
-      bool slopeOK = g_Filters.CheckSlope(orderType, Inp_MinSlope);
-      if(!slopeOK)
-      {
-         g_Stats.LogFilter("Slope", false);
-         return false;
-      }
-      g_Stats.LogFilter("Slope", true);
-   }
-   
-   //--- Filtro de volume (apenas B3)
-   if(Inp_UseVolumeFilter && g_AssetSpecs.GetAssetType() != ASSET_FOREX)
-   {
-      bool volumeOK = g_Filters.CheckVolume();
-      if(!volumeOK)
-      {
-         g_Stats.LogFilter("Volume", false);
-         return false;
-      }
-      g_Stats.LogFilter("Volume", true);
-   }
-   
-   //--- Filtro ATR
-   if(Inp_UseATRFilter)
-   {
-      bool atrOK = g_Filters.CheckATR();
-      if(!atrOK)
-      {
-         g_Stats.LogFilter("ATR", false);
-         return false;
-      }
-      g_Stats.LogFilter("ATR", true);
-   }
-   
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| Calcular Stop Loss                                               |
-//+------------------------------------------------------------------+
-double CalculateStopLoss(bool isBuy)
-{
-   double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
-   double price = isBuy ? SymbolInfoDouble(Symbol(), SYMBOL_ASK) 
-                       : SymbolInfoDouble(Symbol(), SYMBOL_BID);
-   double sl = 0;
-   
-   switch(Inp_SLMode)
-   {
-      case SL_FIXED:
-         if(isBuy)
-            sl = price - Inp_SL_Points * point;
-         else
-            sl = price + Inp_SL_Points * point;
-         break;
-         
-      case SL_ATR:
-         {
-            double atr = g_RegimeDetector.GetCurrentATR();
-            double atrSL = atr * Inp_SL_ATR_Mult;
-            
-            if(isBuy)
-               sl = price - atrSL;
-            else
-               sl = price + atrSL;
-         }
-         break;
-         
-      case SL_HYBRID:
-         {
-            double fixedSL = Inp_SL_Points * point;
-            double atr = g_RegimeDetector.GetCurrentATR();
-            double atrSL = atr * Inp_SL_ATR_Mult;
-            double slDistance = MathMax(fixedSL, atrSL);
-            
-            // Aplicar limites
-            slDistance = MathMax(slDistance, Inp_SL_Min * point);
-            slDistance = MathMin(slDistance, Inp_SL_Max * point);
-            
-            if(isBuy)
-               sl = price - slDistance;
-            else
-               sl = price + slDistance;
-         }
-         break;
-   }
-   
-   return NormalizeDouble(sl, (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS));
-}
-
-//+------------------------------------------------------------------+
-//| Calcular Take Profit                                             |
-//+------------------------------------------------------------------+
-double CalculateTakeProfit(bool isBuy, double sl)
-{
-   double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
-   double price = isBuy ? SymbolInfoDouble(Symbol(), SYMBOL_ASK) 
-                       : SymbolInfoDouble(Symbol(), SYMBOL_BID);
-   double tp = 0;
-   double slDistance = MathAbs(price - sl);
-   
-   switch(Inp_TPMode)
-   {
-      case TP_FIXED:
-         if(isBuy)
-            tp = price + Inp_TP_Points * point;
-         else
-            tp = price - Inp_TP_Points * point;
-         break;
-         
-      case TP_RR_RATIO:
-         {
-            double tpDistance = slDistance * Inp_TP_RR_Ratio;
-            
-            if(isBuy)
-               tp = price + tpDistance;
-            else
-               tp = price - tpDistance;
-         }
-         break;
-         
-      case TP_ATR:
-         {
-            double atr = g_RegimeDetector.GetCurrentATR();
-            double tpDistance = atr * Inp_TP_ATR_Mult;
-            
-            if(isBuy)
-               tp = price + tpDistance;
-            else
-               tp = price - tpDistance;
-         }
-         break;
-   }
-   
-   return NormalizeDouble(tp, (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS));
 }
 
 //+------------------------------------------------------------------+
@@ -750,16 +619,17 @@ void ManagePosition()
    }
    
    //--- Verificar sinal de saída do indicador
-   FGM_DATA fgmData;
-   if(g_SignalFGM.ReadData(fgmData, 0))
+   if(g_SignalFGM.Update(2))
    {
-      if(fgmData.Exit != 0)
+      FGM_DATA fgmData = g_SignalFGM.GetData(0);
+      
+      if(fgmData.isValid && fgmData.exitSignal != 0)
       {
          bool shouldExit = false;
          
-         if(g_positionType == POSITION_TYPE_BUY && fgmData.Exit < 0)
+         if(g_positionType == POSITION_TYPE_BUY && fgmData.exitSignal > 0)
             shouldExit = true;
-         else if(g_positionType == POSITION_TYPE_SELL && fgmData.Exit > 0)
+         else if(g_positionType == POSITION_TYPE_SELL && fgmData.exitSignal < 0)
             shouldExit = true;
          
          if(shouldExit && profitPoints > 0) // Apenas se em lucro
@@ -790,12 +660,17 @@ void ManageTripleExit(double profitPoints, double currentPrice)
          double closeVolume = g_positionVolume * (Inp_TP1_Percent / 100.0);
          closeVolume = g_AssetSpecs.NormalizeLot(closeVolume);
          
-         if(closeVolume > 0 && g_TradeEngine.ClosePartial(closeVolume))
+         if(closeVolume > 0)
          {
-            g_Stats.LogNormal(StringFormat("TP1 atingido - Fechado %.2f lotes (%.0f%%)",
-                                          closeVolume, Inp_TP1_Percent));
-            g_partialCloseStep = 1;
-            g_positionVolume -= closeVolume;
+            TradeResult result = g_TradeEngine.ClosePositionPartial(closeVolume);
+            if(result.success)
+            {
+               g_Stats.LogNormal(StringFormat("TP1 atingido - Fechado %.2f lotes (%.0f%%)",
+                                             closeVolume, Inp_TP1_Percent));
+               g_partialCloseStep = 1;
+               g_positionVolume -= closeVolume;
+               g_TradeEngine.SetTP1Hit(true);
+            }
          }
       }
    }
@@ -811,12 +686,16 @@ void ManageTripleExit(double profitPoints, double currentPrice)
          double closeVolume = g_positionVolume * (Inp_TP2_Percent / (Inp_TP2_Percent + Inp_TP3_Percent));
          closeVolume = g_AssetSpecs.NormalizeLot(closeVolume);
          
-         if(closeVolume > 0 && g_TradeEngine.ClosePartial(closeVolume))
+         if(closeVolume > 0)
          {
-            g_Stats.LogNormal(StringFormat("TP2 atingido - Fechado %.2f lotes",
-                                          closeVolume));
-            g_partialCloseStep = 2;
-            g_positionVolume -= closeVolume;
+            TradeResult result = g_TradeEngine.ClosePositionPartial(closeVolume);
+            if(result.success)
+            {
+               g_Stats.LogNormal(StringFormat("TP2 atingido - Fechado %.2f lotes", closeVolume));
+               g_partialCloseStep = 2;
+               g_positionVolume -= closeVolume;
+               g_TradeEngine.SetTP2Hit(true);
+            }
          }
       }
    }
@@ -827,35 +706,16 @@ void ManageTripleExit(double profitPoints, double currentPrice)
 //+------------------------------------------------------------------+
 void ManageBreakEven(double profitPoints, double currentPrice)
 {
-   double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
-   
    //--- Verificar se já está em BE
-   double currentSL = 0;
-   if(PositionSelect(Symbol()))
-      currentSL = PositionGetDouble(POSITION_SL);
-   
-   bool alreadyInBE = false;
-   if(g_positionType == POSITION_TYPE_BUY && currentSL >= g_positionOpenPrice)
-      alreadyInBE = true;
-   else if(g_positionType == POSITION_TYPE_SELL && currentSL <= g_positionOpenPrice && currentSL > 0)
-      alreadyInBE = true;
-   
-   if(alreadyInBE)
+   if(g_TradeEngine.IsBEActivated())
       return;
    
    //--- Mover para BE se trigger atingido
    if(profitPoints >= Inp_BE_Trigger)
    {
-      double newSL;
-      
-      if(g_positionType == POSITION_TYPE_BUY)
-         newSL = g_positionOpenPrice + Inp_BE_Offset * point;
-      else
-         newSL = g_positionOpenPrice - Inp_BE_Offset * point;
-      
-      if(g_TradeEngine.MoveToBreakEven(g_positionOpenPrice, Inp_BE_Offset * point))
+      if(g_TradeEngine.MoveToBreakeven(Inp_BE_Offset))
       {
-         g_Stats.LogNormal(StringFormat("Break-Even ativado @ %.5f", newSL));
+         g_Stats.LogNormal("Break-Even ativado");
       }
    }
 }
@@ -869,36 +729,12 @@ void ManageTrailingStop(double profitPoints, double currentPrice)
       return;
    
    double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
+   double distance = Inp_Trail_Distance * point;
+   double step = Inp_Trail_Step * point;
    
-   //--- Obter SL atual
-   double currentSL = 0;
-   if(PositionSelect(Symbol()))
-      currentSL = PositionGetDouble(POSITION_SL);
-   
-   double newSL = 0;
-   bool shouldUpdate = false;
-   
-   if(g_positionType == POSITION_TYPE_BUY)
+   if(g_TradeEngine.TrailingByFixed(distance, step))
    {
-      newSL = currentPrice - Inp_Trail_Distance * point;
-      
-      if(newSL > currentSL && (newSL - currentSL) >= Inp_Trail_Step * point)
-         shouldUpdate = true;
-   }
-   else
-   {
-      newSL = currentPrice + Inp_Trail_Distance * point;
-      
-      if((newSL < currentSL || currentSL == 0) && (currentSL - newSL) >= Inp_Trail_Step * point)
-         shouldUpdate = true;
-   }
-   
-   if(shouldUpdate)
-   {
-      if(g_TradeEngine.UpdateTrailingStop(newSL))
-      {
-         g_Stats.LogDebug(StringFormat("Trailing Stop atualizado para %.5f", newSL));
-      }
+      g_Stats.LogDebug("Trailing Stop atualizado");
    }
 }
 
@@ -945,11 +781,15 @@ void OnPositionClosed()
       }
    }
    
-   //--- Atualizar contadores de risco
-   if(lastProfit < 0)
-      g_RiskManager.RegisterLoss();
-   else
-      g_RiskManager.RegisterWin();
+   //--- Atualizar estatísticas de risco
+   bool isWin = (lastProfit > 0);
+   g_RiskManager.UpdateDailyStats(lastProfit, isWin);
+   
+   //--- Iniciar cooldown se foi stop
+   if(closeReason == "Stop Loss")
+   {
+      g_Filters.StartCooldownAfterStop();
+   }
    
    //--- Registrar trade nas estatísticas
    g_Stats.RecordTrade(
@@ -983,19 +823,11 @@ void OnPositionClosed()
 //+------------------------------------------------------------------+
 void CloseAllPositions(const string reason)
 {
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   TradeResult result = g_TradeEngine.CloseAllByMagic((long)Inp_MagicNumber);
+   
+   if(result.success)
    {
-      if(PositionSelectByTicket(PositionGetTicket(i)))
-      {
-         if(PositionGetInteger(POSITION_MAGIC) == Inp_MagicNumber &&
-            PositionGetString(POSITION_SYMBOL) == Symbol())
-         {
-            if(g_TradeEngine.ClosePosition())
-            {
-               g_Stats.LogNormal(StringFormat("Posição fechada - Razão: %s", reason));
-            }
-         }
-      }
+      g_Stats.LogNormal(StringFormat("Posições fechadas - Razão: %s | %s", reason, result.message));
    }
    
    g_hasPosition = false;
@@ -1025,8 +857,9 @@ void OnTimer()
    {
       //--- Novo dia
       g_dailyStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-      g_RiskManager.ResetDailyStats();
+      g_RiskManager.ResetDailyProtection();
       g_Stats.ResetDailyStats();
+      g_Filters.ResetCooldown();
       g_todayTrades = 0;
       
       lastResetDay = today;

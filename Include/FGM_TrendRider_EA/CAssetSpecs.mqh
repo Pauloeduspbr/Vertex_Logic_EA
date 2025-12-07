@@ -327,7 +327,7 @@ void CAssetSpecs::LoadSymbolSpecs()
    m_specs.freezeLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_FREEZE_LEVEL);
    
    //--- Spread atual
-   m_specs.spreadTypical = SymbolInfoInteger(symbol, SYMBOL_SPREAD);
+   m_specs.spreadTypical = (double)SymbolInfoInteger(symbol, SYMBOL_SPREAD);
 }
 
 //+------------------------------------------------------------------+
