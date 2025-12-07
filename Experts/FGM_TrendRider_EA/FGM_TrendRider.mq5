@@ -434,30 +434,44 @@ void ProcessSignals()
       return;
    }
    
-   //--- Ler dados do indicador
-   FGM_DATA fgmData = g_SignalFGM.GetData(1); // Candle fechado
+   //--- Verificar sinal de entrada em AMBAS as barras (0 e 1)
+   //--- O indicador FGM emite Entry apenas na barra do cruzamento
+   //--- Precisamos verificar barra 0 (atual) e barra 1 (fechada recentemente)
+   FGM_DATA fgmData;
+   int signalBar = -1;
    
-   if(!fgmData.isValid)
+   //--- Primeiro verificar barra 1 (candle fechado - mais confiável)
+   fgmData = g_SignalFGM.GetData(1);
+   if(fgmData.isValid && fgmData.entry != 0)
    {
-      g_Stats.LogDebug("Dados do indicador inválidos");
+      signalBar = 1;
+   }
+   else
+   {
+      //--- Se não tem sinal na barra 1, verificar barra 0 (atual)
+      fgmData = g_SignalFGM.GetData(0);
+      if(fgmData.isValid && fgmData.entry != 0)
+      {
+         signalBar = 0;
+      }
+   }
+   
+   if(signalBar < 0 || !fgmData.isValid)
+   {
+      // Não há sinal de entrada em nenhuma das barras
       return;
    }
    
    //--- DEBUG: Log valores lidos do indicador
-   g_Stats.LogDebug(StringFormat("FGM Data: Strength=%.0f, Entry=%.0f, Confluence=%.1f%%", 
-                                 fgmData.strength, fgmData.entry, fgmData.confluence));
+   g_Stats.LogDebug(StringFormat("FGM Data (bar %d): Strength=%.0f, Entry=%.0f, Confluence=%.1f%%", 
+                                 signalBar, fgmData.strength, fgmData.entry, fgmData.confluence));
    
-   //--- Verificar sinal de entrada PRIMEIRO (antes dos outros filtros)
+   //--- Verificar sinal de entrada
    double entrySignal = fgmData.entry;
-   if(entrySignal == 0)
-   {
-      // Não logar para cada barra sem sinal - muito spam
-      return;
-   }
    
    //--- Log sinal detectado
-   g_Stats.LogNormal(StringFormat("Sinal detectado! Entry=%.0f, Strength=%.0f, Confluence=%.1f%%",
-                                  entrySignal, fgmData.strength, fgmData.confluence));
+   g_Stats.LogNormal(StringFormat("Sinal detectado! Bar=%d, Entry=%.0f, Strength=%.0f, Confluence=%.1f%%",
+                                  signalBar, entrySignal, fgmData.strength, fgmData.confluence));
    
    //--- Verificar força mínima do sinal (usar valor absoluto - negativo para SELL)
    int signalStrength = (int)MathAbs(fgmData.strength);
