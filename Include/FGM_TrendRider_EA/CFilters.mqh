@@ -991,7 +991,8 @@ double CFilters::GetCurrentRSI()
    if(m_handleRSI == INVALID_HANDLE)
       return 50.0; // Valor neutro se não há handle
    
-   if(CopyBuffer(m_handleRSI, 0, 1, 1, m_bufferRSI) <= 0)
+   //--- Usar barra 0 (atual) para sincronizar com o visual do gráfico
+   if(CopyBuffer(m_handleRSI, 0, 0, 1, m_bufferRSI) <= 0)
       return 50.0;
    
    return m_bufferRSI[0];
@@ -1006,9 +1007,10 @@ double CFilters::GetCurrentRSIMA()
       return 50.0;
    
    //--- O indicador RSIOMA customizado tem:
-   //--- Buffer 0 = RSI
-   //--- Buffer 1 = RSI MA
-   if(CopyBuffer(m_handleRSI, 1, 1, 1, m_bufferRSIMA) <= 0)
+   //--- Buffer 0 = RSI (linha vermelha)
+   //--- Buffer 1 = RSI MA (linha azul)
+   //--- Usar barra 0 (atual) para sincronizar com o visual do gráfico
+   if(CopyBuffer(m_handleRSI, 1, 0, 1, m_bufferRSIMA) <= 0)
       return 50.0;
    
    return m_bufferRSIMA[0];
