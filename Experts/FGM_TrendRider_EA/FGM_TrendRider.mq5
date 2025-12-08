@@ -199,6 +199,7 @@ bool              g_beExecuted = false;           // BE foi executado (apenas um
 double            g_trailingMaxPrice = 0;         // Preço máximo (BUY) ou mínimo (SELL) atingido
 double            g_trailingLastMovePrice = 0;    // Preço no qual o último movimento do TS foi feito
 double            g_trailingSL = 0;               // Último SL do trailing
+datetime          g_lastTrailingBarTime = 0;      // Tempo da barra do último ajuste TS (throttling)
 
 //--- Tracking para evitar múltiplas entradas na mesma tendência
 int               g_lastTrendDirection = 0;   // +1=compra, -1=venda, 0=neutro
@@ -793,6 +794,7 @@ void ProcessSignals()
       g_trailingMaxPrice = 0;
       g_trailingLastMovePrice = 0;
       g_trailingSL = 0;
+      g_lastTrailingBarTime = 0;
       
       //--- Atualizar tracking de tendência para evitar múltiplas entradas
       //--- Crossover direto reseta o tracking (nova tendência)
@@ -888,10 +890,12 @@ void ManagePosition()
 
 //+------------------------------------------------------------------+
 //| Gerenciar Break-Even                                             |
+//| BASEADO EM: CBreakEvenManager (Nexus Confluence EA)              |
 //| REGRAS:                                                          |
 //| 1. BE é ativado APENAS UMA VEZ por trade                         |
-//| 2. Move SL para Ask (compra) ou Bid (venda) + offset spread      |
-//| 3. Após executar, NÃO atua mais no trade                         |
+//| 2. Quando lucro >= Trigger, move SL para Entry + Offset          |
+//| 3. Valida STOPS_LEVEL e FREEZE_LEVEL do broker                   |
+//| 4. Após executar, marca g_beExecuted e não atua mais             |
 //+------------------------------------------------------------------+
 void ManageBreakEven(double profitPoints, double currentPrice)
 {
@@ -899,74 +903,152 @@ void ManageBreakEven(double profitPoints, double currentPrice)
    if(g_beExecuted)
       return;
    
-   //--- Mover para BE se trigger atingido
-   if(profitPoints >= Inp_BE_Trigger)
+   //--- Verificar se atingiu o trigger
+   if(profitPoints < Inp_BE_Trigger)
+      return;
+   
+   double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
+   double tickSize = SymbolInfoDouble(Symbol(), SYMBOL_TRADE_TICK_SIZE);
+   int digits = (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS);
+   
+   //--- Usar TICK_SIZE (B3) ou POINT (índices) - o que for maior
+   double priceStep = (tickSize > point) ? tickSize : point;
+   double offsetDistance = Inp_BE_Offset * priceStep;
+   
+   double newSL = 0;
+   
+   if(g_positionType == POSITION_TYPE_BUY)
    {
-      double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
-      double offsetPoints = Inp_BE_Offset * point;
-      double newSL = 0;
+      //--- Para COMPRA: SL = Entry + Offset (garante lucro mínimo)
+      newSL = NormalizeDouble(g_positionOpenPrice + offsetDistance, digits);
       
+      //--- Garantir que novo SL é melhor que o atual (maior para BUY)
+      if(g_positionSL > 0 && newSL <= g_positionSL)
+      {
+         g_Stats.LogDebug("BE BUY: Novo SL não é melhor que atual");
+         return;
+      }
+      
+      //--- Validar: SL não pode estar acima ou igual ao preço atual
+      if(newSL >= currentPrice)
+      {
+         g_Stats.LogDebug(StringFormat("BE BUY: SL (%.2f) >= preço atual (%.2f) - impossível", newSL, currentPrice));
+         return;
+      }
+      
+      //--- Validar: SL não pode ultrapassar TP
+      double currentTP = PositionGetDouble(POSITION_TP);
+      if(currentTP > 0 && newSL >= currentTP)
+      {
+         g_Stats.LogDebug(StringFormat("BE BUY: SL (%.2f) >= TP (%.2f) - impossível", newSL, currentTP));
+         return;
+      }
+   }
+   else // POSITION_TYPE_SELL
+   {
+      //--- Para VENDA: SL = Entry - Offset (garante lucro mínimo)
+      newSL = NormalizeDouble(g_positionOpenPrice - offsetDistance, digits);
+      
+      //--- Garantir que novo SL é melhor que o atual (menor para SELL)
+      if(g_positionSL > 0 && newSL >= g_positionSL)
+      {
+         g_Stats.LogDebug("BE SELL: Novo SL não é melhor que atual");
+         return;
+      }
+      
+      //--- Validar: SL não pode estar abaixo ou igual ao preço atual
+      if(newSL <= currentPrice)
+      {
+         g_Stats.LogDebug(StringFormat("BE SELL: SL (%.2f) <= preço atual (%.2f) - impossível", newSL, currentPrice));
+         return;
+      }
+      
+      //--- Validar: SL não pode ultrapassar TP
+      double currentTP = PositionGetDouble(POSITION_TP);
+      if(currentTP > 0 && newSL <= currentTP)
+      {
+         g_Stats.LogDebug(StringFormat("BE SELL: SL (%.2f) <= TP (%.2f) - impossível", newSL, currentTP));
+         return;
+      }
+   }
+   
+   //--- Validar STOPS_LEVEL do broker
+   long stopsLevel = SymbolInfoInteger(Symbol(), SYMBOL_TRADE_STOPS_LEVEL);
+   if(stopsLevel > 0)
+   {
+      double distanceToPrice = 0;
       if(g_positionType == POSITION_TYPE_BUY)
-      {
-         //--- Para COMPRA: SL = Ask atual + offset (protege spread)
-         //--- Usamos Ask porque se o mercado cair, queremos sair no Ask
-         double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
-         newSL = g_positionOpenPrice + offsetPoints;  // Preço de entrada + offset (garante lucro mínimo)
-         
-         //--- Garantir que novo SL é melhor que o atual
-         if(g_positionSL > 0 && newSL <= g_positionSL)
-         {
-            g_Stats.LogDebug("BE: Novo SL não é melhor que atual para compra");
-            return;
-         }
-      }
+         distanceToPrice = (currentPrice - newSL) / priceStep;
       else
+         distanceToPrice = (newSL - currentPrice) / priceStep;
+      
+      if(distanceToPrice < stopsLevel)
       {
-         //--- Para VENDA: SL = Bid atual - offset (protege spread)
-         //--- Usamos Bid porque se o mercado subir, queremos sair no Bid
-         double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
-         newSL = g_positionOpenPrice - offsetPoints;  // Preço de entrada - offset (garante lucro mínimo)
-         
-         //--- Garantir que novo SL é melhor que o atual
-         if(g_positionSL > 0 && newSL >= g_positionSL)
-         {
-            g_Stats.LogDebug("BE: Novo SL não é melhor que atual para venda");
-            return;
-         }
+         g_Stats.LogDebug(StringFormat("BE: SL muito próximo do preço (dist=%.1f < stops_level=%d)", 
+                                       distanceToPrice, stopsLevel));
+         return;
       }
+   }
+   
+   //--- Validar FREEZE_LEVEL do broker
+   long freezeLevel = SymbolInfoInteger(Symbol(), SYMBOL_TRADE_FREEZE_LEVEL);
+   if(freezeLevel > 0)
+   {
+      double distanceToPrice = 0;
+      if(g_positionType == POSITION_TYPE_BUY)
+         distanceToPrice = (currentPrice - newSL) / priceStep;
+      else
+         distanceToPrice = (newSL - currentPrice) / priceStep;
       
-      //--- Normalizar SL
-      newSL = NormalizeDouble(newSL, _Digits);
-      
-      //--- Executar modificação diretamente
-      TradeResult result = g_TradeEngine.ModifySL(newSL);
-      
-      if(result.success)
+      if(distanceToPrice < freezeLevel)
       {
-         g_beExecuted = true;  // MARCA QUE BE FOI EXECUTADO - NÃO ATUA MAIS
-         g_positionSL = newSL;
-         g_trailingSL = newSL;  // Inicializa trailing a partir do BE
-         g_trailingMaxPrice = currentPrice;  // Marca preço inicial do trailing
-         g_trailingLastMovePrice = currentPrice;  // Inicializa referência para STEP do TS
-         g_TradeEngine.SetBEActivated(true);
-         
-         g_Stats.LogNormal(StringFormat("Break-Even EXECUTADO (único): SL movido para %.2f (offset: %d pts)", 
-                                        newSL, Inp_BE_Offset));
+         g_Stats.LogDebug(StringFormat("BE: Dentro do FREEZE_LEVEL (dist=%.1f < freeze=%d)", 
+                                       distanceToPrice, freezeLevel));
+         return;
       }
+   }
+   
+   //--- Executar modificação
+   TradeResult result = g_TradeEngine.ModifySL(newSL);
+   
+   if(result.success)
+   {
+      g_beExecuted = true;  // MARCA QUE BE FOI EXECUTADO - NÃO ATUA MAIS
+      g_positionSL = newSL;
+      g_trailingSL = newSL;  // Inicializa trailing a partir do BE
+      g_trailingMaxPrice = currentPrice;  // Marca preço inicial do trailing
+      g_trailingLastMovePrice = currentPrice;  // Inicializa referência para STEP do TS
+      g_lastTrailingBarTime = iTime(Symbol(), Period(), 0);  // Marca tempo da barra
+      g_TradeEngine.SetBEActivated(true);
+      
+      double protectedPoints = 0;
+      if(g_positionType == POSITION_TYPE_BUY)
+         protectedPoints = (newSL - g_positionOpenPrice) / priceStep;
+      else
+         protectedPoints = (g_positionOpenPrice - newSL) / priceStep;
+      
+      g_Stats.LogNormal(StringFormat("Break-Even EXECUTADO: SL=%.2f | Lucro protegido=%.0f pts | Offset=%d pts", 
+                                     newSL, protectedPoints, Inp_BE_Offset));
+   }
+   else
+   {
+      g_Stats.LogDebug(StringFormat("BE: Falha ao modificar SL: %s", result.message));
    }
 }
 
 //+------------------------------------------------------------------+
 //| Gerenciar Trailing Stop                                          |
-//| LÓGICA COM PREÇO MÁXIMO/MÍNIMO:                                  |
+//| BASEADO EM: CTrailingStopManager (Nexus Confluence EA)           |
+//| LÓGICA DIRECIONAL COM THROTTLING:                                |
 //| 1. Só atua APÓS BE ativado (proteção garantida)                  |
 //| 2. Quando lucro >= Trigger, começa a monitorar                   |
-//| 3. Rastreia o preço MÁXIMO (BUY) ou MÍNIMO (SELL) atingido       |
-//| 4. SL fica sempre DISTANCE pontos atrás do máximo/mínimo         |
-//| 5. SL só MOVE se preço avançou pelo menos STEP pontos desde      |
-//|    o último movimento do SL                                       |
-//| 6. Se preço recua, TS PAUSA (não move) - só avança com novo max  |
-//| 7. SL NUNCA recua (só melhora)                                   |
+//| 3. THROTTLING: Só move SL se preço avançou >= 75% do STEP        |
+//|    desde o último movimento do SL                                |
+//| 4. DIRECIONAL: BUY só move se preço SUBIU, SELL só se CAIU       |
+//| 5. SL = preço atual - DISTANCE (BUY) ou + DISTANCE (SELL)        |
+//| 6. SL NUNCA recua (só melhora)                                   |
+//| 7. Valida STOPS_LEVEL e FREEZE_LEVEL do broker                   |
+//| 8. Limita a 1 ajuste por barra (throttling por tempo)            |
 //+------------------------------------------------------------------+
 void ManageTrailingStop(double profitPoints, double currentPrice)
 {
@@ -979,83 +1061,194 @@ void ManageTrailingStop(double profitPoints, double currentPrice)
       return;
    
    double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
-   double distance = Inp_Trail_Distance * point;
-   double step = Inp_Trail_Step * point;
+   double tickSize = SymbolInfoDouble(Symbol(), SYMBOL_TRADE_TICK_SIZE);
+   int digits = (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS);
    
-   //--- Inicializar preço máximo/mínimo se primeira execução
-   if(g_trailingMaxPrice == 0)
+   //--- Usar TICK_SIZE (B3) ou POINT (índices) - o que for maior
+   double priceStep = (tickSize > point) ? tickSize : point;
+   double distance = Inp_Trail_Distance * priceStep;
+   double step = Inp_Trail_Step * priceStep;
+   
+   //--- Tempo da barra atual (limitar a 1 ajuste por barra)
+   datetime barTime = iTime(Symbol(), Period(), 0);
+   
+   //--- Inicializar preço de referência se primeira execução do TS
+   if(g_trailingMaxPrice == 0 || g_trailingLastMovePrice == 0)
    {
       g_trailingMaxPrice = currentPrice;
-      g_trailingLastMovePrice = currentPrice;  // Marcar preço inicial
+      g_trailingLastMovePrice = currentPrice;
+      g_lastTrailingBarTime = barTime;
       
-      //--- Se g_trailingSL ainda não foi inicializado (caso raro), usar SL atual
       if(g_trailingSL == 0)
          g_trailingSL = g_positionSL;
       
-      g_Stats.LogDebug(StringFormat("Trailing Stop INICIADO: Preço Ref=%.2f | Distance=%d pts | Step=%d pts | SL atual=%.2f",
-                                    g_trailingMaxPrice, Inp_Trail_Distance, Inp_Trail_Step, g_trailingSL));
+      g_Stats.LogNormal(StringFormat("Trailing Stop INICIADO: Preço Ref=%.2f | Distance=%d pts | Step=%d pts",
+                                     g_trailingMaxPrice, Inp_Trail_Distance, Inp_Trail_Step));
       return;
    }
    
-   //--- Verificar se g_trailingSL precisa ser inicializado (primeira vez após BE)
+   //--- Garantir que g_trailingSL está inicializado
    if(g_trailingSL == 0)
       g_trailingSL = g_positionSL;
    
    double newSL = 0;
    bool shouldMove = false;
    
+   //--- Calcular movimento mínimo necessário (75% do step = throttling)
+   double minRequired = step * 0.75;
+   
    if(g_positionType == POSITION_TYPE_BUY)
    {
-      //--- COMPRA: verificar se preço fez NOVO MÁXIMO
+      //--- BUY: Calcular quanto o preço SUBIU desde último movimento do SL
+      double priceAdvance = currentPrice - g_trailingLastMovePrice;
+      
+      //--- THROTTLING DIRECIONAL: Só aceitar movimento POSITIVO >= minRequired
+      if(priceAdvance < minRequired)
+      {
+         //--- Preço não subiu o suficiente - NÃO MOVER
+         if(priceAdvance < 0)
+         {
+            //--- Preço CAIU - TS pausa (não loga a cada tick)
+         }
+         return;
+      }
+      
+      //--- Preço subiu o suficiente - calcular novo SL
+      //--- Atualizar preço máximo se necessário
       if(currentPrice > g_trailingMaxPrice)
-      {
-         //--- Atualizar máximo (sempre rastreia o pico)
          g_trailingMaxPrice = currentPrice;
+      
+      //--- SL = Preço atual - Distance
+      newSL = NormalizeDouble(currentPrice - distance, digits);
+      
+      //--- Só move se novo SL é melhor (maior) que atual
+      if(newSL > g_trailingSL)
+         shouldMove = true;
+      
+      //--- Validar: SL não pode estar acima ou igual ao preço atual
+      if(newSL >= currentPrice)
+      {
+         g_Stats.LogDebug(StringFormat("TS BUY: SL (%.2f) >= preço atual (%.2f) - impossível", newSL, currentPrice));
+         return;
+      }
+      
+      //--- Validar: SL não pode ultrapassar TP
+      double currentTP = PositionGetDouble(POSITION_TP);
+      if(currentTP > 0 && newSL >= currentTP)
+      {
+         //--- Ajustar SL para ficar abaixo do TP
+         double safeDistance = 10 * priceStep;
+         newSL = NormalizeDouble(currentTP - safeDistance, digits);
          
-         //--- Verificar STEP: preço avançou pelo menos STEP desde último movimento do SL?
-         double priceAdvance = currentPrice - g_trailingLastMovePrice;
-         
-         if(priceAdvance >= step)
+         if(newSL <= g_trailingSL)
          {
-            //--- SL = Máximo - Distance
-            newSL = g_trailingMaxPrice - distance;
-            
-            //--- Só move se novo SL é melhor (maior) que atual
-            if(newSL > g_trailingSL)
-               shouldMove = true;
+            g_Stats.LogDebug("TS BUY: SL já próximo ao TP, não é possível trailing");
+            return;
          }
       }
-      //--- Se preço recuou, NÃO MOVE (pausa)
    }
-   else
+   else // POSITION_TYPE_SELL
    {
-      //--- VENDA: verificar se preço fez NOVO MÍNIMO
-      if(currentPrice < g_trailingMaxPrice)
+      //--- SELL: Calcular quanto o preço CAIU desde último movimento do SL
+      double priceAdvance = g_trailingLastMovePrice - currentPrice;  // Invertido para SELL
+      
+      //--- THROTTLING DIRECIONAL: Só aceitar movimento POSITIVO (preço caiu) >= minRequired
+      if(priceAdvance < minRequired)
       {
-         //--- Atualizar mínimo (sempre rastreia o vale)
-         g_trailingMaxPrice = currentPrice;
-         
-         //--- Verificar STEP: preço avançou pelo menos STEP desde último movimento do SL?
-         double priceAdvance = g_trailingLastMovePrice - currentPrice;  // Invertido para SELL
-         
-         if(priceAdvance >= step)
+         //--- Preço não caiu o suficiente - NÃO MOVER
+         if(priceAdvance < 0)
          {
-            //--- SL = Mínimo + Distance
-            newSL = g_trailingMaxPrice + distance;
-            
-            //--- Só move se novo SL é melhor (menor) que atual
-            if(newSL < g_trailingSL)
-               shouldMove = true;
+            //--- Preço SUBIU - TS pausa (não loga a cada tick)
+         }
+         return;
+      }
+      
+      //--- Preço caiu o suficiente - calcular novo SL
+      //--- Atualizar preço mínimo se necessário
+      if(currentPrice < g_trailingMaxPrice)
+         g_trailingMaxPrice = currentPrice;
+      
+      //--- SL = Preço atual + Distance
+      newSL = NormalizeDouble(currentPrice + distance, digits);
+      
+      //--- Só move se novo SL é melhor (menor) que atual
+      if(newSL < g_trailingSL)
+         shouldMove = true;
+      
+      //--- Validar: SL não pode estar abaixo ou igual ao preço atual
+      if(newSL <= currentPrice)
+      {
+         g_Stats.LogDebug(StringFormat("TS SELL: SL (%.2f) <= preço atual (%.2f) - impossível", newSL, currentPrice));
+         return;
+      }
+      
+      //--- Validar: SL não pode ultrapassar TP
+      double currentTP = PositionGetDouble(POSITION_TP);
+      if(currentTP > 0 && newSL <= currentTP)
+      {
+         //--- Ajustar SL para ficar acima do TP
+         double safeDistance = 10 * priceStep;
+         newSL = NormalizeDouble(currentTP + safeDistance, digits);
+         
+         if(newSL >= g_trailingSL)
+         {
+            g_Stats.LogDebug("TS SELL: SL já próximo ao TP, não é possível trailing");
+            return;
          }
       }
-      //--- Se preço subiu (recuou), NÃO MOVE (pausa)
    }
    
    if(!shouldMove)
       return;
    
-   //--- Normalizar SL
-   newSL = NormalizeDouble(newSL, _Digits);
+   //--- Verificar se já atualizou nesta barra (throttling por tempo)
+   if(g_lastTrailingBarTime == barTime)
+   {
+      //--- Já atualizou nesta barra, pular
+      return;
+   }
+   
+   //--- Validar: SL não pode ser igual ao atual (evita modificação desnecessária)
+   if(MathAbs(newSL - g_trailingSL) < priceStep)
+   {
+      return;
+   }
+   
+   //--- Validar STOPS_LEVEL do broker
+   long stopsLevel = SymbolInfoInteger(Symbol(), SYMBOL_TRADE_STOPS_LEVEL);
+   if(stopsLevel > 0)
+   {
+      double distanceToPrice = 0;
+      if(g_positionType == POSITION_TYPE_BUY)
+         distanceToPrice = (currentPrice - newSL) / priceStep;
+      else
+         distanceToPrice = (newSL - currentPrice) / priceStep;
+      
+      if(distanceToPrice < stopsLevel)
+      {
+         g_Stats.LogDebug(StringFormat("TS: SL muito próximo do preço (dist=%.1f < stops_level=%d)", 
+                                       distanceToPrice, stopsLevel));
+         return;
+      }
+   }
+   
+   //--- Validar FREEZE_LEVEL do broker
+   long freezeLevel = SymbolInfoInteger(Symbol(), SYMBOL_TRADE_FREEZE_LEVEL);
+   if(freezeLevel > 0)
+   {
+      double distanceToPrice = 0;
+      if(g_positionType == POSITION_TYPE_BUY)
+         distanceToPrice = (currentPrice - newSL) / priceStep;
+      else
+         distanceToPrice = (newSL - currentPrice) / priceStep;
+      
+      if(distanceToPrice < freezeLevel)
+      {
+         g_Stats.LogDebug(StringFormat("TS: Dentro do FREEZE_LEVEL (dist=%.1f < freeze=%d)", 
+                                       distanceToPrice, freezeLevel));
+         return;
+      }
+   }
    
    //--- Executar modificação
    TradeResult result = g_TradeEngine.ModifySL(newSL);
@@ -1065,16 +1258,20 @@ void ManageTrailingStop(double profitPoints, double currentPrice)
       g_trailingSL = newSL;
       g_positionSL = newSL;
       g_trailingLastMovePrice = currentPrice;  // Atualizar referência do último movimento
+      g_lastTrailingBarTime = barTime;  // Marcar que atualizou nesta barra
       
       double lockedProfit = 0;
       if(g_positionType == POSITION_TYPE_BUY)
-         lockedProfit = (newSL - g_positionOpenPrice) / point;
+         lockedProfit = (newSL - g_positionOpenPrice) / priceStep;
       else
-         lockedProfit = (g_positionOpenPrice - newSL) / point;
+         lockedProfit = (g_positionOpenPrice - newSL) / priceStep;
       
-      g_Stats.LogNormal(StringFormat("Trailing Stop: Novo %s=%.2f | SL=%.2f | Lucro Protegido=%.0f pts", 
-                                    (g_positionType == POSITION_TYPE_BUY) ? "MAX" : "MIN",
-                                    g_trailingMaxPrice, newSL, lockedProfit));
+      g_Stats.LogNormal(StringFormat("Trailing Stop: SL=%.2f | Lucro Protegido=%.0f pts | Step=%d pts", 
+                                    newSL, lockedProfit, Inp_Trail_Step));
+   }
+   else
+   {
+      g_Stats.LogDebug(StringFormat("TS: Falha ao modificar SL: %s", result.message));
    }
 }
 
@@ -1158,6 +1355,7 @@ void OnPositionClosed()
    g_trailingMaxPrice = 0;
    g_trailingLastMovePrice = 0;
    g_trailingSL = 0;
+   g_lastTrailingBarTime = 0;
    
    //--- Reset tracking de tendência para permitir re-entrada
    //--- Após posição fechar, libera novas entradas na mesma direção
