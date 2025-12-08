@@ -1146,22 +1146,36 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    //--- FILTRO 3: Posição RSI vs MA (verificar posição relativa)
    //--- BUY: RSI (vermelho) deve estar ACIMA da MA (azul) - momentum subindo
    //--- SELL: RSI (vermelho) deve estar ABAIXO da MA (azul) - momentum caindo
+   //--- TOLERÂNCIA: Se a diferença for muito pequena (< 2 pontos), não bloqueia
+   //---             pois pode ser ruído ou cruzamento em formação
    if(m_config.rsiomaCheckCrossover)
    {
+      double diff = rsi - rsiMA;
+      double tolerance = 2.0;  // Margem de tolerância em pontos RSI
+      
       //--- Para COMPRA: linha vermelha (RSI) deve estar ACIMA da linha azul (MA)
-      if(isBuy && rsi <= rsiMA)
+      //--- Bloqueia apenas se RSI estiver CLARAMENTE abaixo da MA (diff < -tolerance)
+      if(isBuy && diff < -tolerance)
       {
          Print("RSIOMA FILTRO: BUY bloqueado - RSI(", DoubleToString(rsi, 1), 
-               ") <= MA(", DoubleToString(rsiMA, 1), ") - momentum de baixa");
+               ") < MA(", DoubleToString(rsiMA, 1), ") - diff=", DoubleToString(diff, 1), " - momentum de baixa");
          return false;
       }
       
       //--- Para VENDA: linha vermelha (RSI) deve estar ABAIXO da MA (azul)
-      if(!isBuy && rsi >= rsiMA)
+      //--- Bloqueia apenas se RSI estiver CLARAMENTE acima da MA (diff > tolerance)
+      if(!isBuy && diff > tolerance)
       {
          Print("RSIOMA FILTRO: SELL bloqueado - RSI(", DoubleToString(rsi, 1), 
-               ") >= MA(", DoubleToString(rsiMA, 1), ") - momentum de alta");
+               ") > MA(", DoubleToString(rsiMA, 1), ") - diff=", DoubleToString(diff, 1), " - momentum de alta");
          return false;
+      }
+      
+      //--- Se a diferença está dentro da tolerância, log informativo
+      if(MathAbs(diff) <= tolerance)
+      {
+         Print("RSIOMA INFO: Diferença RSI-MA (", DoubleToString(diff, 1), 
+               ") dentro da tolerância (±", DoubleToString(tolerance, 1), ") - permitindo trade");
       }
    }
    
