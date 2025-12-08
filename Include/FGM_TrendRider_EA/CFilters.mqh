@@ -998,8 +998,8 @@ double CFilters::GetCurrentRSI()
    //--- O sinal de entrada é gerado na barra 1 (fechada), então o filtro RSIOMA
    //--- também deve avaliar a barra 1 para tomar decisão no mesmo momento.
    //--- A barra 0 ainda está em formação e muda a cada tick.
-   //--- BUFFERS INVERTIDOS: Buffer 1 = RSI (linha azul), Buffer 0 = RSI MA (linha vermelha)
-   if(CopyBuffer(m_handleRSI, 1, 1, 1, m_bufferRSI) <= 0)
+   //--- Buffer 0 = RSI (linha vermelha), Buffer 1 = RSI MA (linha azul)
+   if(CopyBuffer(m_handleRSI, 0, 1, 1, m_bufferRSI) <= 0)
       return 50.0;
    
    return m_bufferRSI[0];
@@ -1013,13 +1013,13 @@ double CFilters::GetCurrentRSIMA()
    if(m_handleRSI == INVALID_HANDLE)
       return 50.0;
    
-   //--- O indicador RSIOMA customizado tem (INVERTIDO do esperado):
-   //--- Buffer 0 = RSI MA (linha vermelha)
-   //--- Buffer 1 = RSI (linha azul)
+   //--- O indicador RSIOMA customizado tem:
+   //--- Buffer 0 = RSI (linha vermelha)
+   //--- Buffer 1 = RSI MA (linha azul)
    //--- IMPORTANTE: Usar barra 1 (FECHADA) para sincronizar com o sinal FGM
    //--- O sinal de entrada é gerado na barra 1 (fechada), então o filtro RSIOMA
    //--- também deve avaliar a barra 1 para tomar decisão no mesmo momento.
-   if(CopyBuffer(m_handleRSI, 0, 1, 1, m_bufferRSIMA) <= 0)
+   if(CopyBuffer(m_handleRSI, 1, 1, 1, m_bufferRSIMA) <= 0)
       return 50.0;
    
    return m_bufferRSIMA[0];
@@ -1110,10 +1110,10 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    ArraySetAsSeries(rsiMAValues, true);
    
    //--- Copiar valores das últimas N barras (começando da barra 1 = fechada)
-   //--- BUFFERS INVERTIDOS: Buffer 1 = RSI (azul), Buffer 0 = RSI MA (vermelho)
-   if(CopyBuffer(m_handleRSI, 1, 1, confirmBars, rsiValues) < confirmBars)
+   //--- Buffer 0 = RSI (vermelho), Buffer 1 = RSI MA (azul)
+   if(CopyBuffer(m_handleRSI, 0, 1, confirmBars, rsiValues) < confirmBars)
       return true;
-   if(CopyBuffer(m_handleRSI, 0, 1, confirmBars, rsiMAValues) < confirmBars)
+   if(CopyBuffer(m_handleRSI, 1, 1, confirmBars, rsiMAValues) < confirmBars)
       return true;
    
    //--- DEBUG: Logar valores de todas as barras analisadas
