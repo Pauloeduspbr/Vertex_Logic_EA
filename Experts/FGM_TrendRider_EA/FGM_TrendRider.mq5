@@ -97,15 +97,6 @@ input int      Inp_TP_Points       = 300;              // TP Fixo (pontos)
 input double   Inp_TP_RR_Ratio     = 2.0;              // Razão Risco/Retorno
 input double   Inp_TP_ATR_Mult     = 3.0;              // Multiplicador ATR para TP
 
-//--- Sistema Triple Exit
-input group "═══════════════ TRIPLE EXIT ═══════════════"
-input bool     Inp_UseTripleExit   = true;             // Usar Triple Exit
-input double   Inp_TP1_Percent     = 50.0;             // TP1: Percentual do volume (%)
-input double   Inp_TP1_RR          = 1.0;              // TP1: Razão R:R
-input double   Inp_TP2_Percent     = 30.0;             // TP2: Percentual do volume (%)
-input double   Inp_TP2_RR          = 2.0;              // TP2: Razão R:R
-input double   Inp_TP3_Percent     = 20.0;             // TP3: Percentual do volume (%)
-
 //--- Break-Even
 input group "═══════════════ BREAK-EVEN ═══════════════"
 input bool     Inp_UseBE           = true;             // Usar Break-Even
@@ -202,7 +193,6 @@ double            g_positionOpenPrice = 0;
 double            g_positionSL = 0;
 double            g_positionVolume = 0;
 ENUM_POSITION_TYPE g_positionType;
-int               g_partialCloseStep = 0; // 0=nenhum, 1=TP1 fechado, 2=TP2 fechado
 
 //--- Tracking de Break-Even e Trailing Stop
 bool              g_beExecuted = false;           // BE foi executado (apenas uma vez)
@@ -276,11 +266,8 @@ int OnInit()
    riskParams.tpMode = (int)Inp_TPMode;
    riskParams.tpFixedPoints = Inp_TP_Points;
    riskParams.tpATRMult = Inp_TP_ATR_Mult;
-   riskParams.tp1RR = Inp_TP_RR_Ratio;  // Usa o RR geral, não do Triple Exit
-   riskParams.tp2RR = Inp_TP2_RR;
-   riskParams.tp1ClosePercent = (int)Inp_TP1_Percent;
-   riskParams.tp2ClosePercent = (int)Inp_TP2_Percent;
-   riskParams.tp3ClosePercent = (int)Inp_TP3_Percent;
+   riskParams.tp1RR = Inp_TP_RR_Ratio;  // Usa o RR geral
+   riskParams.tp2RR = Inp_TP_RR_Ratio * 2.0;  // TP2 = 2x RR (para cálculos internos)
    riskParams.beActive = Inp_UseBE;
    riskParams.beOffsetWIN = Inp_BE_Offset;
    riskParams.beOffsetWDO = Inp_BE_Offset;
@@ -773,7 +760,6 @@ void ProcessSignals()
       g_positionSL = posCalc.slPrice;
       g_positionVolume = posCalc.lotSize;
       g_positionType = isBuy ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
-      g_partialCloseStep = 0;
       g_todayTrades++;
       
       //--- Reset variáveis de BE e Trailing para nova posição
@@ -838,13 +824,7 @@ void ManagePosition()
    else
       profitPoints = (g_positionOpenPrice - currentPrice) / point;
    
-   //--- Sistema Triple Exit
-   if(Inp_UseTripleExit)
-   {
-      ManageTripleExit(profitPoints, currentPrice);
-   }
-   
-   //--- Break-Even (ativado apenas UMA vez, independente de TP1)
+   //--- Break-Even (ativado apenas UMA vez)
    if(Inp_UseBE && !g_beExecuted)
    {
       ManageBreakEven(profitPoints, currentPrice);
@@ -874,66 +854,6 @@ void ManagePosition()
          {
             g_Stats.LogNormal("Sinal de saída do indicador detectado");
             CloseAllPositions("FGM Exit Signal");
-         }
-      }
-   }
-}
-
-//+------------------------------------------------------------------+
-//| Gerenciar Triple Exit                                            |
-//+------------------------------------------------------------------+
-void ManageTripleExit(double profitPoints, double currentPrice)
-{
-   double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
-   double slDistance = MathAbs(g_positionOpenPrice - g_positionSL);
-   
-   //--- TP1: Fechar percentual em R:R 1
-   if(g_partialCloseStep == 0)
-   {
-      double tp1Distance = slDistance * Inp_TP1_RR;
-      double tp1Points = tp1Distance / point;
-      
-      if(profitPoints >= tp1Points)
-      {
-         double closeVolume = g_positionVolume * (Inp_TP1_Percent / 100.0);
-         closeVolume = g_AssetSpecs.NormalizeLot(closeVolume);
-         
-         if(closeVolume > 0)
-         {
-            TradeResult result = g_TradeEngine.ClosePositionPartial(closeVolume);
-            if(result.success)
-            {
-               g_Stats.LogNormal(StringFormat("TP1 atingido - Fechado %.2f lotes (%.0f%%)",
-                                             closeVolume, Inp_TP1_Percent));
-               g_partialCloseStep = 1;
-               g_positionVolume -= closeVolume;
-               g_TradeEngine.SetTP1Hit(true);
-            }
-         }
-      }
-   }
-   
-   //--- TP2: Fechar percentual em R:R 2
-   if(g_partialCloseStep == 1)
-   {
-      double tp2Distance = slDistance * Inp_TP2_RR;
-      double tp2Points = tp2Distance / point;
-      
-      if(profitPoints >= tp2Points)
-      {
-         double closeVolume = g_positionVolume * (Inp_TP2_Percent / (Inp_TP2_Percent + Inp_TP3_Percent));
-         closeVolume = g_AssetSpecs.NormalizeLot(closeVolume);
-         
-         if(closeVolume > 0)
-         {
-            TradeResult result = g_TradeEngine.ClosePositionPartial(closeVolume);
-            if(result.success)
-            {
-               g_Stats.LogNormal(StringFormat("TP2 atingido - Fechado %.2f lotes", closeVolume));
-               g_partialCloseStep = 2;
-               g_positionVolume -= closeVolume;
-               g_TradeEngine.SetTP2Hit(true);
-            }
          }
       }
    }
@@ -1168,7 +1088,6 @@ void OnPositionClosed()
    
    //--- Reset variáveis
    g_hasPosition = false;
-   g_partialCloseStep = 0;
    g_positionOpenTime = 0;
    g_positionOpenPrice = 0;
    g_positionSL = 0;
