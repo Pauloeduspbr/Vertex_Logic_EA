@@ -618,7 +618,12 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
       return result;
    }
    
-   result.confluenceOK = CheckConfluence(result.currentStrength);
+   //--- Confluence Filter: pular para PRICE CROSSOVER (rompimento de todas EMAs confirma tendência)
+   if(skipPhaseFilter)
+      result.confluenceOK = true;
+   else
+      result.confluenceOK = CheckConfluence(result.currentStrength);
+   
    if(!result.confluenceOK)
    {
       result.passed = false;

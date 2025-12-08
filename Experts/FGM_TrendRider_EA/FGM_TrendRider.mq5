@@ -688,29 +688,41 @@ void ProcessSignals()
    //--- Verificar confluência (compressão das EMAs)
    //--- IMPORTANTE: neste indicador, confluência ALTA = EMAs MUITO próximas = MERCADO LATERAL
    //---              confluência BAIXA = EMAs afastadas = TENDÊNCIA FORTE
+   //--- NOTA: Para PRICE CROSSOVER, IGNORAMOS a confluência porque o preço já cruzou TODAS as EMAs
+   //---       Isso é confirmação suficiente de tendência, independente da distância entre EMAs.
    double confluence = fgmData.confluence;
 
-   //--- Limite máximo de confluência aceitável por força do sinal.
-   //--- Estes limites são ajustáveis por input para não descaracterizar
-   //--- o EA em outros ativos/mercados.
-   double maxConfluenceAllowed = 100.0;
-
-   if(signalStrength >= 5)
-      maxConfluenceAllowed = Inp_MaxConf_F5;
-   else if(signalStrength == 4)
-      maxConfluenceAllowed = Inp_MaxConf_F4;
-   else if(signalStrength == 3)
-      maxConfluenceAllowed = Inp_MaxConf_F3;
-
-   if(confluence > maxConfluenceAllowed)
+   //--- Para PRICE CROSSOVER: NÃO verificar confluência (rompimento de todas EMAs já confirma tendência)
+   if(!isPriceCrossover)
    {
-      g_Stats.LogNormal(StringFormat("Confluência alta demais (mercado lateral) para F%d: %.1f%% (máx: %.1f%%)",
-                                    signalStrength, confluence, maxConfluenceAllowed));
-      return;
-   }
+      //--- Limite máximo de confluência aceitável por força do sinal.
+      //--- Estes limites são ajustáveis por input para não descaracterizar
+      //--- o EA em outros ativos/mercados.
+      double maxConfluenceAllowed = 100.0;
 
-   g_Stats.LogNormal(StringFormat("Sinal aprovado! F%d, Confluência=%.1f%% (máx: %.1f%%)",
-                                  signalStrength, confluence, maxConfluenceAllowed));
+      if(signalStrength >= 5)
+         maxConfluenceAllowed = Inp_MaxConf_F5;
+      else if(signalStrength == 4)
+         maxConfluenceAllowed = Inp_MaxConf_F4;
+      else if(signalStrength == 3)
+         maxConfluenceAllowed = Inp_MaxConf_F3;
+
+      if(confluence > maxConfluenceAllowed)
+      {
+         g_Stats.LogNormal(StringFormat("Confluência alta demais (mercado lateral) para F%d: %.1f%% (máx: %.1f%%)",
+                                       signalStrength, confluence, maxConfluenceAllowed));
+         return;
+      }
+      
+      g_Stats.LogNormal(StringFormat("Sinal aprovado! F%d, Confluência=%.1f%% (máx: %.1f%%)",
+                                     signalStrength, confluence, maxConfluenceAllowed));
+   }
+   else
+   {
+      //--- PRICE CROSSOVER: confluência ignorada (preço cruzou TODAS as EMAs)
+      g_Stats.LogNormal(StringFormat("PRICE CROSSOVER aprovado! F%d (confluência ignorada: %.1f%%)",
+                                     signalStrength, confluence));
+   }
    
    //--- Determinar direção
    bool isBuy = (entrySignal > 0);
