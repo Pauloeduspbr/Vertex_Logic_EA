@@ -574,25 +574,23 @@ void CBreakEvenManager::PrintStats(void)
 //+------------------------------------------------------------------+
 bool CBreakEvenManager::IsMarketOpenNow(string symbol)
 {
+    //--- Em modo de backtest, sempre permitir operações (tester simula mercado aberto)
+    if(MQLInfoInteger(MQL_TESTER))
+        return true;
+    
+    //--- Verificar se o símbolo está disponível para trade
     int trade_mode = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_MODE);
     if(trade_mode == SYMBOL_TRADE_MODE_DISABLED || trade_mode == SYMBOL_TRADE_MODE_CLOSEONLY)
         return false;
     
-    // Verificar sessão de trading
-    datetime current_time = TimeCurrent();
-    MqlDateTime dt;
-    TimeToStruct(current_time, dt);
+    //--- Verificar se há cotações válidas (spread > 0 indica mercado ativo)
+    double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+    double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
     
-    datetime from_time, to_time;
-    if(!SymbolInfoSessionTrade(symbol, (ENUM_DAY_OF_WEEK)dt.day_of_week, 0, from_time, to_time))
-        return true;  // Se não conseguir obter sessão, assumir aberto
+    if(bid <= 0 || ask <= 0 || bid >= ask * 10) // Verificação básica de cotação válida
+        return false;
     
-    // Construir horários de hoje
-    datetime today_start = current_time - (dt.hour * 3600 + dt.min * 60 + dt.sec);
-    datetime session_from = today_start + (int)(from_time % 86400);
-    datetime session_to = today_start + (int)(to_time % 86400);
-    
-    return (current_time >= session_from && current_time <= session_to);
+    return true;
 }
 
 //+------------------------------------------------------------------+

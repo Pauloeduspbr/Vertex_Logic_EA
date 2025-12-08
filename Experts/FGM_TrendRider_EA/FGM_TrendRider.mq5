@@ -203,6 +203,9 @@ ENUM_POSITION_TYPE g_positionType;
 int               g_lastTrendDirection = 0;   // +1=compra, -1=venda, 0=neutro
 datetime          g_lastTrendEntryTime = 0;   // Tempo da última entrada por tendência
 
+//--- Tracking para detectar quando posição fecha externamente (SL/TP hit)
+bool              g_wasPosition = false;      // Havia posição no tick anterior?
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -416,6 +419,20 @@ void OnTick()
          g_Stats.LogMinimal("Proteção diária ativada - Trading pausado");
       return;
    }
+   
+   //--- Atualizar estado atual da posição
+   CheckExistingPosition();
+   
+   //--- Detectar fechamento externo de posição (SL/TP hit pelo servidor)
+   //--- Se TINHA posição antes e AGORA não tem, significa que fechou externamente
+   if(g_wasPosition && !g_hasPosition)
+   {
+      g_Stats.LogNormal("Posição fechada externamente (SL/TP hit detectado)");
+      OnPositionClosed();
+   }
+   
+   //--- Atualizar tracking de posição para próximo tick
+   g_wasPosition = g_hasPosition;
    
    //--- Gerenciar posição existente
    if(g_hasPosition)
@@ -839,15 +856,8 @@ void ProcessSignals()
 //+------------------------------------------------------------------+
 void ManagePosition()
 {
-   //--- Atualizar informações da posição
-   CheckExistingPosition();
-   
-   if(!g_hasPosition)
-   {
-      //--- Posição foi fechada (SL/TP hit)
-      OnPositionClosed();
-      return;
-   }
+   //--- NOTA: CheckExistingPosition() já é chamado no OnTick() antes de ManagePosition()
+   //--- A detecção de posição fechada também já está no OnTick()
    
    //--- Gerenciar Break-Even usando o novo módulo
    if(Inp_UseBE)
