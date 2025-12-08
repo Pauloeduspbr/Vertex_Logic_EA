@@ -160,6 +160,7 @@ input int      Inp_RSIOMA_Overbought = 70;             // Nível Sobrecompra (n�
 input int      Inp_RSIOMA_Oversold = 30;               // Nível Sobrevenda (não SELL abaixo)
 input bool     Inp_RSIOMA_CheckMid = true;             // Verificar nível 50 (momentum)
 input bool     Inp_RSIOMA_CheckCross = true;           // Verificar RSI × MA (posição relativa)
+input int      Inp_RSIOMA_ConfirmBars = 2;             // Barras de Confirmação (1-5)
 
 //--- Regime de Mercado
 input group "═══════════════ REGIME DE MERCADO ═══════════════"
@@ -353,6 +354,7 @@ int OnInit()
    filterConfig.rsiomaOversold = Inp_RSIOMA_Oversold;
    filterConfig.rsiomaCheckMidLevel = Inp_RSIOMA_CheckMid;
    filterConfig.rsiomaCheckCrossover = Inp_RSIOMA_CheckCross;
+   filterConfig.rsiomaConfirmBars = Inp_RSIOMA_ConfirmBars;
    g_Filters.SetConfig(filterConfig);
    
    //--- Inicializar Stats
