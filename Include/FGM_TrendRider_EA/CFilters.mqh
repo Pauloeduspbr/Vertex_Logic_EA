@@ -995,31 +995,27 @@ double CFilters::GetCurrentRSI()
       return 50.0; // Valor neutro se não há handle
    
    //--- IMPORTANTE: Usar barra 1 (FECHADA) para sincronizar com o sinal FGM
-   //--- O sinal de entrada é gerado na barra 1 (fechada), então o filtro RSIOMA
-   //--- também deve avaliar a barra 1 para tomar decisão no mesmo momento.
-   //--- A barra 0 ainda está em formação e muda a cada tick.
-   //--- Buffer 0 = RSI (linha vermelha), Buffer 1 = RSI MA (linha azul)
-   if(CopyBuffer(m_handleRSI, 0, 1, 1, m_bufferRSI) <= 0)
+   //--- CORREÇÃO: Buffers invertidos no indicador!
+   //--- Visualmente: linha VERMELHA = Buffer 1, linha AZUL = Buffer 0
+   //--- Então RSI (linha vermelha) = Buffer 1
+   if(CopyBuffer(m_handleRSI, 1, 1, 1, m_bufferRSI) <= 0)
       return 50.0;
    
    return m_bufferRSI[0];
 }
 
 //+------------------------------------------------------------------+
-//| Obter RSI MA atual (NOVO) - Buffer 1 do RSIOMA                   |
+//| Obter RSI MA atual (NOVO) - Buffer 0 do RSIOMA (CORRIGIDO)       |
 //+------------------------------------------------------------------+
 double CFilters::GetCurrentRSIMA()
 {
    if(m_handleRSI == INVALID_HANDLE)
       return 50.0;
    
-   //--- O indicador RSIOMA customizado tem:
-   //--- Buffer 0 = RSI (linha vermelha)
-   //--- Buffer 1 = RSI MA (linha azul)
-   //--- IMPORTANTE: Usar barra 1 (FECHADA) para sincronizar com o sinal FGM
-   //--- O sinal de entrada é gerado na barra 1 (fechada), então o filtro RSIOMA
-   //--- também deve avaliar a barra 1 para tomar decisão no mesmo momento.
-   if(CopyBuffer(m_handleRSI, 1, 1, 1, m_bufferRSIMA) <= 0)
+   //--- CORREÇÃO: Buffers invertidos no indicador!
+   //--- Visualmente: linha VERMELHA = Buffer 1 (RSI), linha AZUL = Buffer 0 (MA)
+   //--- Então RSI MA (linha azul) = Buffer 0
+   if(CopyBuffer(m_handleRSI, 0, 1, 1, m_bufferRSIMA) <= 0)
       return 50.0;
    
    return m_bufferRSIMA[0];
@@ -1110,23 +1106,26 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    ArraySetAsSeries(rsiMAValues, true);
    
    //--- Copiar valores das últimas N barras (começando da barra 1 = fechada)
-   //--- Buffer 0 = RSI (vermelho), Buffer 1 = RSI MA (azul)
-   if(CopyBuffer(m_handleRSI, 0, 1, confirmBars, rsiValues) < confirmBars)
+   //--- CORREÇÃO: Após análise visual, os buffers estão invertidos no indicador!
+   //--- O que o indicador chama de Buffer 0 (RSI) é plotado como linha AZUL
+   //--- O que o indicador chama de Buffer 1 (MA) é plotado como linha VERMELHA
+   //--- Então: Buffer 0 = MA (visualmente azul), Buffer 1 = RSI (visualmente vermelho)
+   //--- INVERTENDO: rsiValues lê Buffer 1, rsiMAValues lê Buffer 0
+   if(CopyBuffer(m_handleRSI, 1, 1, confirmBars, rsiValues) < confirmBars)
       return true;
-   if(CopyBuffer(m_handleRSI, 1, 1, confirmBars, rsiMAValues) < confirmBars)
+   if(CopyBuffer(m_handleRSI, 0, 1, confirmBars, rsiMAValues) < confirmBars)
       return true;
    
    //--- DEBUG: Logar valores de todas as barras analisadas
-   //--- IMPORTANTE: Compare estes valores com o Data Window do indicador no gráfico
-   //--- Se os valores forem DIFERENTES, o indicador no gráfico NÃO é o mesmo que o EA está usando!
+   //--- CORREÇÃO APLICADA: Buffers invertidos!
+   //--- Buffer 1 = RSI (linha vermelha visual) | Buffer 0 = MA (linha azul visual)
    Print("═══════════════════════════════════════════════════════════════════════");
    Print("RSIOMA DEBUG: ", isBuy ? "BUY" : "SELL", " | Verificando ", confirmBars, " barra(s)");
    Print("INDICADOR: FGM_TrendRider_EA\\RSIOMA_v2HHLSX_MT5");
    Print("PARÂMETROS: RSI(", m_config.rsiomaPeriod, ") MA(", m_config.rsiomaMA_Period, 
          ") Method:", m_config.rsiomaMA_Method);
    Print("───────────────────────────────────────────────────────────────────────");
-   Print("ATENÇÃO: Buffer 0 = RSI (vermelho) | Buffer 1 = RSI MA (azul)");
-   Print("Compare com Data Window no MT5 - se valores diferentes, indicador errado!");
+   Print("CORREÇÃO: Buffer 1 = RSI (vermelho) | Buffer 0 = MA (azul)");
    Print("───────────────────────────────────────────────────────────────────────");
    for(int i = 0; i < confirmBars; i++)
    {
