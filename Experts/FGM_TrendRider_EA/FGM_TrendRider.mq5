@@ -159,7 +159,7 @@ input int      Inp_RSIOMA_MA       = 9;                // Período MA do RSI
 input int      Inp_RSIOMA_Overbought = 70;             // Nível Sobrecompra (não BUY acima)
 input int      Inp_RSIOMA_Oversold = 30;               // Nível Sobrevenda (não SELL abaixo)
 input bool     Inp_RSIOMA_CheckMid = true;             // Verificar nível 50 (momentum)
-input bool     Inp_RSIOMA_CheckCross = false;          // Verificar RSI × MA
+input bool     Inp_RSIOMA_CheckCross = true;           // Verificar RSI × MA (posição relativa)
 
 //--- Regime de Mercado
 input group "═══════════════ REGIME DE MERCADO ═══════════════"

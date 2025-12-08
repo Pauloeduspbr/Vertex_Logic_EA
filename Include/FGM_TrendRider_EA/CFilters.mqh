@@ -1114,16 +1114,26 @@ bool CFilters::CheckRSIOMA(bool isBuy)
          return false;
    }
    
-   //--- FILTRO 3: Cruzamento RSI × MA (opcional)
-   //--- BUY: RSI deve estar acima da sua MA (momentum subindo)
-   //--- SELL: RSI deve estar abaixo da sua MA (momentum caindo)
+   //--- FILTRO 3: Posição RSI vs MA (verificar posição relativa)
+   //--- BUY: RSI (vermelho) deve estar ACIMA da MA (azul) - momentum subindo
+   //--- SELL: RSI (vermelho) deve estar ABAIXO da MA (azul) - momentum caindo
    if(m_config.rsiomaCheckCrossover)
    {
-      if(isBuy && rsi < rsiMA)
+      //--- Para COMPRA: linha vermelha (RSI) deve estar ACIMA da linha azul (MA)
+      if(isBuy && rsi <= rsiMA)
+      {
+         Print("RSIOMA FILTRO: BUY bloqueado - RSI(", DoubleToString(rsi, 1), 
+               ") <= MA(", DoubleToString(rsiMA, 1), ") - momentum de baixa");
          return false;
+      }
       
-      if(!isBuy && rsi > rsiMA)
+      //--- Para VENDA: linha vermelha (RSI) deve estar ABAIXO da linha azul (MA)
+      if(!isBuy && rsi >= rsiMA)
+      {
+         Print("RSIOMA FILTRO: SELL bloqueado - RSI(", DoubleToString(rsi, 1), 
+               ") >= MA(", DoubleToString(rsiMA, 1), ") - momentum de alta");
          return false;
+      }
    }
    
    return true;
