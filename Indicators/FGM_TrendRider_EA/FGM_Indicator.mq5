@@ -539,6 +539,11 @@ int CalculateSignalStrength(int index)
 
 //+------------------------------------------------------------------+
 //| Calculate Market Phase                                           |
+//| CORREÇÃO: Agora considera TANTO o alinhamento das EMAs           |
+//| QUANTO a posição do preço em relação às EMAs.                    |
+//| - STRONG_BULL: EMAs alinhadas bullish E preço acima de todas     |
+//| - STRONG_BEAR: EMAs alinhadas bearish E preço abaixo de todas    |
+//| - Se preço contradiz o alinhamento das EMAs = NEUTRAL            |
 //+------------------------------------------------------------------+
 MARKET_PHASE CalculateMarketPhase(int index)
 {
@@ -552,54 +557,66 @@ MARKET_PHASE CalculateMarketPhase(int index)
     ema[3] = FGM_EMA4_Buffer[index];
     ema[4] = FGM_EMA5_Buffer[index];
     
-    //--- Perfect bullish alignment
-    bool perfect_bull = true;
+    //--- Validate EMA values
+    for(int i = 0; i < 5; i++)
+    {
+        if(ema[i] == EMPTY_VALUE || ema[i] <= 0)
+            return PHASE_NEUTRAL;
+    }
+    
+    //--- Get current price
+    double current_close = iClose(_Symbol, _Period, index);
+    if(current_close <= 0)
+        return PHASE_NEUTRAL;
+    
+    //--- Check price position relative to ALL EMAs
+    bool price_above_all = true;
+    bool price_below_all = true;
+    for(int i = 0; i < 5; i++)
+    {
+        if(current_close <= ema[i])
+            price_above_all = false;
+        if(current_close >= ema[i])
+            price_below_all = false;
+    }
+    
+    //--- Check EMA alignment
+    bool perfect_bull_alignment = true;
+    bool perfect_bear_alignment = true;
+    int bull_count = 0;
+    int bear_count = 0;
+    
     for(int i = 0; i < 4; i++)
     {
         if(ema[i] <= ema[i+1])
-        {
-            perfect_bull = false;
-            break;
-        }
-    }
-    if(perfect_bull)
-        return PHASE_STRONG_BULL;
-    
-    //--- Count bullish conditions
-    int bull_count = 0;
-    for(int i = 0; i < 4; i++)
-    {
-        if(ema[i] > ema[i+1])
+            perfect_bull_alignment = false;
+        else
             bull_count++;
-    }
-    
-    if(bull_count >= 3)
-        return PHASE_WEAK_BULL;
-    
-    //--- Perfect bearish alignment
-    bool perfect_bear = true;
-    for(int i = 0; i < 4; i++)
-    {
+            
         if(ema[i] >= ema[i+1])
-        {
-            perfect_bear = false;
-            break;
-        }
-    }
-    if(perfect_bear)
-        return PHASE_STRONG_BEAR;
-    
-    //--- Count bearish conditions
-    int bear_count = 0;
-    for(int i = 0; i < 4; i++)
-    {
-        if(ema[i] < ema[i+1])
+            perfect_bear_alignment = false;
+        else
             bear_count++;
     }
     
-    if(bear_count >= 3)
+    //--- STRONG_BULL: Perfect EMA alignment AND price above ALL EMAs
+    if(perfect_bull_alignment && price_above_all)
+        return PHASE_STRONG_BULL;
+    
+    //--- STRONG_BEAR: Perfect EMA alignment AND price below ALL EMAs
+    if(perfect_bear_alignment && price_below_all)
+        return PHASE_STRONG_BEAR;
+    
+    //--- WEAK_BULL: 3+ bullish conditions AND price above all EMAs
+    if(bull_count >= 3 && price_above_all)
+        return PHASE_WEAK_BULL;
+    
+    //--- WEAK_BEAR: 3+ bearish conditions AND price below all EMAs
+    if(bear_count >= 3 && price_below_all)
         return PHASE_WEAK_BEAR;
     
+    //--- If price contradicts EMA alignment or EMAs are mixed = NEUTRAL
+    //--- Isso previne sinais falsos quando preço está revertendo
     return PHASE_NEUTRAL;
 }
 
