@@ -1117,14 +1117,28 @@ bool CFilters::CheckRSIOMA(bool isBuy)
       return true;
    
    //--- DEBUG: Logar valores de todas as barras analisadas
-   Print("RSIOMA CHECK: ", isBuy ? "BUY" : "SELL", " | Verificando ", confirmBars, " barra(s)");
+   //--- IMPORTANTE: Compare estes valores com o Data Window do indicador no gráfico
+   //--- Se os valores forem DIFERENTES, o indicador no gráfico NÃO é o mesmo que o EA está usando!
+   Print("═══════════════════════════════════════════════════════════════════════");
+   Print("RSIOMA DEBUG: ", isBuy ? "BUY" : "SELL", " | Verificando ", confirmBars, " barra(s)");
+   Print("INDICADOR: FGM_TrendRider_EA\\RSIOMA_v2HHLSX_MT5");
+   Print("PARÂMETROS: RSI(", m_config.rsiomaPeriod, ") MA(", m_config.rsiomaMA_Period, 
+         ") Method:", m_config.rsiomaMA_Method);
+   Print("───────────────────────────────────────────────────────────────────────");
+   Print("ATENÇÃO: Buffer 0 = RSI (vermelho) | Buffer 1 = RSI MA (azul)");
+   Print("Compare com Data Window no MT5 - se valores diferentes, indicador errado!");
+   Print("───────────────────────────────────────────────────────────────────────");
    for(int i = 0; i < confirmBars; i++)
    {
       datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, i + 1);
-      Print("  Bar", i+1, "(", TimeToString(barTime, TIME_MINUTES), "): RSI=", 
-            DoubleToString(rsiValues[i], 1), " MA=", DoubleToString(rsiMAValues[i], 1),
-            " diff=", DoubleToString(rsiValues[i] - rsiMAValues[i], 1));
+      string relation = (rsiValues[i] > rsiMAValues[i]) ? "RSI > MA (alta)" : 
+                        (rsiValues[i] < rsiMAValues[i]) ? "RSI < MA (baixa)" : "RSI = MA";
+      Print("  Bar", i+1, " [", TimeToString(barTime, TIME_MINUTES), "]: ",
+            "RSI=", DoubleToString(rsiValues[i], 2), " | ",
+            "MA=", DoubleToString(rsiMAValues[i], 2), " | ",
+            "Diff=", DoubleToString(rsiValues[i] - rsiMAValues[i], 2), " | ", relation);
    }
+   Print("═══════════════════════════════════════════════════════════════════════");
    
    //--- FILTRO 1: Sobrecompra/Sobrevenda - Verificar apenas barra 1 (mais recente)
    //--- Não bloquear vendas só porque está sobrevendido no passado
