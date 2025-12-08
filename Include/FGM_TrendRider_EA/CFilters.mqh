@@ -1124,72 +1124,73 @@ bool CFilters::CheckRSIOMA(bool isBuy)
             " diff=", DoubleToString(rsiValues[i] - rsiMAValues[i], 1));
    }
    
-   //--- Verificar TODAS as barras - TODAS devem passar nos filtros
-   for(int bar = 0; bar < confirmBars; bar++)
+   //--- FILTRO 1: Sobrecompra/Sobrevenda - Verificar apenas barra 1 (mais recente)
+   //--- Não bloquear vendas só porque está sobrevendido no passado
+   double rsi = rsiValues[0];
+   double rsiMA = rsiMAValues[0];
+   
+   if(isBuy && rsi >= m_config.rsiomaOverbought)
    {
-      double rsi = rsiValues[bar];
-      double rsiMA = rsiMAValues[bar];
-      
-      //--- FILTRO 1: Sobrecompra/Sobrevenda
-      if(isBuy && rsi >= m_config.rsiomaOverbought)
+      Print("RSIOMA FILTRO: BUY bloqueado - RSI(", DoubleToString(rsi, 1), 
+            ") >= Overbought(", m_config.rsiomaOverbought, ")");
+      return false;
+   }
+   
+   if(!isBuy && rsi <= m_config.rsiomaOversold)
+   {
+      Print("RSIOMA FILTRO: SELL bloqueado - RSI(", DoubleToString(rsi, 1), 
+            ") <= Oversold(", m_config.rsiomaOversold, ")");
+      return false;
+   }
+   
+   //--- FILTRO 2: Nível 50 (momentum) - Verificar TODAS as barras para confirmação
+   //--- Este é o filtro que deve usar múltiplas barras para confirmar tendência
+   if(m_config.rsiomaCheckMidLevel)
+   {
+      for(int bar = 0; bar < confirmBars; bar++)
       {
-         Print("RSIOMA FILTRO: BUY bloqueado na barra ", bar+1, " - RSI(", 
-               DoubleToString(rsi, 1), ") >= Overbought(", m_config.rsiomaOverbought, ")");
-         return false;
-      }
-      
-      if(!isBuy && rsi <= m_config.rsiomaOversold)
-      {
-         Print("RSIOMA FILTRO: SELL bloqueado na barra ", bar+1, " - RSI(", 
-               DoubleToString(rsi, 1), ") <= Oversold(", m_config.rsiomaOversold, ")");
-         return false;
-      }
-      
-      //--- FILTRO 2: Nível 50 (momentum)
-      if(m_config.rsiomaCheckMidLevel)
-      {
-         if(isBuy && rsi < 50)
+         if(isBuy && rsiValues[bar] < 50)
          {
             Print("RSIOMA FILTRO: BUY bloqueado na barra ", bar+1, " - RSI(", 
-                  DoubleToString(rsi, 1), ") < 50 - momentum de baixa");
+                  DoubleToString(rsiValues[bar], 1), ") < 50 - momentum de baixa");
             return false;
          }
          
-         if(!isBuy && rsi > 50)
+         if(!isBuy && rsiValues[bar] > 50)
          {
             Print("RSIOMA FILTRO: SELL bloqueado na barra ", bar+1, " - RSI(", 
-                  DoubleToString(rsi, 1), ") > 50 - momentum de alta");
-            return false;
-         }
-      }
-      
-      //--- FILTRO 3: Posição RSI vs MA
-      if(m_config.rsiomaCheckCrossover)
-      {
-         double diff = rsi - rsiMA;
-         double tolerance = 2.0;
-         
-         if(isBuy && diff < -tolerance)
-         {
-            Print("RSIOMA FILTRO: BUY bloqueado na barra ", bar+1, " - RSI(", 
-                  DoubleToString(rsi, 1), ") < MA(", DoubleToString(rsiMA, 1), 
-                  ") - diff=", DoubleToString(diff, 1), " - momentum de baixa");
-            return false;
-         }
-         
-         if(!isBuy && diff > tolerance)
-         {
-            Print("RSIOMA FILTRO: SELL bloqueado na barra ", bar+1, " - RSI(", 
-                  DoubleToString(rsi, 1), ") > MA(", DoubleToString(rsiMA, 1), 
-                  ") - diff=", DoubleToString(diff, 1), " - momentum de alta");
+                  DoubleToString(rsiValues[bar], 1), ") > 50 - momentum de alta");
             return false;
          }
       }
    }
    
-   //--- PASSOU em todos os filtros em TODAS as barras
-   Print("RSIOMA FILTRO: ", isBuy ? "BUY" : "SELL", " APROVADO - Todas as ", 
-         confirmBars, " barra(s) confirmaram");
+   //--- FILTRO 3: Posição RSI vs MA - Verificar apenas barra 1 (mais recente)
+   //--- Sinais rápidos precisam de flexibilidade, verificar só a última barra
+   if(m_config.rsiomaCheckCrossover)
+   {
+      double diff = rsi - rsiMA;
+      double tolerance = 2.0;
+      
+      if(isBuy && diff < -tolerance)
+      {
+         Print("RSIOMA FILTRO: BUY bloqueado - RSI(", DoubleToString(rsi, 1), 
+               ") < MA(", DoubleToString(rsiMA, 1), 
+               ") - diff=", DoubleToString(diff, 1), " - momentum de baixa");
+         return false;
+      }
+      
+      if(!isBuy && diff > tolerance)
+      {
+         Print("RSIOMA FILTRO: SELL bloqueado - RSI(", DoubleToString(rsi, 1), 
+               ") > MA(", DoubleToString(rsiMA, 1), 
+               ") - diff=", DoubleToString(diff, 1), " - momentum de alta");
+         return false;
+      }
+   }
+   
+   //--- PASSOU em todos os filtros
+   Print("RSIOMA FILTRO: ", isBuy ? "BUY" : "SELL", " APROVADO");
    
    return true;
 }
