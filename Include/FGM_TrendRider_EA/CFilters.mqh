@@ -29,6 +29,7 @@ struct FilterResult
    bool     strengthOK;          // Força do sinal adequada
    bool     ema200OK;            // Preço vs EMA200
    bool     cooldownOK;          // Cooldown respeitado
+   bool     rsiomaOK;            // RSIOMA OK (NOVO)
    
    //--- Valores
    double   currentSpread;       // Spread atual
@@ -39,6 +40,8 @@ struct FilterResult
    double   currentConfluence;   // Confluência atual
    int      currentStrength;     // Força atual
    int      currentPhase;        // Fase atual
+   double   currentRSI;          // RSI atual (NOVO)
+   double   currentRSIMA;        // RSI MA atual (NOVO)
 };
 
 //+------------------------------------------------------------------+
@@ -85,6 +88,16 @@ struct FilterConfig
    bool     cooldownActive;      // Cooldown ativo
    int      cooldownBarsAfterStop;  // Barras após stop
    bool     cooldownIgnoreF5;    // Ignorar cooldown para força 5
+   
+   //--- RSIOMA Filter (NOVO)
+   bool     rsiomaActive;        // Filtro RSIOMA ativo
+   int      rsiomaPeriod;        // Período do RSI (padrão: 14)
+   int      rsiomaMA_Period;     // Período da MA do RSI (padrão: 9)
+   ENUM_MA_METHOD rsiomaMA_Method; // Método da MA (SMA, EMA, etc.)
+   int      rsiomaOverbought;    // Nível sobrecompra (padrão: 70)
+   int      rsiomaOversold;      // Nível sobrevenda (padrão: 30)
+   bool     rsiomaCheckMidLevel; // Verificar nível 50 (momentum)
+   bool     rsiomaCheckCrossover;// Verificar cruzamento RSI×MA
 };
 
 //+------------------------------------------------------------------+
@@ -104,6 +117,11 @@ private:
    int                m_handleVolumeMA;
    double             m_bufferVolumeMA[];
    
+   //--- Handle do RSIOMA (NOVO)
+   int                m_handleRSI;
+   double             m_bufferRSI[];
+   double             m_bufferRSIMA[];
+   
    //--- Cooldown tracking
    int                m_cooldownCounter;    // Contador de barras em cooldown
    datetime           m_lastBarTime;        // Tempo da última barra processada
@@ -119,6 +137,8 @@ private:
    bool               CheckStrength(int minStrength);
    bool               CheckEMA200(bool isBuy);
    bool               CheckCooldown(int strength);
+   bool               CheckRSIOMA(bool isBuy);  // NOVO
+   double             CalculateRSIMA(int pos, int period, ENUM_MA_METHOD method, const double &array[]);  // NOVO
    void               UpdateCooldown();
    
 public:
@@ -163,6 +183,9 @@ public:
    double             GetCurrentSlope(bool isBuy = true);
    double             GetCurrentVolume();
    double             GetVolumeMA();
+   double             GetCurrentRSI();       // NOVO
+   double             GetCurrentRSIMA();     // NOVO
+   bool               IsRSIOMAOK(bool isBuy); // NOVO
    
    //--- OnTick para atualizar cooldown
    void               OnNewBar();
@@ -182,11 +205,14 @@ CFilters::CFilters()
    m_initialized = false;
    m_lastError = "";
    m_handleVolumeMA = INVALID_HANDLE;
+   m_handleRSI = INVALID_HANDLE;
    m_cooldownCounter = 0;
    m_lastBarTime = 0;
    m_lastStopTime = 0;
    
    ArraySetAsSeries(m_bufferVolumeMA, true);
+   ArraySetAsSeries(m_bufferRSI, true);
+   ArraySetAsSeries(m_bufferRSIMA, true);
    SetDefaultConfig();
 }
 
@@ -232,6 +258,25 @@ bool CFilters::Init(CAssetSpecs* asset, CSignalFGM* signal, CRegimeDetector* reg
       }
    }
    
+   //--- Criar handle do RSI para RSIOMA
+   if(m_config.rsiomaActive)
+   {
+      m_handleRSI = iRSI(m_asset.GetSymbol(), PERIOD_CURRENT, 
+                          m_config.rsiomaPeriod, PRICE_CLOSE);
+      
+      if(m_handleRSI == INVALID_HANDLE)
+      {
+         Print("CFilters: Aviso - Não foi possível criar handle RSI");
+         // Não falha, apenas desativa o filtro
+         m_config.rsiomaActive = false;
+      }
+      else
+      {
+         Print("CFilters: RSIOMA Filter ativado - RSI(", m_config.rsiomaPeriod, 
+               ") MA(", m_config.rsiomaMA_Period, ")");
+      }
+   }
+   
    m_initialized = true;
    Print("CFilters: Inicializado com sucesso");
    
@@ -247,6 +292,11 @@ void CFilters::Deinit()
    {
       IndicatorRelease(m_handleVolumeMA);
       m_handleVolumeMA = INVALID_HANDLE;
+   }
+   if(m_handleRSI != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_handleRSI);
+      m_handleRSI = INVALID_HANDLE;
    }
    m_initialized = false;
 }
@@ -294,6 +344,16 @@ void CFilters::SetDefaultConfig()
    m_config.cooldownActive = true;
    m_config.cooldownBarsAfterStop = 6;
    m_config.cooldownIgnoreF5 = true;
+   
+   //--- RSIOMA Filter (NOVO)
+   m_config.rsiomaActive = false;           // Desativado por padrão
+   m_config.rsiomaPeriod = 14;              // Período RSI padrão
+   m_config.rsiomaMA_Period = 9;            // Período MA do RSI
+   m_config.rsiomaMA_Method = MODE_SMA;     // Média simples
+   m_config.rsiomaOverbought = 70;          // Nível sobrecompra
+   m_config.rsiomaOversold = 30;            // Nível sobrevenda
+   m_config.rsiomaCheckMidLevel = true;     // Verificar nível 50
+   m_config.rsiomaCheckCrossover = false;   // Não verificar cruzamento por padrão
 }
 
 //+------------------------------------------------------------------+
@@ -301,7 +361,29 @@ void CFilters::SetDefaultConfig()
 //+------------------------------------------------------------------+
 void CFilters::SetConfig(const FilterConfig& config)
 {
+   //--- Verificar se RSIOMA foi ativado e precisa criar handle
+   bool needsRSIHandle = (config.rsiomaActive && m_handleRSI == INVALID_HANDLE);
+   
    m_config = config;
+   
+   //--- Criar handle RSI se RSIOMA foi ativado agora
+   if(needsRSIHandle && m_asset != NULL)
+   {
+      m_handleRSI = iRSI(m_asset.GetSymbol(), PERIOD_CURRENT, 
+                          m_config.rsiomaPeriod, PRICE_CLOSE);
+      
+      if(m_handleRSI == INVALID_HANDLE)
+      {
+         Print("CFilters: Aviso - Não foi possível criar handle RSI");
+         m_config.rsiomaActive = false;
+      }
+      else
+      {
+         Print("CFilters: RSIOMA Filter ativado - RSI(", m_config.rsiomaPeriod, 
+               ") MA(", m_config.rsiomaMA_Period, ") OB:", m_config.rsiomaOverbought, 
+               " OS:", m_config.rsiomaOversold);
+      }
+   }
    
    //--- DEBUG: Log da configuração recebida
    Print("CFilters::SetConfig - Confluência máxima configurada:");
@@ -311,6 +393,10 @@ void CFilters::SetConfig(const FilterConfig& config)
                       m_config.slopeActive ? "SIM" : "NÃO",
                       m_config.volumeActive ? "SIM" : "NÃO",
                       m_config.cooldownBarsAfterStop));
+   Print(StringFormat("  RSIOMA ativo: %s | CheckMid: %s | CheckCross: %s",
+                      m_config.rsiomaActive ? "SIM" : "NÃO",
+                      m_config.rsiomaCheckMidLevel ? "SIM" : "NÃO",
+                      m_config.rsiomaCheckCrossover ? "SIM" : "NÃO"));
 }
 
 //+------------------------------------------------------------------+
@@ -668,6 +754,33 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
       return result;
    }
    
+   //--- RSIOMA Filter (NOVO)
+   result.rsiomaOK = CheckRSIOMA(isBuy);
+   result.currentRSI = GetCurrentRSI();
+   result.currentRSIMA = GetCurrentRSIMA();
+   
+   if(!result.rsiomaOK)
+   {
+      result.passed = false;
+      if(isBuy && result.currentRSI >= m_config.rsiomaOverbought)
+         result.failReason = StringFormat("RSI sobrecomprado: %.1f (max: %d) - não comprar", 
+                                           result.currentRSI, m_config.rsiomaOverbought);
+      else if(!isBuy && result.currentRSI <= m_config.rsiomaOversold)
+         result.failReason = StringFormat("RSI sobrevendido: %.1f (min: %d) - não vender", 
+                                           result.currentRSI, m_config.rsiomaOversold);
+      else if(m_config.rsiomaCheckMidLevel && isBuy && result.currentRSI < 50)
+         result.failReason = StringFormat("RSI abaixo de 50: %.1f - momentum de baixa", result.currentRSI);
+      else if(m_config.rsiomaCheckMidLevel && !isBuy && result.currentRSI > 50)
+         result.failReason = StringFormat("RSI acima de 50: %.1f - momentum de alta", result.currentRSI);
+      else if(m_config.rsiomaCheckCrossover)
+         result.failReason = StringFormat("RSI vs MA: RSI=%.1f MA=%.1f - cruzamento inválido", 
+                                           result.currentRSI, result.currentRSIMA);
+      else
+         result.failReason = StringFormat("RSIOMA filtro falhou: RSI=%.1f MA=%.1f", 
+                                           result.currentRSI, result.currentRSIMA);
+      return result;
+   }
+   
    //--- Todos os filtros passaram
    result.passed = true;
    result.failReason = "";
@@ -842,7 +955,166 @@ void CFilters::PrintFilterStatus(bool isBuy, int minStrength)
          " (", DoubleToString(result.currentVolume, 0), "/", DoubleToString(result.volumeMA, 0), ")");
    Print("Cooldown:      ", result.cooldownOK ? "OK ✓" : "FALHOU ✗",
          " (", m_cooldownCounter, " barras)");
+   Print("RSIOMA:        ", result.rsiomaOK ? "OK ✓" : "FALHOU ✗",
+         " (RSI=", DoubleToString(result.currentRSI, 1), 
+         " MA=", DoubleToString(result.currentRSIMA, 1), ")");
    Print("═══════════════════════════════════════════════════════════");
+}
+
+//+------------------------------------------------------------------+
+//| Obter RSI atual (NOVO)                                           |
+//+------------------------------------------------------------------+
+double CFilters::GetCurrentRSI()
+{
+   if(m_handleRSI == INVALID_HANDLE)
+      return 50.0; // Valor neutro se não há handle
+   
+   if(CopyBuffer(m_handleRSI, 0, 1, 1, m_bufferRSI) <= 0)
+      return 50.0;
+   
+   return m_bufferRSI[0];
+}
+
+//+------------------------------------------------------------------+
+//| Obter RSI MA atual (NOVO)                                        |
+//+------------------------------------------------------------------+
+double CFilters::GetCurrentRSIMA()
+{
+   if(m_handleRSI == INVALID_HANDLE)
+      return 50.0;
+   
+   //--- Precisamos de dados suficientes para calcular a MA
+   int barsNeeded = m_config.rsiomaMA_Period + 1;
+   double rsiValues[];
+   ArraySetAsSeries(rsiValues, true);
+   
+   if(CopyBuffer(m_handleRSI, 0, 1, barsNeeded, rsiValues) < barsNeeded)
+      return 50.0;
+   
+   return CalculateRSIMA(0, m_config.rsiomaMA_Period, m_config.rsiomaMA_Method, rsiValues);
+}
+
+//+------------------------------------------------------------------+
+//| Calcular MA do RSI (emula iMAOnArray) (NOVO)                     |
+//+------------------------------------------------------------------+
+double CFilters::CalculateRSIMA(int pos, int period, ENUM_MA_METHOD method, const double &array[])
+{
+   double sum = 0.0;
+   int count = 0;
+   
+   switch(method)
+   {
+      case MODE_SMA:
+         for(int j = 0; j < period && (pos + j) < ArraySize(array); j++)
+         {
+            sum += array[pos + j];
+            count++;
+         }
+         return (count > 0) ? sum / count : array[pos];
+         
+      case MODE_EMA:
+      {
+         double alpha = 2.0 / (period + 1);
+         double ema = array[pos + period - 1];
+         for(int j = period - 2; j >= 0; j--)
+         {
+            if(pos + j >= ArraySize(array)) continue;
+            ema = alpha * array[pos + j] + (1 - alpha) * ema;
+         }
+         return ema;
+      }
+      
+      case MODE_SMMA:
+      {
+         double smma = array[pos + period - 1];
+         for(int j = period - 2; j >= 0; j--)
+         {
+            if(pos + j >= ArraySize(array)) continue;
+            smma = (smma * (period - 1) + array[pos + j]) / period;
+         }
+         return smma;
+      }
+      
+      case MODE_LWMA:
+      {
+         double weighted_sum = 0.0;
+         double weight_total = 0.0;
+         for(int j = 0; j < period && (pos + j) < ArraySize(array); j++)
+         {
+            double weight = period - j;
+            weighted_sum += array[pos + j] * weight;
+            weight_total += weight;
+         }
+         return (weight_total > 0) ? weighted_sum / weight_total : array[pos];
+      }
+      
+      default:
+         for(int j = 0; j < period && (pos + j) < ArraySize(array); j++)
+         {
+            sum += array[pos + j];
+            count++;
+         }
+         return (count > 0) ? sum / count : array[pos];
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Verificar filtro RSIOMA (NOVO)                                   |
+//+------------------------------------------------------------------+
+bool CFilters::CheckRSIOMA(bool isBuy)
+{
+   //--- Se filtro desativado, passa
+   if(!m_config.rsiomaActive)
+      return true;
+   
+   if(m_handleRSI == INVALID_HANDLE)
+      return true; // Se não conseguiu criar, permite trade
+   
+   double rsi = GetCurrentRSI();
+   double rsiMA = GetCurrentRSIMA();
+   
+   //--- FILTRO 1: Sobrecompra/Sobrevenda
+   //--- NÃO comprar se RSI >= 70 (sobrecomprado)
+   //--- NÃO vender se RSI <= 30 (sobrevendido)
+   if(isBuy && rsi >= m_config.rsiomaOverbought)
+      return false;
+   
+   if(!isBuy && rsi <= m_config.rsiomaOversold)
+      return false;
+   
+   //--- FILTRO 2: Nível 50 (momentum)
+   //--- BUY: RSI deve estar acima de 50 (momentum de alta)
+   //--- SELL: RSI deve estar abaixo de 50 (momentum de baixa)
+   if(m_config.rsiomaCheckMidLevel)
+   {
+      if(isBuy && rsi < 50)
+         return false;
+      
+      if(!isBuy && rsi > 50)
+         return false;
+   }
+   
+   //--- FILTRO 3: Cruzamento RSI × MA (opcional)
+   //--- BUY: RSI deve estar acima da sua MA (momentum subindo)
+   //--- SELL: RSI deve estar abaixo da sua MA (momentum caindo)
+   if(m_config.rsiomaCheckCrossover)
+   {
+      if(isBuy && rsi < rsiMA)
+         return false;
+      
+      if(!isBuy && rsi > rsiMA)
+         return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Verificar RSIOMA público (NOVO)                                  |
+//+------------------------------------------------------------------+
+bool CFilters::IsRSIOMAOK(bool isBuy)
+{
+   return CheckRSIOMA(isBuy);
 }
 
 //+------------------------------------------------------------------+

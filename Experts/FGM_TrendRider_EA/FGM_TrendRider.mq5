@@ -151,6 +151,16 @@ input bool     Inp_UseVolumeFilter = true;             // Usar Filtro de Volume 
 input bool     Inp_UseATRFilter    = true;             // Usar Filtro ATR
 input int      Inp_CooldownBars    = 3;                // Cooldown após trade (barras)
 
+//--- Filtro RSIOMA (NOVO)
+input group "═══════════════ FILTRO RSIOMA ═══════════════"
+input bool     Inp_UseRSIOMA       = true;             // Usar Filtro RSIOMA
+input int      Inp_RSIOMA_Period   = 14;               // Período RSI
+input int      Inp_RSIOMA_MA       = 9;                // Período MA do RSI
+input int      Inp_RSIOMA_Overbought = 70;             // Nível Sobrecompra (não BUY acima)
+input int      Inp_RSIOMA_Oversold = 30;               // Nível Sobrevenda (não SELL abaixo)
+input bool     Inp_RSIOMA_CheckMid = true;             // Verificar nível 50 (momentum)
+input bool     Inp_RSIOMA_CheckCross = false;          // Verificar RSI × MA
+
 //--- Regime de Mercado
 input group "═══════════════ REGIME DE MERCADO ═══════════════"
 input bool     Inp_UseRegime       = true;             // Usar Detecção de Regime
@@ -334,6 +344,15 @@ int OnInit()
    filterConfig.volumeActive = Inp_UseVolumeFilter;
    filterConfig.cooldownActive = true;
    filterConfig.cooldownBarsAfterStop = Inp_CooldownBars;
+   //--- Configurar RSIOMA Filter (NOVO)
+   filterConfig.rsiomaActive = Inp_UseRSIOMA;
+   filterConfig.rsiomaPeriod = Inp_RSIOMA_Period;
+   filterConfig.rsiomaMA_Period = Inp_RSIOMA_MA;
+   filterConfig.rsiomaMA_Method = MODE_SMA;
+   filterConfig.rsiomaOverbought = Inp_RSIOMA_Overbought;
+   filterConfig.rsiomaOversold = Inp_RSIOMA_Oversold;
+   filterConfig.rsiomaCheckMidLevel = Inp_RSIOMA_CheckMid;
+   filterConfig.rsiomaCheckCrossover = Inp_RSIOMA_CheckCross;
    g_Filters.SetConfig(filterConfig);
    
    //--- Inicializar Stats
