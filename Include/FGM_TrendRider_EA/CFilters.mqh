@@ -258,22 +258,34 @@ bool CFilters::Init(CAssetSpecs* asset, CSignalFGM* signal, CRegimeDetector* reg
       }
    }
    
-   //--- Criar handle do RSI para RSIOMA
+   //--- Criar handle do RSIOMA customizado
    if(m_config.rsiomaActive)
    {
-      m_handleRSI = iRSI(m_asset.GetSymbol(), PERIOD_CURRENT, 
-                          m_config.rsiomaPeriod, PRICE_CLOSE);
+      //--- Usar indicador RSIOMA customizado via iCustom
+      //--- Parâmetros: RSI_Period, MA_Period, MA_Method, HighLevel, LowLevel, ShowLevels
+      m_handleRSI = iCustom(m_asset.GetSymbol(), PERIOD_CURRENT, 
+                            "FGM_TrendRider_EA\\RSIOMA_v2HHLSX_MT5",
+                            m_config.rsiomaPeriod,           // RSI_Period
+                            m_config.rsiomaMA_Period,        // MA_Period
+                            m_config.rsiomaMA_Method,        // MA_Method
+                            (double)m_config.rsiomaOverbought, // HighLevel
+                            (double)m_config.rsiomaOversold,   // LowLevel
+                            true);                           // ShowLevels
       
       if(m_handleRSI == INVALID_HANDLE)
       {
-         Print("CFilters: Aviso - Não foi possível criar handle RSI");
+         Print("CFilters: Aviso - Não foi possível criar handle RSIOMA customizado");
+         Print("CFilters: Erro: ", GetLastError());
          // Não falha, apenas desativa o filtro
          m_config.rsiomaActive = false;
       }
       else
       {
-         Print("CFilters: RSIOMA Filter ativado - RSI(", m_config.rsiomaPeriod, 
-               ") MA(", m_config.rsiomaMA_Period, ")");
+         Print("CFilters: RSIOMA Filter ativado (indicador customizado)");
+         Print("CFilters: RSI(", m_config.rsiomaPeriod, 
+               ") MA(", m_config.rsiomaMA_Period, 
+               ") OB:", m_config.rsiomaOverbought, 
+               " OS:", m_config.rsiomaOversold);
       }
    }
    
@@ -366,21 +378,31 @@ void CFilters::SetConfig(const FilterConfig& config)
    
    m_config = config;
    
-   //--- Criar handle RSI se RSIOMA foi ativado agora
+   //--- Criar handle RSIOMA se foi ativado agora
    if(needsRSIHandle && m_asset != NULL)
    {
-      m_handleRSI = iRSI(m_asset.GetSymbol(), PERIOD_CURRENT, 
-                          m_config.rsiomaPeriod, PRICE_CLOSE);
+      //--- Usar indicador RSIOMA customizado via iCustom
+      m_handleRSI = iCustom(m_asset.GetSymbol(), PERIOD_CURRENT, 
+                            "FGM_TrendRider_EA\\RSIOMA_v2HHLSX_MT5",
+                            m_config.rsiomaPeriod,
+                            m_config.rsiomaMA_Period,
+                            m_config.rsiomaMA_Method,
+                            (double)m_config.rsiomaOverbought,
+                            (double)m_config.rsiomaOversold,
+                            true);
       
       if(m_handleRSI == INVALID_HANDLE)
       {
-         Print("CFilters: Aviso - Não foi possível criar handle RSI");
+         Print("CFilters: Aviso - Não foi possível criar handle RSIOMA");
+         Print("CFilters: Erro: ", GetLastError());
          m_config.rsiomaActive = false;
       }
       else
       {
-         Print("CFilters: RSIOMA Filter ativado - RSI(", m_config.rsiomaPeriod, 
-               ") MA(", m_config.rsiomaMA_Period, ") OB:", m_config.rsiomaOverbought, 
+         Print("CFilters: RSIOMA Filter ativado (indicador customizado)");
+         Print("CFilters: RSI(", m_config.rsiomaPeriod, 
+               ") MA(", m_config.rsiomaMA_Period, 
+               ") OB:", m_config.rsiomaOverbought, 
                " OS:", m_config.rsiomaOversold);
       }
    }
@@ -976,22 +998,20 @@ double CFilters::GetCurrentRSI()
 }
 
 //+------------------------------------------------------------------+
-//| Obter RSI MA atual (NOVO)                                        |
+//| Obter RSI MA atual (NOVO) - Buffer 1 do RSIOMA                   |
 //+------------------------------------------------------------------+
 double CFilters::GetCurrentRSIMA()
 {
    if(m_handleRSI == INVALID_HANDLE)
       return 50.0;
    
-   //--- Precisamos de dados suficientes para calcular a MA
-   int barsNeeded = m_config.rsiomaMA_Period + 1;
-   double rsiValues[];
-   ArraySetAsSeries(rsiValues, true);
-   
-   if(CopyBuffer(m_handleRSI, 0, 1, barsNeeded, rsiValues) < barsNeeded)
+   //--- O indicador RSIOMA customizado tem:
+   //--- Buffer 0 = RSI
+   //--- Buffer 1 = RSI MA
+   if(CopyBuffer(m_handleRSI, 1, 1, 1, m_bufferRSIMA) <= 0)
       return 50.0;
    
-   return CalculateRSIMA(0, m_config.rsiomaMA_Period, m_config.rsiomaMA_Method, rsiValues);
+   return m_bufferRSIMA[0];
 }
 
 //+------------------------------------------------------------------+
