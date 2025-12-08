@@ -534,6 +534,7 @@ void ProcessSignals()
    //--- - Phase = Strong Bull (+2) ou Strong Bear (-2)
    //--- - EMAs em "leque" (todas alinhadas na mesma direção)
    //--- - Confluência <= 50% (EMAs separadas = tendência clara)
+   //--- - PREÇO ATUAL acima de TODAS EMAs (BUY) ou abaixo de TODAS EMAs (SELL)
    //--- - Não houve entrada recente (evitar múltiplas entradas na mesma tendência)
    if(signalBar < 0)
    {
@@ -545,9 +546,33 @@ void ProcessSignals()
          int phase = (int)fgmData.phase;
          double confluence = fgmData.confluence;
          
+         //--- CRÍTICO: Verificar se PREÇO está acima/abaixo de TODAS as EMAs
+         double currentBid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+         bool priceAboveAllEMAs = (currentBid > fgmData.ema1 && 
+                                   currentBid > fgmData.ema2 && 
+                                   currentBid > fgmData.ema3 && 
+                                   currentBid > fgmData.ema4 && 
+                                   currentBid > fgmData.ema5);
+         bool priceBelowAllEMAs = (currentBid < fgmData.ema1 && 
+                                   currentBid < fgmData.ema2 && 
+                                   currentBid < fgmData.ema3 && 
+                                   currentBid < fgmData.ema4 && 
+                                   currentBid < fgmData.ema5);
+         
          //--- Verificar condições para entrada por tendência estabelecida
-         bool strongTrendBuy = (absStrength >= 4 && phase == 2 && confluence <= 50.0);
-         bool strongTrendSell = (absStrength >= 4 && phase == -2 && confluence <= 50.0);
+         //--- ADICIONADO: Preço deve estar do lado correto de TODAS as EMAs
+         bool strongTrendBuy = (absStrength >= 4 && phase == 2 && confluence <= 50.0 && priceAboveAllEMAs);
+         bool strongTrendSell = (absStrength >= 4 && phase == -2 && confluence <= 50.0 && priceBelowAllEMAs);
+         
+         //--- Log se preço não está na posição correta
+         if(absStrength >= 4 && phase == 2 && !priceAboveAllEMAs)
+         {
+            g_Stats.LogDebug(StringFormat("Tendência BUY detectada mas preço (%.2f) NÃO está acima de todas EMAs", currentBid));
+         }
+         if(absStrength >= 4 && phase == -2 && !priceBelowAllEMAs)
+         {
+            g_Stats.LogDebug(StringFormat("Tendência SELL detectada mas preço (%.2f) NÃO está abaixo de todas EMAs", currentBid));
+         }
          
          //--- Verificar se EMAs estão em leque (todas alinhadas)
          bool lequeAbertoBuy = g_SignalFGM.IsLequeAberto(true, 1);
