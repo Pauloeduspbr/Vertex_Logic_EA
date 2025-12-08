@@ -733,9 +733,15 @@ void ProcessSignals()
    //--- NOTA: A confluência já foi validada acima pelo EA. CFilters verifica outros filtros
    //---       (spread, ATR, slope, volume, cooldown, etc.) mas NÃO deve bloquear por confluência
    //---       novamente pois usamos os mesmos limites já validados.
-   g_Stats.LogDebug(StringFormat("Aplicando filtros para %s (Força F%d)...", isBuy ? "COMPRA" : "VENDA", signalStrength));
+   //--- NOTA 2: Para PRICE CROSSOVER, pulamos o Phase Filter porque já validamos que o preço
+   //---         cruzou TODAS as EMAs - isso é confirmação suficiente de tendência.
+   g_Stats.LogDebug(StringFormat("Aplicando filtros para %s (Força F%d) [%s]...", 
+                                 isBuy ? "COMPRA" : "VENDA", signalStrength,
+                                 isPriceCrossover ? "SKIP_PHASE" : "FULL_FILTERS"));
    
-   FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength);
+   //--- Para PRICE CROSSOVER: pular Phase Filter (já confirmamos que preço está do lado certo de TODAS as EMAs)
+   bool skipPhaseFilter = isPriceCrossover;
+   FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength, skipPhaseFilter);
    
    //--- Log detalhado do resultado dos filtros
    g_Stats.LogDebug(StringFormat("Filtros: Spread=%s ATR=%s Slope=%s Volume=%s Phase=%s EMA200=%s Cooldown=%s Confluência=%s",

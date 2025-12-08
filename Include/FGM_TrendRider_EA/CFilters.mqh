@@ -137,8 +137,8 @@ public:
    void               SetDefaultConfig();
    
    //--- Verificação principal
-   FilterResult       CheckAll(bool isBuy, int minStrength);
-   bool               PassesAllFilters(bool isBuy, int minStrength);
+   FilterResult       CheckAll(bool isBuy, int minStrength, bool skipPhaseFilter = false);
+   bool               PassesAllFilters(bool isBuy, int minStrength, bool skipPhaseFilter = false);
    
    //--- Verificações individuais (públicas)
    bool               IsSpreadOK();
@@ -533,7 +533,7 @@ void CFilters::UpdateCooldown()
 //+------------------------------------------------------------------+
 //| Verificação principal                                            |
 //+------------------------------------------------------------------+
-FilterResult CFilters::CheckAll(bool isBuy, int minStrength)
+FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilter = false)
 {
    FilterResult result;
    ZeroMemory(result);
@@ -591,7 +591,12 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength)
       return result;
    }
    
-   result.phaseOK = CheckPhase(isBuy);
+   //--- Phase Filter: pular se for PRICE CROSSOVER (já validamos que preço cruzou TODAS as EMAs)
+   if(skipPhaseFilter)
+      result.phaseOK = true;
+   else
+      result.phaseOK = CheckPhase(isBuy);
+   
    if(!result.phaseOK)
    {
       result.passed = false;
@@ -600,7 +605,12 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength)
       return result;
    }
    
-   result.ema200OK = CheckEMA200(isBuy);
+   //--- EMA200 Filter: pular para PRICE CROSSOVER (preço já cruzou TODAS as EMAs incluindo EMA200)
+   if(skipPhaseFilter)
+      result.ema200OK = true;
+   else
+      result.ema200OK = CheckEMA200(isBuy);
+   
    if(!result.ema200OK)
    {
       result.passed = false;
@@ -618,7 +628,12 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength)
       return result;
    }
    
-   result.slopeOK = CheckSlope(isBuy);
+   //--- Slope Filter: pular para PRICE CROSSOVER (movimento de preço confirma tendência)
+   if(skipPhaseFilter)
+      result.slopeOK = true;
+   else
+      result.slopeOK = CheckSlope(isBuy);
+   
    if(!result.slopeOK)
    {
       result.passed = false;
@@ -626,7 +641,12 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength)
       return result;
    }
    
-   result.volumeOK = CheckVolume(result.currentStrength);
+   //--- Volume Filter: pular para PRICE CROSSOVER (rompimento de todas EMAs é confirmação suficiente)
+   if(skipPhaseFilter)
+      result.volumeOK = true;
+   else
+      result.volumeOK = CheckVolume(result.currentStrength);
+   
    if(!result.volumeOK)
    {
       result.passed = false;
@@ -653,9 +673,9 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength)
 //+------------------------------------------------------------------+
 //| Verificar se passa todos os filtros (simplificado)               |
 //+------------------------------------------------------------------+
-bool CFilters::PassesAllFilters(bool isBuy, int minStrength)
+bool CFilters::PassesAllFilters(bool isBuy, int minStrength, bool skipPhaseFilter = false)
 {
-   FilterResult result = CheckAll(isBuy, minStrength);
+   FilterResult result = CheckAll(isBuy, minStrength, skipPhaseFilter);
    return result.passed;
 }
 
