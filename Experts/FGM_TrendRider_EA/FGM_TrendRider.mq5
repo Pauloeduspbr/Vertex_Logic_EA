@@ -199,10 +199,6 @@ double            g_positionSL = 0;
 double            g_positionVolume = 0;
 ENUM_POSITION_TYPE g_positionType;
 
-//--- Tracking para evitar múltiplas entradas na mesma tendência
-int               g_lastTrendDirection = 0;   // +1=compra, -1=venda, 0=neutro
-datetime          g_lastTrendEntryTime = 0;   // Tempo da última entrada por tendência
-
 //--- Tracking para detectar quando posição fecha externamente (SL/TP hit)
 bool              g_wasPosition = false;      // Havia posição no tick anterior?
 
@@ -535,22 +531,36 @@ void ProcessSignals()
       return;
    }
    
-   //--- ESTRATÉGIA DE ENTRADA:
-   //--- 1. PREFERÊNCIA: Sinal de cruzamento (Entry != 0) nas barras 0 ou 1
-   //--- 2. ALTERNATIVA: Tendência forte estabelecida (Strength >= 4, Phase forte, EMAs alinhadas)
-   //---    Esta alternativa permite entrar em tendência mesmo que o cruzamento tenha ocorrido
-   //---    em barras anteriores (ex: antes do horário de trading ou no gap de abertura).
+   //--- NOVA ESTRATÉGIA DE ENTRADA:
+   //--- ============================================================
+   //--- O EA deve entrar NO INÍCIO da tendência, não quando já está estabelecida.
+   //--- 
+   //--- FORMA 1 - CROSSOVER DIRETO (PREFERENCIAL):
+   //---    O indicador gera Entry != 0 quando há cruzamento de EMAs.
+   //---    Esta é a melhor forma de entrada - captura o início exato.
+   //---
+   //--- FORMA 2 - PREÇO CRUZA TODAS AS EMAs (NOVO!):
+   //---    Quando o candle FECHA acima (ou abaixo) de TODAS as 5 EMAs pela primeira vez,
+   //---    isso indica INÍCIO de tendência. Devemos entrar no PRÓXIMO candle.
+   //---    Isso captura movimentos explosivos que podem não ter crossover de EMAs
+   //---    mas o preço "rompe" todas as resistências dinâmicas.
+   //---
+   //--- A entrada por "tendência estabelecida" (Phase=2/-2) foi REMOVIDA
+   //--- porque isso significa que a tendência JÁ COMEÇOU há muito tempo.
+   //--- ============================================================
    
    FGM_DATA fgmData;
    int signalBar = -1;
-   bool isDirectCrossover = false;  // Flag para identificar tipo de entrada
+   bool isDirectCrossover = false;   // Flag: crossover de EMAs
+   bool isPriceCrossover = false;    // Flag: preço cruzou todas EMAs
    
-   //--- ETAPA 1: Verificar cruzamento direto nas barras 0 e 1
+   //--- ETAPA 1: Verificar cruzamento direto de EMAs nas barras 0 e 1
    fgmData = g_SignalFGM.GetData(0);
    if(fgmData.isValid && fgmData.entry != 0)
    {
       signalBar = 0;
       isDirectCrossover = true;
+      g_Stats.LogNormal(StringFormat("CROSSOVER DIRETO detectado na barra 0: Entry=%.0f", fgmData.entry));
    }
    else
    {
@@ -559,111 +569,100 @@ void ProcessSignals()
       {
          signalBar = 1;
          isDirectCrossover = true;
+         g_Stats.LogNormal(StringFormat("CROSSOVER DIRETO detectado na barra 1: Entry=%.0f", fgmData.entry));
       }
    }
    
-   //--- ETAPA 2: Se não há cruzamento direto, verificar entrada por tendência estabelecida
-   //--- Requisitos para entrada por tendência:
-   //--- - Força >= 4 (F4 ou F5 = tendência forte confirmada)
-   //--- - Phase = Strong Bull (+2) ou Strong Bear (-2)
-   //--- - EMAs em "leque" (todas alinhadas na mesma direção)
-   //--- - Confluência <= 50% (EMAs separadas = tendência clara)
-   //--- - PREÇO ATUAL acima de TODAS EMAs (BUY) ou abaixo de TODAS EMAs (SELL)
-   //--- - Não houve entrada recente (evitar múltiplas entradas na mesma tendência)
+   //--- ETAPA 2: Verificar se PREÇO cruzou TODAS as EMAs (INÍCIO de tendência por preço)
+   //--- Isso detecta quando o candle fechou PELA PRIMEIRA VEZ acima/abaixo de TODAS as EMAs
    if(signalBar < 0)
    {
-      fgmData = g_SignalFGM.GetData(1);  // Usar barra fechada para confirmação
+      fgmData = g_SignalFGM.GetData(1);  // Barra fechada mais recente
       
       if(fgmData.isValid)
       {
-         int absStrength = (int)MathAbs(fgmData.strength);
-         int phase = (int)fgmData.phase;
-         double confluence = fgmData.confluence;
+         //--- Obter preço de fechamento da barra 1 e barra 2
+         double close1[], close2[];
+         ArraySetAsSeries(close1, true);
+         ArraySetAsSeries(close2, true);
          
-         //--- CRÍTICO: Verificar se PREÇO está acima/abaixo de TODAS as EMAs
-         double currentBid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
-         bool priceAboveAllEMAs = (currentBid > fgmData.ema1 && 
-                                   currentBid > fgmData.ema2 && 
-                                   currentBid > fgmData.ema3 && 
-                                   currentBid > fgmData.ema4 && 
-                                   currentBid > fgmData.ema5);
-         bool priceBelowAllEMAs = (currentBid < fgmData.ema1 && 
-                                   currentBid < fgmData.ema2 && 
-                                   currentBid < fgmData.ema3 && 
-                                   currentBid < fgmData.ema4 && 
-                                   currentBid < fgmData.ema5);
-         
-         //--- Verificar condições para entrada por tendência estabelecida
-         //--- ADICIONADO: Preço deve estar do lado correto de TODAS as EMAs
-         bool strongTrendBuy = (absStrength >= 4 && phase == 2 && confluence <= 50.0 && priceAboveAllEMAs);
-         bool strongTrendSell = (absStrength >= 4 && phase == -2 && confluence <= 50.0 && priceBelowAllEMAs);
-         
-         //--- Log se preço não está na posição correta
-         if(absStrength >= 4 && phase == 2 && !priceAboveAllEMAs)
+         if(CopyClose(Symbol(), Period(), 1, 1, close1) > 0 &&
+            CopyClose(Symbol(), Period(), 2, 1, close2) > 0)
          {
-            g_Stats.LogDebug(StringFormat("Tendência BUY detectada mas preço (%.2f) NÃO está acima de todas EMAs", currentBid));
-         }
-         if(absStrength >= 4 && phase == -2 && !priceBelowAllEMAs)
-         {
-            g_Stats.LogDebug(StringFormat("Tendência SELL detectada mas preço (%.2f) NÃO está abaixo de todas EMAs", currentBid));
-         }
-         
-         //--- Verificar se EMAs estão em leque (todas alinhadas)
-         bool lequeAbertoBuy = g_SignalFGM.IsLequeAberto(true, 1);
-         bool lequeAbertoSell = g_SignalFGM.IsLequeAberto(false, 1);
-         
-         //--- Verificar se já entramos nesta tendência (evitar múltiplas entradas)
-         //--- Reset quando a direção da tendência muda
-         if(phase > 0 && g_lastTrendDirection < 0)
-         {
-            g_lastTrendDirection = 0;  // Reset: tendência mudou de baixa para alta
-            g_lastTrendEntryTime = 0;
-         }
-         else if(phase < 0 && g_lastTrendDirection > 0)
-         {
-            g_lastTrendDirection = 0;  // Reset: tendência mudou de alta para baixa
-            g_lastTrendEntryTime = 0;
-         }
-         
-         //--- Só permitir entrada por tendência se não entramos ainda nesta direção
-         bool canEnterTrendBuy = (g_lastTrendDirection != 1);
-         bool canEnterTrendSell = (g_lastTrendDirection != -1);
-         
-         if(strongTrendBuy && lequeAbertoBuy && canEnterTrendBuy)
-         {
-            signalBar = 1;
-            isDirectCrossover = false;
-            //--- Simular entry signal para compra
-            fgmData.entry = 1;
-            g_Stats.LogNormal(StringFormat("ENTRADA POR TENDÊNCIA ESTABELECIDA (BUY): F%d Phase=%d Conf=%.1f%%", 
-                                           absStrength, phase, confluence));
-         }
-         else if(strongTrendSell && lequeAbertoSell && canEnterTrendSell)
-         {
-            signalBar = 1;
-            isDirectCrossover = false;
-            //--- Simular entry signal para venda
-            fgmData.entry = -1;
-            g_Stats.LogNormal(StringFormat("ENTRADA POR TENDÊNCIA ESTABELECIDA (SELL): F%d Phase=%d Conf=%.1f%%", 
-                                           absStrength, phase, confluence));
-         }
-         else if((strongTrendBuy && !canEnterTrendBuy) || (strongTrendSell && !canEnterTrendSell))
-         {
-            g_Stats.LogDebug("Tendência detectada mas já houve entrada nesta direção");
+            double closeBar1 = close1[0];
+            double closeBar2 = close2[0];
+            
+            //--- Verificar posição do preço em relação às EMAs
+            //--- Barra 1 (atual fechada)
+            bool priceAboveAllBar1 = (closeBar1 > fgmData.ema1 && 
+                                      closeBar1 > fgmData.ema2 && 
+                                      closeBar1 > fgmData.ema3 && 
+                                      closeBar1 > fgmData.ema4 && 
+                                      closeBar1 > fgmData.ema5);
+            bool priceBelowAllBar1 = (closeBar1 < fgmData.ema1 && 
+                                      closeBar1 < fgmData.ema2 && 
+                                      closeBar1 < fgmData.ema3 && 
+                                      closeBar1 < fgmData.ema4 && 
+                                      closeBar1 < fgmData.ema5);
+            
+            //--- Barra 2 (anterior) - precisamos dos dados da barra 2
+            FGM_DATA fgmData2 = g_SignalFGM.GetData(2);
+            bool priceAboveAllBar2 = false;
+            bool priceBelowAllBar2 = false;
+            
+            if(fgmData2.isValid)
+            {
+               priceAboveAllBar2 = (closeBar2 > fgmData2.ema1 && 
+                                    closeBar2 > fgmData2.ema2 && 
+                                    closeBar2 > fgmData2.ema3 && 
+                                    closeBar2 > fgmData2.ema4 && 
+                                    closeBar2 > fgmData2.ema5);
+               priceBelowAllBar2 = (closeBar2 < fgmData2.ema1 && 
+                                    closeBar2 < fgmData2.ema2 && 
+                                    closeBar2 < fgmData2.ema3 && 
+                                    closeBar2 < fgmData2.ema4 && 
+                                    closeBar2 < fgmData2.ema5);
+            }
+            
+            //--- Detectar CRUZAMENTO de preço:
+            //--- BUY: Barra 2 NÃO estava acima de todas, mas Barra 1 ESTÁ acima de todas
+            //--- SELL: Barra 2 NÃO estava abaixo de todas, mas Barra 1 ESTÁ abaixo de todas
+            bool priceCrossedUp = (priceAboveAllBar1 && !priceAboveAllBar2);
+            bool priceCrossedDown = (priceBelowAllBar1 && !priceBelowAllBar2);
+            
+            //--- Verificar força mínima (pelo menos F3)
+            int absStrength = (int)MathAbs(fgmData.strength);
+            
+            if(priceCrossedUp && absStrength >= 3)
+            {
+               signalBar = 1;
+               isPriceCrossover = true;
+               fgmData.entry = 1;  // Simular sinal de compra
+               g_Stats.LogNormal(StringFormat("PREÇO CRUZOU TODAS EMAs (BUY): Close=%.2f > EMAs, F%d, Conf=%.1f%%", 
+                                              closeBar1, absStrength, fgmData.confluence));
+            }
+            else if(priceCrossedDown && absStrength >= 3)
+            {
+               signalBar = 1;
+               isPriceCrossover = true;
+               fgmData.entry = -1;  // Simular sinal de venda
+               g_Stats.LogNormal(StringFormat("PREÇO CRUZOU TODAS EMAs (SELL): Close=%.2f < EMAs, F%d, Conf=%.1f%%", 
+                                              closeBar1, absStrength, fgmData.confluence));
+            }
          }
       }
    }
    
+   //--- Se não há sinal de nenhuma forma, retornar
    if(signalBar < 0 || !fgmData.isValid)
    {
-      // Não há sinal de entrada em nenhuma das barras
       return;
    }
    
    //--- DEBUG: Log valores lidos do indicador
+   string entryType = isDirectCrossover ? "EMA CROSSOVER" : (isPriceCrossover ? "PRICE CROSSOVER" : "UNKNOWN");
    g_Stats.LogDebug(StringFormat("FGM Data (bar %d): Strength=%.0f, Entry=%.0f, Confluence=%.1f%% [%s]", 
-                                 signalBar, fgmData.strength, fgmData.entry, fgmData.confluence,
-                                 isDirectCrossover ? "CROSSOVER" : "TREND"));
+                                 signalBar, fgmData.strength, fgmData.entry, fgmData.confluence, entryType));
    
    //--- DEBUG: Log valores das EMAs para análise
    g_Stats.LogDebug(StringFormat("EMAs: EMA8=%.2f EMA21=%.2f EMA50=%.2f EMA100=%.2f EMA200=%.2f",
@@ -821,20 +820,9 @@ void ProcessSignals()
       g_positionType = isBuy ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
       g_todayTrades++;
       
-      //--- Atualizar tracking de tendência para evitar múltiplas entradas
-      //--- Crossover direto reseta o tracking (nova tendência)
-      //--- Entrada por tendência estabelecida marca a direção
-      if(isDirectCrossover)
-      {
-         g_lastTrendDirection = isBuy ? 1 : -1;
-         g_lastTrendEntryTime = TimeCurrent();
-      }
-      else
-      {
-         //--- Entrada por tendência estabelecida
-         g_lastTrendDirection = isBuy ? 1 : -1;
-         g_lastTrendEntryTime = TimeCurrent();
-      }
+      //--- Log tipo de entrada
+      string entryTypeStr = isDirectCrossover ? "EMA CROSSOVER" : (isPriceCrossover ? "PRICE CROSSOVER" : "UNKNOWN");
+      g_Stats.LogNormal(StringFormat("Entrada executada via %s", entryTypeStr));
       
       //--- Armazenar TPs no trade engine
       g_TradeEngine.SetTP1Price(posCalc.tp1Price);
@@ -991,11 +979,6 @@ void OnPositionClosed()
    g_positionOpenPrice = 0;
    g_positionSL = 0;
    g_positionVolume = 0;
-   
-   //--- Reset tracking de tendência para permitir re-entrada
-   //--- Após posição fechar, libera novas entradas na mesma direção
-   g_lastTrendDirection = 0;
-   g_lastTrendEntryTime = 0;
    
    g_Stats.LogNormal(StringFormat("Posição fechada - Lucro: %.2f | Razão: %s", 
                                   lastProfit, closeReason));
