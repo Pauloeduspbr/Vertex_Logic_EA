@@ -1165,27 +1165,37 @@ bool CFilters::CheckRSIOMA(bool isBuy)
       }
    }
    
-   //--- FILTRO 3: Posição RSI vs MA - Verificar apenas barra 1 (mais recente)
-   //--- Sinais rápidos precisam de flexibilidade, verificar só a última barra
+   //--- FILTRO 2B: RSI vs MA - Verificar TODAS as barras para confirmação
+   //--- Para SELL: RSI deve estar ABAIXO da MA em todas as barras
+   //--- Para BUY: RSI deve estar ACIMA da MA em todas as barras
+   //--- Isso garante que o momentum está alinhado com a direção do trade
    if(m_config.rsiomaCheckCrossover)
    {
-      double diff = rsi - rsiMA;
-      double tolerance = 2.0;
-      
-      if(isBuy && diff < -tolerance)
+      for(int bar = 0; bar < confirmBars; bar++)
       {
-         Print("RSIOMA FILTRO: BUY bloqueado - RSI(", DoubleToString(rsi, 1), 
-               ") < MA(", DoubleToString(rsiMA, 1), 
-               ") - diff=", DoubleToString(diff, 1), " - momentum de baixa");
-         return false;
-      }
-      
-      if(!isBuy && diff > tolerance)
-      {
-         Print("RSIOMA FILTRO: SELL bloqueado - RSI(", DoubleToString(rsi, 1), 
-               ") > MA(", DoubleToString(rsiMA, 1), 
-               ") - diff=", DoubleToString(diff, 1), " - momentum de alta");
-         return false;
+         double barRSI = rsiValues[bar];
+         double barMA = rsiMAValues[bar];
+         double barDiff = barRSI - barMA;
+         
+         //--- Para BUY: RSI deve estar acima da MA
+         if(isBuy && barDiff < 0)
+         {
+            datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, bar + 1);
+            Print("RSIOMA FILTRO: BUY bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
+                  ") - RSI(", DoubleToString(barRSI, 1), ") < MA(", DoubleToString(barMA, 1), 
+                  ") - RSI abaixo da média");
+            return false;
+         }
+         
+         //--- Para SELL: RSI deve estar abaixo da MA
+         if(!isBuy && barDiff > 0)
+         {
+            datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, bar + 1);
+            Print("RSIOMA FILTRO: SELL bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
+                  ") - RSI(", DoubleToString(barRSI, 1), ") > MA(", DoubleToString(barMA, 1), 
+                  ") - RSI acima da média");
+            return false;
+         }
       }
    }
    
