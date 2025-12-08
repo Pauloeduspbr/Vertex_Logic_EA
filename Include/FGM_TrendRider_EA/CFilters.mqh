@@ -1126,16 +1126,24 @@ bool CFilters::CheckRSIOMA(bool isBuy)
          ") Method:", m_config.rsiomaMA_Method);
    Print("───────────────────────────────────────────────────────────────────────");
    Print("CORREÇÃO: Buffer 1 = RSI (vermelho) | Buffer 0 = MA (azul)");
+   Print("TOLERÂNCIA: Diferença mínima de 2 pts para cruzamento válido");
    Print("───────────────────────────────────────────────────────────────────────");
    for(int i = 0; i < confirmBars; i++)
    {
       datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, i + 1);
-      string relation = (rsiValues[i] > rsiMAValues[i]) ? "RSI > MA (alta)" : 
-                        (rsiValues[i] < rsiMAValues[i]) ? "RSI < MA (baixa)" : "RSI = MA";
+      double diff = rsiValues[i] - rsiMAValues[i];
+      string relation;
+      if(diff >= 2.0)
+         relation = "RSI > MA (ALTA CLARA)";
+      else if(diff <= -2.0)
+         relation = "RSI < MA (BAIXA CLARA)";
+      else
+         relation = "RSI ≈ MA (INDECISÃO)";
+      
       Print("  Bar", i+1, " [", TimeToString(barTime, TIME_MINUTES), "]: ",
             "RSI=", DoubleToString(rsiValues[i], 2), " | ",
             "MA=", DoubleToString(rsiMAValues[i], 2), " | ",
-            "Diff=", DoubleToString(rsiValues[i] - rsiMAValues[i], 2), " | ", relation);
+            "Diff=", DoubleToString(diff, 2), " | ", relation);
    }
    Print("═══════════════════════════════════════════════════════════════════════");
    
@@ -1184,31 +1192,53 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    //--- Para SELL: RSI deve estar ABAIXO da MA em todas as barras
    //--- Para BUY: RSI deve estar ACIMA da MA em todas as barras
    //--- Isso garante que o momentum está alinhado com a direção do trade
+   //--- TOLERÂNCIA: Diferença mínima de 2 pontos para considerar cruzamento válido
+   //--- Se RSI e MA estão muito próximos (< 2 pontos), indica indecisão = bloquear
    if(m_config.rsiomaCheckCrossover)
    {
+      double minDiff = 2.0; // Diferença mínima para considerar cruzamento válido
+      
       for(int bar = 0; bar < confirmBars; bar++)
       {
          double barRSI = rsiValues[bar];
          double barMA = rsiMAValues[bar];
          double barDiff = barRSI - barMA;
          
-         //--- Para BUY: RSI deve estar acima da MA
-         if(isBuy && barDiff < 0)
+         //--- Para BUY: RSI deve estar CLARAMENTE acima da MA (diff >= +minDiff)
+         if(isBuy && barDiff < minDiff)
          {
             datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, bar + 1);
-            Print("RSIOMA FILTRO: BUY bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
-                  ") - RSI(", DoubleToString(barRSI, 1), ") < MA(", DoubleToString(barMA, 1), 
-                  ") - RSI abaixo da média");
+            if(barDiff >= 0 && barDiff < minDiff)
+            {
+               Print("RSIOMA FILTRO: BUY bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
+                     ") - RSI(", DoubleToString(barRSI, 1), ") ≈ MA(", DoubleToString(barMA, 1), 
+                     ") diff=", DoubleToString(barDiff, 1), " - INDECISÃO (< ", DoubleToString(minDiff, 0), " pts)");
+            }
+            else
+            {
+               Print("RSIOMA FILTRO: BUY bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
+                     ") - RSI(", DoubleToString(barRSI, 1), ") < MA(", DoubleToString(barMA, 1), 
+                     ") - RSI abaixo da média");
+            }
             return false;
          }
          
-         //--- Para SELL: RSI deve estar abaixo da MA
-         if(!isBuy && barDiff > 0)
+         //--- Para SELL: RSI deve estar CLARAMENTE abaixo da MA (diff <= -minDiff)
+         if(!isBuy && barDiff > -minDiff)
          {
             datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, bar + 1);
-            Print("RSIOMA FILTRO: SELL bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
-                  ") - RSI(", DoubleToString(barRSI, 1), ") > MA(", DoubleToString(barMA, 1), 
-                  ") - RSI acima da média");
+            if(barDiff <= 0 && barDiff > -minDiff)
+            {
+               Print("RSIOMA FILTRO: SELL bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
+                     ") - RSI(", DoubleToString(barRSI, 1), ") ≈ MA(", DoubleToString(barMA, 1), 
+                     ") diff=", DoubleToString(barDiff, 1), " - INDECISÃO (< ", DoubleToString(minDiff, 0), " pts)");
+            }
+            else
+            {
+               Print("RSIOMA FILTRO: SELL bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
+                     ") - RSI(", DoubleToString(barRSI, 1), ") > MA(", DoubleToString(barMA, 1), 
+                     ") - RSI acima da média");
+            }
             return false;
          }
       }
