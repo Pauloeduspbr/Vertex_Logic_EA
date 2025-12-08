@@ -14,6 +14,10 @@
 //+------------------------------------------------------------------+
 struct RiskParams
 {
+   //--- Modo de lote
+   int      lotMode;              // 0=Fixed, 1=RiskPercent
+   double   fixedLot;             // Lote fixo (contratos B3 ou lotes Forex)
+   
    //--- Risco base
    double   riskPercent;          // % do capital por trade
    
@@ -217,6 +221,8 @@ CRiskManager::CRiskManager()
    m_atrPeriod = 14;
    
    //--- Parâmetros padrão
+   m_params.lotMode = 0;  // Lote fixo por padrão
+   m_params.fixedLot = 1.0;
    m_params.riskPercent = 1.0;
    m_params.riskMultF5 = 1.5;
    m_params.riskMultF4 = 1.0;
@@ -390,7 +396,29 @@ double CRiskManager::GetRiskMultiplier(int strength)
 //+------------------------------------------------------------------+
 double CRiskManager::CalculateLot(double slPoints, int strength, bool isVolatile = false)
 {
-   if(!m_initialized || m_asset == NULL || slPoints <= 0)
+   if(!m_initialized || m_asset == NULL)
+      return 0;
+   
+   //--- MODO LOTE FIXO: retorna o lote configurado diretamente
+   if(m_params.lotMode == 0)
+   {
+      double lot = m_params.fixedLot;
+      
+      //--- Aplicar limite máximo por tipo de ativo
+      double maxLot = m_params.maxLotForex;
+      if(m_asset.IsWIN())
+         maxLot = m_params.maxLotWIN;
+      else if(m_asset.IsWDO())
+         maxLot = m_params.maxLotWDO;
+      
+      lot = MathMin(lot, maxLot);
+      
+      //--- Normalizar e retornar
+      return m_asset.NormalizeLot(lot);
+   }
+   
+   //--- MODO RISCO %: calcular lote baseado no risco
+   if(slPoints <= 0)
       return 0;
    
    //--- Calcular risco base

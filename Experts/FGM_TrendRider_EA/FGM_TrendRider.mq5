@@ -48,6 +48,12 @@ enum ENUM_TP_MODE
    TP_ATR = 2             // Baseado em ATR
 };
 
+enum ENUM_LOT_MODE
+{
+   LOT_FIXED = 0,         // Lote Fixo
+   LOT_RISK_PERCENT = 1   // Baseado em % de Risco
+};
+
 //+------------------------------------------------------------------+
 //| Input Parameters - BLOCO 4: Parâmetros Chave                     |
 //+------------------------------------------------------------------+
@@ -66,7 +72,9 @@ input int      Inp_MaxSpread       = 30;               // Spread máximo (pontos
 
 //--- Gestão de Risco
 input group "═══════════════ GESTÃO DE RISCO ═══════════════"
-input double   Inp_RiskPercent     = 1.0;              // Risco Base (%)
+input ENUM_LOT_MODE Inp_LotMode    = LOT_FIXED;        // Modo de Lote
+input double   Inp_FixedLot        = 1.0;              // Lote Fixo (B3: contratos, Forex: lotes)
+input double   Inp_RiskPercent     = 1.0;              // Risco Base (%) - só se Modo=Risco
 input double   Inp_MaxDailyDD      = 3.0;              // Drawdown Diário Máximo (%)
 input double   Inp_MaxTotalDD      = 10.0;             // Drawdown Total Máximo (%)
 input int      Inp_MaxConsecLoss   = 3;                // Máx perdas consecutivas
@@ -248,6 +256,9 @@ int OnInit()
    
    //--- Configurar parâmetros de risco
    RiskParams riskParams;
+   //--- Modo de Lote (NOVO)
+   riskParams.lotMode = (int)Inp_LotMode;
+   riskParams.fixedLot = Inp_FixedLot;
    riskParams.riskPercent = Inp_RiskPercent;
    riskParams.riskMultF5 = Inp_ForceMultF5;
    riskParams.riskMultF4 = Inp_ForceMultF4;
