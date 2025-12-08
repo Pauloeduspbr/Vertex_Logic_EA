@@ -991,10 +991,11 @@ double CFilters::GetCurrentRSI()
    if(m_handleRSI == INVALID_HANDLE)
       return 50.0; // Valor neutro se não há handle
    
-   //--- IMPORTANTE: Usar barra 1 (FECHADA) para sincronizar com o sinal FGM
-   //--- O sinal de entrada é baseado na barra 1, então o filtro RSIOMA
-   //--- também deve ler da barra 1 para estar no mesmo momento temporal
-   if(CopyBuffer(m_handleRSI, 0, 1, 1, m_bufferRSI) <= 0)
+   //--- Ler da barra 0 (formação atual) para ter o valor mais recente
+   //--- O indicador visual mostra sempre a barra 0
+   //--- NOTA: Anteriormente usávamos barra 1, mas isso causava dessincronização
+   //---       com o que o trader vê no gráfico
+   if(CopyBuffer(m_handleRSI, 0, 0, 1, m_bufferRSI) <= 0)
       return 50.0;
    
    return m_bufferRSI[0];
@@ -1011,10 +1012,9 @@ double CFilters::GetCurrentRSIMA()
    //--- O indicador RSIOMA customizado tem:
    //--- Buffer 0 = RSI (linha vermelha)
    //--- Buffer 1 = RSI MA (linha azul)
-   //--- IMPORTANTE: Usar barra 1 (FECHADA) para sincronizar com o sinal FGM
-   //--- O sinal de entrada é baseado na barra 1, então o filtro RSIOMA
-   //--- também deve ler da barra 1 para estar no mesmo momento temporal
-   if(CopyBuffer(m_handleRSI, 1, 1, 1, m_bufferRSIMA) <= 0)
+   //--- Ler da barra 0 (formação atual) para ter o valor mais recente
+   //--- O indicador visual mostra sempre a barra 0
+   if(CopyBuffer(m_handleRSI, 1, 0, 1, m_bufferRSIMA) <= 0)
       return 50.0;
    
    return m_bufferRSIMA[0];
@@ -1100,7 +1100,9 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    double rsiMA = GetCurrentRSIMA();
    
    //--- DEBUG: SEMPRE logar os valores do RSIOMA para diagnóstico
+   datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, 0);
    Print("RSIOMA CHECK: ", isBuy ? "BUY" : "SELL", 
+         " | Bar0 Time=", TimeToString(barTime, TIME_MINUTES),
          " | RSI=", DoubleToString(rsi, 1), 
          " | MA=", DoubleToString(rsiMA, 1),
          " | CheckMid=", m_config.rsiomaCheckMidLevel ? "SIM" : "NAO",
