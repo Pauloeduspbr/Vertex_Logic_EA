@@ -107,7 +107,7 @@ input int      Inp_BE_Offset       = 10;               // Offset proteção spre
 input group "═══════════════ TRAILING STOP ═══════════════"
 input bool     Inp_UseTrailing     = true;             // Usar Trailing Stop
 input int      Inp_Trail_Trigger   = 200;              // Trigger Trailing (pontos de lucro)
-input int      Inp_Trail_Step      = 100;              // Step do Trailing (move SL de X em X pts)
+input int      Inp_Trail_Distance  = 150;              // Distância do SL ao preço máximo (pontos)
 
 //--- Horários de Operação
 input group "═══════════════ HORÁRIOS ═══════════════"
@@ -195,7 +195,7 @@ ENUM_POSITION_TYPE g_positionType;
 
 //--- Tracking de Break-Even e Trailing Stop
 bool              g_beExecuted = false;           // BE foi executado (apenas uma vez)
-double            g_lastTrailingPrice = 0;        // Último preço onde TS foi movido
+double            g_trailingMaxPrice = 0;         // Preço máximo (BUY) ou mínimo (SELL) atingido
 double            g_trailingSL = 0;               // Último SL do trailing
 
 //--- Tracking para evitar múltiplas entradas na mesma tendência
@@ -763,7 +763,7 @@ void ProcessSignals()
       
       //--- Reset variáveis de BE e Trailing para nova posição
       g_beExecuted = false;
-      g_lastTrailingPrice = 0;
+      g_trailingMaxPrice = 0;
       g_trailingSL = 0;
       
       //--- Atualizar tracking de tendência para evitar múltiplas entradas
@@ -918,7 +918,7 @@ void ManageBreakEven(double profitPoints, double currentPrice)
          g_beExecuted = true;  // MARCA QUE BE FOI EXECUTADO - NÃO ATUA MAIS
          g_positionSL = newSL;
          g_trailingSL = newSL;  // Inicializa trailing a partir do BE
-         g_lastTrailingPrice = currentPrice;  // Marca preço onde BE foi ativado
+         g_trailingMaxPrice = currentPrice;  // Marca preço inicial do trailing
          g_TradeEngine.SetBEActivated(true);
          
          g_Stats.LogNormal(StringFormat("Break-Even EXECUTADO (único): SL movido para %.2f (offset: %d pts)", 
@@ -929,12 +929,13 @@ void ManageBreakEven(double profitPoints, double currentPrice)
 
 //+------------------------------------------------------------------+
 //| Gerenciar Trailing Stop                                          |
-//| LÓGICA SIMPLIFICADA:                                             |
+//| LÓGICA COM PREÇO MÁXIMO/MÍNIMO:                                  |
 //| 1. Só atua APÓS BE ativado (proteção garantida)                  |
-//| 2. Quando lucro >= Trigger, começa a mover SL                    |
-//| 3. SL avança de STEP em STEP conforme preço avança               |
-//| 4. O SL é posicionado STEP pontos atrás do último nível avançado |
-//| 5. SL NUNCA recua (só melhora)                                   |
+//| 2. Quando lucro >= Trigger, começa a monitorar                   |
+//| 3. Rastreia o preço MÁXIMO (BUY) ou MÍNIMO (SELL) atingido       |
+//| 4. SL fica sempre DISTANCE pontos atrás do máximo/mínimo         |
+//| 5. Se preço recua, TS PAUSA (não move) - só avança com novo max  |
+//| 6. SL NUNCA recua (só melhora)                                   |
 //+------------------------------------------------------------------+
 void ManageTrailingStop(double profitPoints, double currentPrice)
 {
@@ -947,64 +948,56 @@ void ManageTrailingStop(double profitPoints, double currentPrice)
       return;
    
    double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
-   double step = Inp_Trail_Step * point;
+   double distance = Inp_Trail_Distance * point;
    
-   //--- Inicializar referência se primeira execução do trailing
-   if(g_lastTrailingPrice == 0)
+   //--- Inicializar preço máximo/mínimo se primeira execução
+   if(g_trailingMaxPrice == 0)
    {
-      g_lastTrailingPrice = currentPrice;
-      return;  // Primeira vez, apenas registra o ponto
+      g_trailingMaxPrice = currentPrice;
+      g_Stats.LogDebug(StringFormat("Trailing Stop INICIADO: Preço Ref=%.2f | Distance=%d pts",
+                                    g_trailingMaxPrice, Inp_Trail_Distance));
+      return;
    }
    
-   //--- Verificar se preço avançou pelo menos STEP pontos além do último nível
    double newSL = 0;
    bool shouldMove = false;
+   bool newExtreme = false;
    
    if(g_positionType == POSITION_TYPE_BUY)
    {
-      //--- COMPRA: verificar se preço subiu STEP pontos além do último registro
-      if(currentPrice >= g_lastTrailingPrice + step)
+      //--- COMPRA: verificar se preço fez NOVO MÁXIMO
+      if(currentPrice > g_trailingMaxPrice)
       {
-         //--- Calcular quantos steps o preço avançou
-         double advancement = currentPrice - g_lastTrailingPrice;
-         int stepsAdvanced = (int)(advancement / step);
+         //--- Novo máximo! Atualizar referência
+         g_trailingMaxPrice = currentPrice;
+         newExtreme = true;
          
-         //--- Novo nível de referência (avança step por step)
-         double newReference = g_lastTrailingPrice + (stepsAdvanced * step);
-         
-         //--- SL fica STEP pontos atrás do novo nível
-         newSL = newReference - step;
+         //--- SL = Máximo - Distance
+         newSL = g_trailingMaxPrice - distance;
          
          //--- Só move se novo SL é melhor (maior) que atual
          if(newSL > g_trailingSL)
-         {
             shouldMove = true;
-            g_lastTrailingPrice = newReference;
-         }
       }
+      //--- Se preço recuou, NÃO MOVE (pausa)
    }
    else
    {
-      //--- VENDA: verificar se preço desceu STEP pontos além do último registro
-      if(currentPrice <= g_lastTrailingPrice - step)
+      //--- VENDA: verificar se preço fez NOVO MÍNIMO
+      if(currentPrice < g_trailingMaxPrice)
       {
-         //--- Calcular quantos steps o preço avançou
-         double advancement = g_lastTrailingPrice - currentPrice;
-         int stepsAdvanced = (int)(advancement / step);
+         //--- Novo mínimo! Atualizar referência
+         g_trailingMaxPrice = currentPrice;
+         newExtreme = true;
          
-         //--- Novo nível de referência (avança step por step)
-         double newReference = g_lastTrailingPrice - (stepsAdvanced * step);
-         
-         //--- SL fica STEP pontos atrás do novo nível (acima, para venda)
-         newSL = newReference + step;
+         //--- SL = Mínimo + Distance
+         newSL = g_trailingMaxPrice + distance;
          
          //--- Só move se novo SL é melhor (menor) que atual
          if(newSL < g_trailingSL)
-         {
             shouldMove = true;
-            g_lastTrailingPrice = newReference;
-         }
       }
+      //--- Se preço subiu (recuou), NÃO MOVE (pausa)
    }
    
    if(!shouldMove)
@@ -1027,8 +1020,9 @@ void ManageTrailingStop(double profitPoints, double currentPrice)
       else
          lockedProfit = (g_positionOpenPrice - newSL) / point;
       
-      g_Stats.LogDebug(StringFormat("Trailing Stop: SL=%.2f | Lucro Protegido=%.0f pts | Step=%d pts", 
-                                    newSL, lockedProfit, Inp_Trail_Step));
+      g_Stats.LogNormal(StringFormat("Trailing Stop: Novo %s=%.2f | SL=%.2f | Lucro Protegido=%.0f pts", 
+                                    (g_positionType == POSITION_TYPE_BUY) ? "MAX" : "MIN",
+                                    g_trailingMaxPrice, newSL, lockedProfit));
    }
 }
 
@@ -1109,8 +1103,13 @@ void OnPositionClosed()
    
    //--- Reset variáveis de BE e Trailing
    g_beExecuted = false;
-   g_lastTrailingPrice = 0;
+   g_trailingMaxPrice = 0;
    g_trailingSL = 0;
+   
+   //--- Reset tracking de tendência para permitir re-entrada
+   //--- Após posição fechar, libera novas entradas na mesma direção
+   g_lastTrendDirection = 0;
+   g_lastTrendEntryTime = 0;
    
    g_Stats.LogNormal(StringFormat("Posição fechada - Lucro: %.2f | Razão: %s", 
                                   lastProfit, closeReason));
