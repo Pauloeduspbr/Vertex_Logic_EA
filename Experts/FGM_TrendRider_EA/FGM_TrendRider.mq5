@@ -106,9 +106,8 @@ input int      Inp_BE_Offset       = 10;               // Offset proteção spre
 //--- Trailing Stop
 input group "═══════════════ TRAILING STOP ═══════════════"
 input bool     Inp_UseTrailing     = true;             // Usar Trailing Stop
-input int      Inp_Trail_Trigger   = 150;              // Trigger Trailing (pontos)
-input int      Inp_Trail_Step      = 50;               // Step do Trailing (pontos)
-input int      Inp_Trail_Distance  = 100;              // Distância do Trailing (pontos)
+input int      Inp_Trail_Trigger   = 200;              // Trigger Trailing (pontos de lucro)
+input int      Inp_Trail_Step      = 100;              // Step do Trailing (move SL de X em X pts)
 
 //--- Horários de Operação
 input group "═══════════════ HORÁRIOS ═══════════════"
@@ -930,76 +929,86 @@ void ManageBreakEven(double profitPoints, double currentPrice)
 
 //+------------------------------------------------------------------+
 //| Gerenciar Trailing Stop                                          |
-//| REGRAS:                                                          |
-//| 1. Só atua APÓS proteção do lucro (BE ativado)                   |
-//| 2. SL só é alterado quando preço está A FAVOR da tendência       |
-//| 3. Quando preço faz correção/recuo, o passo é PAUSADO            |
-//| 4. SL NUNCA é movido para trás (apenas para melhorar posição)    |
+//| LÓGICA SIMPLIFICADA:                                             |
+//| 1. Só atua APÓS BE ativado (proteção garantida)                  |
+//| 2. Quando lucro >= Trigger, começa a mover SL                    |
+//| 3. SL avança de STEP em STEP conforme preço avança               |
+//| 4. O SL é posicionado STEP pontos atrás do último nível avançado |
+//| 5. SL NUNCA recua (só melhora)                                   |
 //+------------------------------------------------------------------+
 void ManageTrailingStop(double profitPoints, double currentPrice)
 {
-   //--- REGRA 1: Só atua se BE foi executado (proteção do lucro garantida)
+   //--- REGRA 1: Só atua se BE foi executado
    if(!g_beExecuted)
-   {
-      g_Stats.LogDebug("Trailing: Aguardando BE ser executado");
       return;
-   }
    
    //--- Verificar se atingiu trigger mínimo
    if(profitPoints < Inp_Trail_Trigger)
       return;
    
    double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
-   double distance = Inp_Trail_Distance * point;
    double step = Inp_Trail_Step * point;
    
-   //--- REGRA 2 e 3: Verificar se preço está avançando A FAVOR da tendência
-   //--- Para COMPRA: preço atual deve ser MAIOR que último preço de referência
-   //--- Para VENDA: preço atual deve ser MENOR que último preço de referência
-   //--- Se preço está recuando (correção), NÃO mover SL - PAUSAR
-   
-   bool priceAdvancing = false;
-   
-   if(g_positionType == POSITION_TYPE_BUY)
+   //--- Inicializar referência se primeira execução do trailing
+   if(g_lastTrailingPrice == 0)
    {
-      //--- COMPRA: preço avançando = preço subindo acima do último ponto
-      priceAdvancing = (currentPrice > g_lastTrailingPrice + step);
-   }
-   else
-   {
-      //--- VENDA: preço avançando = preço caindo abaixo do último ponto  
-      priceAdvancing = (currentPrice < g_lastTrailingPrice - step);
+      g_lastTrailingPrice = currentPrice;
+      return;  // Primeira vez, apenas registra o ponto
    }
    
-   //--- Se preço não está avançando, PAUSAR trailing (não fazer nada)
-   if(!priceAdvancing)
-   {
-      return;  // PAUSA - preço em correção ou estável
-   }
-   
-   //--- Calcular novo SL baseado no preço atual
+   //--- Verificar se preço avançou pelo menos STEP pontos além do último nível
    double newSL = 0;
+   bool shouldMove = false;
    
    if(g_positionType == POSITION_TYPE_BUY)
    {
-      //--- COMPRA: SL = preço atual - distância
-      newSL = currentPrice - distance;
-      
-      //--- REGRA 4: SL só pode SUBIR (melhorar posição)
-      //--- Se novo SL não é melhor que atual, não fazer nada
-      if(newSL <= g_trailingSL)
-         return;
+      //--- COMPRA: verificar se preço subiu STEP pontos além do último registro
+      if(currentPrice >= g_lastTrailingPrice + step)
+      {
+         //--- Calcular quantos steps o preço avançou
+         double advancement = currentPrice - g_lastTrailingPrice;
+         int stepsAdvanced = (int)(advancement / step);
+         
+         //--- Novo nível de referência (avança step por step)
+         double newReference = g_lastTrailingPrice + (stepsAdvanced * step);
+         
+         //--- SL fica STEP pontos atrás do novo nível
+         newSL = newReference - step;
+         
+         //--- Só move se novo SL é melhor (maior) que atual
+         if(newSL > g_trailingSL)
+         {
+            shouldMove = true;
+            g_lastTrailingPrice = newReference;
+         }
+      }
    }
    else
    {
-      //--- VENDA: SL = preço atual + distância
-      newSL = currentPrice + distance;
-      
-      //--- REGRA 4: SL só pode DESCER (melhorar posição)
-      //--- Se novo SL não é melhor que atual, não fazer nada
-      if(newSL >= g_trailingSL)
-         return;
+      //--- VENDA: verificar se preço desceu STEP pontos além do último registro
+      if(currentPrice <= g_lastTrailingPrice - step)
+      {
+         //--- Calcular quantos steps o preço avançou
+         double advancement = g_lastTrailingPrice - currentPrice;
+         int stepsAdvanced = (int)(advancement / step);
+         
+         //--- Novo nível de referência (avança step por step)
+         double newReference = g_lastTrailingPrice - (stepsAdvanced * step);
+         
+         //--- SL fica STEP pontos atrás do novo nível (acima, para venda)
+         newSL = newReference + step;
+         
+         //--- Só move se novo SL é melhor (menor) que atual
+         if(newSL < g_trailingSL)
+         {
+            shouldMove = true;
+            g_lastTrailingPrice = newReference;
+         }
+      }
    }
+   
+   if(!shouldMove)
+      return;
    
    //--- Normalizar SL
    newSL = NormalizeDouble(newSL, _Digits);
@@ -1010,11 +1019,16 @@ void ManageTrailingStop(double profitPoints, double currentPrice)
    if(result.success)
    {
       g_trailingSL = newSL;
-      g_lastTrailingPrice = currentPrice;  // Atualiza ponto de referência
       g_positionSL = newSL;
       
-      g_Stats.LogDebug(StringFormat("Trailing Stop movido: SL=%.2f | Preço=%.2f | Dist=%d pts", 
-                                    newSL, currentPrice, Inp_Trail_Distance));
+      double lockedProfit = 0;
+      if(g_positionType == POSITION_TYPE_BUY)
+         lockedProfit = (newSL - g_positionOpenPrice) / point;
+      else
+         lockedProfit = (g_positionOpenPrice - newSL) / point;
+      
+      g_Stats.LogDebug(StringFormat("Trailing Stop: SL=%.2f | Lucro Protegido=%.0f pts | Step=%d pts", 
+                                    newSL, lockedProfit, Inp_Trail_Step));
    }
 }
 
