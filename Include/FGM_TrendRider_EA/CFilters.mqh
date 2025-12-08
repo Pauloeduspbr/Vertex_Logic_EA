@@ -1143,25 +1143,25 @@ bool CFilters::CheckRSIOMA(bool isBuy)
       return false;
    }
    
-   //--- FILTRO 2: Nível 50 (momentum) - Verificar TODAS as barras para confirmação
-   //--- Este é o filtro que deve usar múltiplas barras para confirmar tendência
+   //--- FILTRO 2: Nível 50 (momentum) - Verificar apenas barra 1 (mais recente)
+   //--- O momentum ATUAL é o que importa - não faz sentido bloquear porque
+   //--- barras anteriores estavam do outro lado do 50 (isso é natural numa reversão)
    if(m_config.rsiomaCheckMidLevel)
    {
-      for(int bar = 0; bar < confirmBars; bar++)
+      double rsiBar1 = rsiValues[0];
+      
+      if(isBuy && rsiBar1 < 50)
       {
-         if(isBuy && rsiValues[bar] < 50)
-         {
-            Print("RSIOMA FILTRO: BUY bloqueado na barra ", bar+1, " - RSI(", 
-                  DoubleToString(rsiValues[bar], 1), ") < 50 - momentum de baixa");
-            return false;
-         }
-         
-         if(!isBuy && rsiValues[bar] > 50)
-         {
-            Print("RSIOMA FILTRO: SELL bloqueado na barra ", bar+1, " - RSI(", 
-                  DoubleToString(rsiValues[bar], 1), ") > 50 - momentum de alta");
-            return false;
-         }
+         Print("RSIOMA FILTRO: BUY bloqueado - RSI(", 
+               DoubleToString(rsiBar1, 1), ") < 50 - momentum de baixa");
+         return false;
+      }
+      
+      if(!isBuy && rsiBar1 > 50)
+      {
+         Print("RSIOMA FILTRO: SELL bloqueado - RSI(", 
+               DoubleToString(rsiBar1, 1), ") > 50 - momentum de alta");
+         return false;
       }
    }
    
