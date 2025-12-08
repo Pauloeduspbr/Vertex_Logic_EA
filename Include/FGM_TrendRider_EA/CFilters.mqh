@@ -1095,14 +1095,29 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    double rsi = GetCurrentRSI();
    double rsiMA = GetCurrentRSIMA();
    
+   //--- DEBUG: SEMPRE logar os valores do RSIOMA para diagnóstico
+   Print("RSIOMA CHECK: ", isBuy ? "BUY" : "SELL", 
+         " | RSI=", DoubleToString(rsi, 1), 
+         " | MA=", DoubleToString(rsiMA, 1),
+         " | CheckMid=", m_config.rsiomaCheckMidLevel ? "SIM" : "NAO",
+         " | CheckCross=", m_config.rsiomaCheckCrossover ? "SIM" : "NAO");
+   
    //--- FILTRO 1: Sobrecompra/Sobrevenda
    //--- NÃO comprar se RSI >= 70 (sobrecomprado)
    //--- NÃO vender se RSI <= 30 (sobrevendido)
    if(isBuy && rsi >= m_config.rsiomaOverbought)
+   {
+      Print("RSIOMA FILTRO: BUY bloqueado - RSI(", DoubleToString(rsi, 1), 
+            ") >= Overbought(", m_config.rsiomaOverbought, ")");
       return false;
+   }
    
    if(!isBuy && rsi <= m_config.rsiomaOversold)
+   {
+      Print("RSIOMA FILTRO: SELL bloqueado - RSI(", DoubleToString(rsi, 1), 
+            ") <= Oversold(", m_config.rsiomaOversold, ")");
       return false;
+   }
    
    //--- FILTRO 2: Nível 50 (momentum)
    //--- BUY: RSI deve estar acima de 50 (momentum de alta)
@@ -1110,10 +1125,18 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    if(m_config.rsiomaCheckMidLevel)
    {
       if(isBuy && rsi < 50)
+      {
+         Print("RSIOMA FILTRO: BUY bloqueado - RSI(", DoubleToString(rsi, 1), 
+               ") < 50 - momentum de baixa");
          return false;
+      }
       
       if(!isBuy && rsi > 50)
+      {
+         Print("RSIOMA FILTRO: SELL bloqueado - RSI(", DoubleToString(rsi, 1), 
+               ") > 50 - momentum de alta");
          return false;
+      }
    }
    
    //--- FILTRO 3: Posição RSI vs MA (verificar posição relativa)
@@ -1129,7 +1152,7 @@ bool CFilters::CheckRSIOMA(bool isBuy)
          return false;
       }
       
-      //--- Para VENDA: linha vermelha (RSI) deve estar ABAIXO da linha azul (MA)
+      //--- Para VENDA: linha vermelha (RSI) deve estar ABAIXO da MA (azul)
       if(!isBuy && rsi >= rsiMA)
       {
          Print("RSIOMA FILTRO: SELL bloqueado - RSI(", DoubleToString(rsi, 1), 
@@ -1137,6 +1160,10 @@ bool CFilters::CheckRSIOMA(bool isBuy)
          return false;
       }
    }
+   
+   //--- PASSOU em todos os filtros
+   Print("RSIOMA FILTRO: ", isBuy ? "BUY" : "SELL", " APROVADO - RSI(", 
+         DoubleToString(rsi, 1), ") vs MA(", DoubleToString(rsiMA, 1), ")");
    
    return true;
 }
