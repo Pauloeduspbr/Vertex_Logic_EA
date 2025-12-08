@@ -84,7 +84,6 @@ struct FilterConfig
    //--- Cooldown
    bool     cooldownActive;      // Cooldown ativo
    int      cooldownBarsAfterStop;  // Barras após stop
-   int      cooldownBarsAfterTP3;   // Barras após TP3 completo
    bool     cooldownIgnoreF5;    // Ignorar cooldown para força 5
 };
 
@@ -109,7 +108,6 @@ private:
    int                m_cooldownCounter;    // Contador de barras em cooldown
    datetime           m_lastBarTime;        // Tempo da última barra processada
    datetime           m_lastStopTime;       // Tempo do último stop
-   datetime           m_lastTP3Time;        // Tempo do último TP3
    
    //--- Métodos privados
    bool               CheckSpread();
@@ -155,7 +153,6 @@ public:
    
    //--- Gestão de cooldown
    void               StartCooldownAfterStop();
-   void               StartCooldownAfterTP3();
    void               ResetCooldown();
    bool               IsInCooldown();
    int                GetCooldownRemaining();
@@ -188,7 +185,6 @@ CFilters::CFilters()
    m_cooldownCounter = 0;
    m_lastBarTime = 0;
    m_lastStopTime = 0;
-   m_lastTP3Time = 0;
    
    ArraySetAsSeries(m_bufferVolumeMA, true);
    SetDefaultConfig();
@@ -297,7 +293,6 @@ void CFilters::SetDefaultConfig()
    //--- Cooldown
    m_config.cooldownActive = true;
    m_config.cooldownBarsAfterStop = 6;
-   m_config.cooldownBarsAfterTP3 = 0;
    m_config.cooldownIgnoreF5 = true;
 }
 
@@ -685,17 +680,6 @@ void CFilters::StartCooldownAfterStop()
    m_cooldownCounter = m_config.cooldownBarsAfterStop;
    m_lastStopTime = TimeCurrent();
    Print("CFilters: Cooldown iniciado após stop - ", m_cooldownCounter, " barras");
-}
-
-//+------------------------------------------------------------------+
-//| Iniciar cooldown após TP3                                        |
-//+------------------------------------------------------------------+
-void CFilters::StartCooldownAfterTP3()
-{
-   m_cooldownCounter = m_config.cooldownBarsAfterTP3;
-   m_lastTP3Time = TimeCurrent();
-   if(m_cooldownCounter > 0)
-      Print("CFilters: Cooldown iniciado após TP3 - ", m_cooldownCounter, " barras");
 }
 
 //+------------------------------------------------------------------+

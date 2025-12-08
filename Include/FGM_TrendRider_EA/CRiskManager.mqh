@@ -46,9 +46,6 @@ struct RiskParams
    double   tpATRMult;            // Multiplicador ATR para TP
    double   tp1RR;                // Risk:Reward TP1
    double   tp2RR;                // Risk:Reward TP2
-   int      tp1ClosePercent;      // % a fechar no TP1
-   int      tp2ClosePercent;      // % a fechar no TP2
-   int      tp3ClosePercent;      // % para trailing
    
    //--- Break-even
    bool     beActive;             // Ativar break-even
@@ -80,14 +77,8 @@ struct PositionCalcResult
    double   slValue;              // Valor monetário do SL
    
    //--- Take Profits
-   double   tp1Price;             // Preço TP1
-   double   tp2Price;             // Preço TP2
-   double   tp3Price;             // Preço TP3 (ou 0 para trailing)
-   
-   //--- Volumes para parciais
-   double   lotTP1;               // Volume para TP1
-   double   lotTP2;               // Volume para TP2
-   double   lotTP3;               // Volume para trailing (runner)
+   double   tp1Price;             // Preço TP principal
+   double   tp2Price;             // Preço TP2 (reserva)
    
    //--- Break-even
    double   bePrice;              // Preço do break-even
@@ -96,8 +87,7 @@ struct PositionCalcResult
    //--- Risco
    double   riskAmount;           // Valor em risco
    double   riskPercent;          // % do capital em risco
-   double   rewardTP1;            // Potencial TP1
-   double   rewardTP2;            // Potencial TP2
+   double   rewardAmount;         // Potencial de ganho no TP
 };
 
 //+------------------------------------------------------------------+
@@ -176,9 +166,7 @@ public:
    double            CalculateBEPrice(double entryPrice, bool isBuy);
    int               GetBEOffset();
    
-   //--- Cálculo de volumes para parciais
-   void              CalculatePartialLots(double totalLot, double& lotTP1, double& lotTP2, double& lotTP3);
-   double            RoundLotForPartial(double lot);
+
    
    //--- Cálculo completo da posição
    PositionCalcResult CalculatePosition(double entryPrice, bool isBuy, int strength, bool isVolatile = false);
@@ -242,9 +230,6 @@ CRiskManager::CRiskManager()
    m_params.tpATRMult = 3.0;
    m_params.tp1RR = 1.0;
    m_params.tp2RR = 2.0;
-   m_params.tp1ClosePercent = 50;
-   m_params.tp2ClosePercent = 30;
-   m_params.tp3ClosePercent = 20;
    m_params.beActive = true;
    m_params.beOffsetWIN = 10;
    m_params.beOffsetWDO = 1;
@@ -756,65 +741,6 @@ int CRiskManager::GetBEOffset()
 }
 
 //+------------------------------------------------------------------+
-//| Calcular volumes para saídas parciais                            |
-//+------------------------------------------------------------------+
-void CRiskManager::CalculatePartialLots(double totalLot, double& lotTP1, double& lotTP2, double& lotTP3)
-{
-   if(!m_initialized || m_asset == NULL || totalLot <= 0)
-   {
-      lotTP1 = 0;
-      lotTP2 = 0;
-      lotTP3 = 0;
-      return;
-   }
-   
-   //--- Calcular volumes brutos
-   double rawTP1 = totalLot * (m_params.tp1ClosePercent / 100.0);
-   double rawTP2 = totalLot * (m_params.tp2ClosePercent / 100.0);
-   double rawTP3 = totalLot * (m_params.tp3ClosePercent / 100.0);
-   
-   //--- Arredondar para step do lote
-   lotTP1 = RoundLotForPartial(rawTP1);
-   lotTP2 = RoundLotForPartial(rawTP2);
-   
-   //--- Garantir que a soma não excede o total
-   lotTP3 = totalLot - lotTP1 - lotTP2;
-   
-   //--- Validar mínimos
-   double minLot = m_asset.GetVolumeMin();
-   
-   if(lotTP1 < minLot && lotTP1 > 0)
-      lotTP1 = 0;
-   if(lotTP2 < minLot && lotTP2 > 0)
-      lotTP2 = 0;
-   if(lotTP3 < minLot && lotTP3 > 0)
-      lotTP3 = 0;
-   
-   //--- Se não for possível fazer parciais, usar tudo no TP1
-   if(lotTP1 + lotTP2 + lotTP3 < totalLot)
-   {
-      lotTP1 = totalLot;
-      lotTP2 = 0;
-      lotTP3 = 0;
-   }
-}
-
-//+------------------------------------------------------------------+
-//| Arredondar lote para parcial                                     |
-//+------------------------------------------------------------------+
-double CRiskManager::RoundLotForPartial(double lot)
-{
-   if(!m_initialized || m_asset == NULL)
-      return 0;
-   
-   double step = m_asset.GetVolumeStep();
-   if(step <= 0)
-      return lot;
-   
-   return MathFloor(lot / step) * step;
-}
-
-//+------------------------------------------------------------------+
 //| Cálculo completo da posição                                      |
 //+------------------------------------------------------------------+
 PositionCalcResult CRiskManager::CalculatePosition(double entryPrice, bool isBuy, int strength, bool isVolatile = false)
@@ -883,19 +809,8 @@ PositionCalcResult CRiskManager::CalculatePosition(double entryPrice, bool isBuy
    else
       result.tp1Price = m_asset.NormalizeTP(entryPrice - tpDistance, isBuy);
    
-   //--- TP2 e TP3 para Triple Exit (só se não for TP fixo)
-   if(m_params.tpMode == 1) // Modo R:R
-   {
-      result.tp2Price = CalculateTP2(entryPrice, slPoints, isBuy);
-   }
-   else
-   {
-      result.tp2Price = result.tp1Price; // Mesmo que TP1 para modos fixos
-   }
-   result.tp3Price = 0; // Trailing
-   
-   //--- Calcular volumes para parciais
-   CalculatePartialLots(result.lotSize, result.lotTP1, result.lotTP2, result.lotTP3);
+   //--- TP2 (reserva, mesmo valor que TP1 já que não usamos Triple Exit)
+   result.tp2Price = result.tp1Price;
    
    //--- Calcular Break-even
    if(m_params.beActive)
@@ -911,9 +826,9 @@ PositionCalcResult CRiskManager::CalculatePosition(double entryPrice, bool isBuy
    result.riskAmount = result.slValue;
    result.riskPercent = (result.riskAmount / GetAccountBalance()) * 100.0;
    
-   //--- Calcular potencial de ganho
-   result.rewardTP1 = PointsToValue(slPoints * m_params.tp1RR, result.lotTP1);
-   result.rewardTP2 = PointsToValue(slPoints * m_params.tp2RR, result.lotTP2);
+   //--- Calcular potencial de ganho (usando TP principal)
+   double tpPointsCalc = (m_params.tpMode == 0) ? (double)m_params.tpFixedPoints : (slPoints * m_params.tp1RR);
+   result.rewardAmount = PointsToValue(tpPointsCalc, result.lotSize);
    
    result.isValid = true;
    return result;
@@ -1140,15 +1055,12 @@ void CRiskManager::PrintRiskInfo(const PositionCalcResult& result)
    Print("  └─ Pontos:   ", DoubleToString(result.slPoints, 0));
    Print("  └─ Valor:    ", DoubleToString(result.slValue, 2));
    Print("───────────────────────────────────────────────────────────");
-   Print("TP1:           ", DoubleToString(result.tp1Price, _Digits), " (", DoubleToString(result.lotTP1, 2), " lotes)");
-   Print("TP2:           ", DoubleToString(result.tp2Price, _Digits), " (", DoubleToString(result.lotTP2, 2), " lotes)");
-   Print("Trailing:      ", DoubleToString(result.lotTP3, 2), " lotes");
+   Print("Take Profit:   ", DoubleToString(result.tp1Price, _Digits));
    Print("───────────────────────────────────────────────────────────");
    Print("Break-even:    ", DoubleToString(result.bePrice, _Digits));
    Print("───────────────────────────────────────────────────────────");
    Print("Risco:         ", DoubleToString(result.riskAmount, 2), " (", DoubleToString(result.riskPercent, 2), "%)");
-   Print("Pot. TP1:      ", DoubleToString(result.rewardTP1, 2));
-   Print("Pot. TP2:      ", DoubleToString(result.rewardTP2, 2));
+   Print("Potencial TP:  ", DoubleToString(result.rewardAmount, 2));
    Print("═══════════════════════════════════════════════════════════");
 }
 
