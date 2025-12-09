@@ -153,13 +153,13 @@ input int      Inp_CooldownBars    = 3;                // Cooldown após trade (
 
 //--- Filtro RSIOMA (NOVO)
 input group "═══════════════ FILTRO RSIOMA ═══════════════"
-input bool     Inp_UseRSIOMA       = true;             // Usar Filtro RSIOMA
+input bool     Inp_UseRSIOMA       = false;            // Usar Filtro RSIOMA (desativado até compilar indicador)
 input int      Inp_RSIOMA_Period   = 14;               // Período RSI
 input int      Inp_RSIOMA_MA       = 9;                // Período MA do RSI
 input int      Inp_RSIOMA_Overbought = 70;             // Nível Sobrecompra (não BUY acima)
 input int      Inp_RSIOMA_Oversold = 30;               // Nível Sobrevenda (não SELL abaixo)
 input bool     Inp_RSIOMA_CheckMid = true;             // Verificar nível 50 (momentum)
-input bool     Inp_RSIOMA_CheckCross = true;           // Verificar RSI × MA (posição relativa)
+input bool     Inp_RSIOMA_CheckCross = true;           // Verificar RSI × MA (direção)
 input int      Inp_RSIOMA_ConfirmBars = 2;             // Barras de Confirmação (1-5)
 
 //--- Regime de Mercado
