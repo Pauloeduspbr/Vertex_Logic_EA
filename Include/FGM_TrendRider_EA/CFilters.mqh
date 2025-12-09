@@ -1126,16 +1126,16 @@ bool CFilters::CheckRSIOMA(bool isBuy)
          ") Method:", m_config.rsiomaMA_Method);
    Print("───────────────────────────────────────────────────────────────────────");
    Print("CORREÇÃO: Buffer 1 = RSI (vermelho) | Buffer 0 = MA (azul)");
-   Print("TOLERÂNCIA: Diferença mínima de 2 pts para cruzamento válido");
+   Print("TOLERÂNCIA: Diferença mínima de 0.5 pts para cruzamento válido");
    Print("───────────────────────────────────────────────────────────────────────");
    for(int i = 0; i < confirmBars; i++)
    {
       datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, i + 1);
       double diff = rsiValues[i] - rsiMAValues[i];
       string relation;
-      if(diff >= 2.0)
+      if(diff >= 0.5)
          relation = "RSI > MA (ALTA CLARA)";
-      else if(diff <= -2.0)
+      else if(diff <= -0.5)
          relation = "RSI < MA (BAIXA CLARA)";
       else
          relation = "RSI ≈ MA (INDECISÃO)";
@@ -1192,11 +1192,11 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    //--- Para SELL: RSI deve estar ABAIXO da MA em todas as barras
    //--- Para BUY: RSI deve estar ACIMA da MA em todas as barras
    //--- Isso garante que o momentum está alinhado com a direção do trade
-   //--- TOLERÂNCIA: Diferença mínima de 2 pontos para considerar cruzamento válido
-   //--- Se RSI e MA estão muito próximos (< 2 pontos), indica indecisão = bloquear
+   //--- TOLERÂNCIA: Diferença mínima de 0.5 pontos para considerar cruzamento válido
+   //--- Se RSI e MA estão muito próximos (< 0.5 pontos), indica indecisão = bloquear
    if(m_config.rsiomaCheckCrossover)
    {
-      double minDiff = 2.0; // Diferença mínima para considerar cruzamento válido
+      double minDiff = 0.5; // Diferença mínima para considerar cruzamento válido
       
       for(int bar = 0; bar < confirmBars; bar++)
       {
