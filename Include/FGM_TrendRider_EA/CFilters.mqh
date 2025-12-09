@@ -1108,13 +1108,16 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    //--- Lemos exatamente como o indicador desenha para não haver divergência
    //--- entre o que o trader vê e o que o EA utiliza nos filtros.
    //--- DEBUG EXTRA: também vamos ler os valores brutos do próprio indicador
-   //--- via funções globais GetRSI/GetRSIMA para a BARRA 1, para garantir que
+   //--- via CopyBuffer para a BARRA 1, para garantir que
    //--- não há nenhum deslocamento entre o cálculo interno do indicador e o
    //--- que é retornado pelo CopyBuffer.
    double dbgRSI_Bar1 = EMPTY_VALUE;
    double dbgRSIMA_Bar1 = EMPTY_VALUE;
-   dbgRSI_Bar1 = GetRSI(1);
-   dbgRSIMA_Bar1 = GetRSIMA(1);
+   double tempRSI[1], tempRSIMA[1];
+   if(CopyBuffer(m_handleRSI, 0, 1, 1, tempRSI) > 0)
+      dbgRSI_Bar1 = tempRSI[0];
+   if(CopyBuffer(m_handleRSI, 1, 1, 1, tempRSIMA) > 0)
+      dbgRSIMA_Bar1 = tempRSIMA[0];
 
    if(CopyBuffer(m_handleRSI, 0, 1, confirmBars, rsiValues) < confirmBars)
       return true;
