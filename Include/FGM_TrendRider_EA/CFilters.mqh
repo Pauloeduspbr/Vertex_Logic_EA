@@ -995,10 +995,10 @@ double CFilters::GetCurrentRSI()
       return 50.0; // Valor neutro se não há handle
    
    //--- IMPORTANTE: Usar barra 1 (FECHADA) para sincronizar com o sinal FGM
-   //--- CORREÇÃO: Buffers invertidos no indicador!
-   //--- Visualmente: linha VERMELHA = Buffer 1, linha AZUL = Buffer 0
-   //--- Então RSI (linha vermelha) = Buffer 1
-   if(CopyBuffer(m_handleRSI, 1, 1, 1, m_bufferRSI) <= 0)
+   //--- IMPORTANTE: no indicador MT5, o buffer 0 é o RSI (linha vermelha)
+   //--- e o buffer 1 é a MA (linha azul). Aqui lemos EXATAMENTE como
+   //--- o indicador desenha na tela para que gráfico e EA fiquem sincronizados.
+   if(CopyBuffer(m_handleRSI, 0, 1, 1, m_bufferRSI) <= 0)
       return 50.0;
    
    return m_bufferRSI[0];
@@ -1012,10 +1012,8 @@ double CFilters::GetCurrentRSIMA()
    if(m_handleRSI == INVALID_HANDLE)
       return 50.0;
    
-   //--- CORREÇÃO: Buffers invertidos no indicador!
-   //--- Visualmente: linha VERMELHA = Buffer 1 (RSI), linha AZUL = Buffer 0 (MA)
-   //--- Então RSI MA (linha azul) = Buffer 0
-   if(CopyBuffer(m_handleRSI, 0, 1, 1, m_bufferRSIMA) <= 0)
+   //--- MA do RSI = buffer 1 do indicador (linha azul)
+   if(CopyBuffer(m_handleRSI, 1, 1, 1, m_bufferRSIMA) <= 0)
       return 50.0;
    
    return m_bufferRSIMA[0];
@@ -1106,14 +1104,12 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    ArraySetAsSeries(rsiMAValues, true);
    
    //--- Copiar valores das últimas N barras (começando da barra 1 = fechada)
-   //--- CORREÇÃO: Após análise visual, os buffers estão invertidos no indicador!
-   //--- O que o indicador chama de Buffer 0 (RSI) é plotado como linha AZUL
-   //--- O que o indicador chama de Buffer 1 (MA) é plotado como linha VERMELHA
-   //--- Então: Buffer 0 = MA (visualmente azul), Buffer 1 = RSI (visualmente vermelho)
-   //--- INVERTENDO: rsiValues lê Buffer 1, rsiMAValues lê Buffer 0
-   if(CopyBuffer(m_handleRSI, 1, 1, confirmBars, rsiValues) < confirmBars)
+   //--- LEITURA DIRETA: buffer 0 = RSI (linha vermelha), buffer 1 = MA (linha azul)
+   //--- Lemos exatamente como o indicador desenha para não haver divergência
+   //--- entre o que o trader vê e o que o EA utiliza nos filtros.
+   if(CopyBuffer(m_handleRSI, 0, 1, confirmBars, rsiValues) < confirmBars)
       return true;
-   if(CopyBuffer(m_handleRSI, 0, 1, confirmBars, rsiMAValues) < confirmBars)
+   if(CopyBuffer(m_handleRSI, 1, 1, confirmBars, rsiMAValues) < confirmBars)
       return true;
    
    //--- DEBUG: Logar valores de todas as barras analisadas
@@ -1125,7 +1121,7 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    Print("PARÂMETROS: RSI(", m_config.rsiomaPeriod, ") MA(", m_config.rsiomaMA_Period, 
          ") Method:", m_config.rsiomaMA_Method);
    Print("───────────────────────────────────────────────────────────────────────");
-   Print("CORREÇÃO: Buffer 1 = RSI (vermelho) | Buffer 0 = MA (azul)");
+   Print("MAPEAMENTO: Buffer 0 = RSI (vermelho) | Buffer 1 = MA (azul)");
    Print("TOLERÂNCIA: Diferença mínima de 0.5 pts para cruzamento válido");
    Print("───────────────────────────────────────────────────────────────────────");
    for(int i = 0; i < confirmBars; i++)
