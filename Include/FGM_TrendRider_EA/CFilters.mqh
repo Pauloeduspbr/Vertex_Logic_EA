@@ -1197,59 +1197,51 @@ bool CFilters::CheckRSIOMA(bool isBuy)
       }
    }
    
-   //--- FILTRO 2B: RSI vs MA - Verificar TODAS as barras para confirmação
-   //--- Para SELL: RSI deve estar ABAIXO da MA em todas as barras
-   //--- Para BUY: RSI deve estar ACIMA da MA em todas as barras
-   //--- Isso garante que o momentum está alinhado com a direção do trade
-   //--- TOLERÂNCIA: Diferença mínima de 0.5 pontos para considerar cruzamento válido
-   //--- Se RSI e MA estão muito próximos (< 0.5 pontos), indica indecisão = bloquear
+   //--- FILTRO 2B: RSI vs MA - Verificar DIREÇÃO do movimento
+   //--- A MA atrasa em relação ao RSI, então verificar posição relativa não funciona bem
+   //--- Em vez disso, verificamos se o RSI está se MOVENDO na direção correta:
+   //--- Para SELL: RSI deve estar CAINDO (RSI barra atual < RSI barra anterior)
+   //--- Para BUY: RSI deve estar SUBINDO (RSI barra atual > RSI barra anterior)
+   //--- Isso é mais confiável do que exigir RSI < MA para SELL
    if(m_config.rsiomaCheckCrossover)
    {
-      double minDiff = 0.5; // Diferença mínima para considerar cruzamento válido
-      
-      for(int bar = 0; bar < confirmBars; bar++)
+      //--- Precisamos de pelo menos 2 barras para verificar direção
+      if(confirmBars >= 2)
       {
-         double barRSI = rsiValues[bar];
-         double barMA = rsiMAValues[bar];
-         double barDiff = barRSI - barMA;
+         double rsiBar1 = rsiValues[0];  // Barra mais recente (fechada)
+         double rsiBar2 = rsiValues[1];  // Barra anterior
+         double maBar1 = rsiMAValues[0];
          
-         //--- Para BUY: RSI deve estar CLARAMENTE acima da MA (diff >= +minDiff)
-         if(isBuy && barDiff < minDiff)
+         double rsiChange = rsiBar1 - rsiBar2; // Positivo = subindo, Negativo = caindo
+         
+         Print("RSIOMA CROSSOVER: RSI Bar1=", DoubleToString(rsiBar1, 2), 
+               " Bar2=", DoubleToString(rsiBar2, 2), 
+               " Mudança=", DoubleToString(rsiChange, 2),
+               " (", rsiChange > 0 ? "SUBINDO" : "CAINDO", ")");
+         
+         //--- Para BUY: RSI deve estar SUBINDO ou estável, E acima de 50 (já verificado antes)
+         //--- Se RSI está caindo forte, não é bom para compra
+         if(isBuy && rsiChange < -2.0)  // RSI caindo mais de 2 pontos
          {
-            datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, bar + 1);
-            if(barDiff >= 0 && barDiff < minDiff)
-            {
-               Print("RSIOMA FILTRO: BUY bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
-                     ") - RSI(", DoubleToString(barRSI, 1), ") ≈ MA(", DoubleToString(barMA, 1), 
-                     ") diff=", DoubleToString(barDiff, 1), " - INDECISÃO (< ", DoubleToString(minDiff, 0), " pts)");
-            }
-            else
-            {
-               Print("RSIOMA FILTRO: BUY bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
-                     ") - RSI(", DoubleToString(barRSI, 1), ") < MA(", DoubleToString(barMA, 1), 
-                     ") - RSI abaixo da média");
-            }
+            Print("RSIOMA FILTRO: BUY bloqueado - RSI CAINDO (", 
+                  DoubleToString(rsiChange, 1), " pts) - momentum contrário");
             return false;
          }
          
-         //--- Para SELL: RSI deve estar CLARAMENTE abaixo da MA (diff <= -minDiff)
-         if(!isBuy && barDiff > -minDiff)
+         //--- Para SELL: RSI deve estar CAINDO ou estável, E abaixo de 50 (já verificado antes)
+         //--- Se RSI está subindo forte, não é bom para venda
+         if(!isBuy && rsiChange > 2.0)  // RSI subindo mais de 2 pontos
          {
-            datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, bar + 1);
-            if(barDiff <= 0 && barDiff > -minDiff)
-            {
-               Print("RSIOMA FILTRO: SELL bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
-                     ") - RSI(", DoubleToString(barRSI, 1), ") ≈ MA(", DoubleToString(barMA, 1), 
-                     ") diff=", DoubleToString(barDiff, 1), " - INDECISÃO (< ", DoubleToString(minDiff, 0), " pts)");
-            }
-            else
-            {
-               Print("RSIOMA FILTRO: SELL bloqueado na barra ", bar+1, "(", TimeToString(barTime, TIME_MINUTES),
-                     ") - RSI(", DoubleToString(barRSI, 1), ") > MA(", DoubleToString(barMA, 1), 
-                     ") - RSI acima da média");
-            }
+            Print("RSIOMA FILTRO: SELL bloqueado - RSI SUBINDO (", 
+                  DoubleToString(rsiChange, 1), " pts) - momentum contrário");
             return false;
          }
+         
+         //--- Log de aprovação
+         if(isBuy)
+            Print("RSIOMA CROSSOVER: BUY OK - RSI ", rsiChange >= 0 ? "subindo/estável" : "leve queda aceitável");
+         else
+            Print("RSIOMA CROSSOVER: SELL OK - RSI ", rsiChange <= 0 ? "caindo/estável" : "leve alta aceitável");
       }
    }
    
