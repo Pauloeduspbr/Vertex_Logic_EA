@@ -1107,6 +1107,15 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    //--- LEITURA DIRETA: buffer 0 = RSI (linha vermelha), buffer 1 = MA (linha azul)
    //--- Lemos exatamente como o indicador desenha para não haver divergência
    //--- entre o que o trader vê e o que o EA utiliza nos filtros.
+   //--- DEBUG EXTRA: também vamos ler os valores brutos do próprio indicador
+   //--- via funções globais GetRSI/GetRSIMA para a BARRA 1, para garantir que
+   //--- não há nenhum deslocamento entre o cálculo interno do indicador e o
+   //--- que é retornado pelo CopyBuffer.
+   double dbgRSI_Bar1 = EMPTY_VALUE;
+   double dbgRSIMA_Bar1 = EMPTY_VALUE;
+   dbgRSI_Bar1 = GetRSI(1);
+   dbgRSIMA_Bar1 = GetRSIMA(1);
+
    if(CopyBuffer(m_handleRSI, 0, 1, confirmBars, rsiValues) < confirmBars)
       return true;
    if(CopyBuffer(m_handleRSI, 1, 1, confirmBars, rsiMAValues) < confirmBars)
@@ -1122,6 +1131,7 @@ bool CFilters::CheckRSIOMA(bool isBuy)
          ") Method:", m_config.rsiomaMA_Method);
    Print("───────────────────────────────────────────────────────────────────────");
    Print("MAPEAMENTO: Buffer 0 = RSI (vermelho) | Buffer 1 = MA (azul)");
+   Print(StringFormat("DEBUG RAW (GetRSI/GetRSIMA) barra1: RSI=%.2f | MA=%.2f", dbgRSI_Bar1, dbgRSIMA_Bar1));
    Print("TOLERÂNCIA: Diferença mínima de 0.5 pts para cruzamento válido");
    Print("───────────────────────────────────────────────────────────────────────");
    for(int i = 0; i < confirmBars; i++)
