@@ -600,31 +600,16 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         min_strength = 2;
     
     //--- Adaptive Logic: Detect if we are using "Heavy" (Long) periods or "Light" (Short) periods
-    // This gives the indicator "intelligence" to adapt to user settings
     double avg_period = (ema_periods[0] + ema_periods[1] + ema_periods[2] + ema_periods[3] + ema_periods[4]) / 5.0;
-    bool is_heavy_setup = (avg_period > 40.0); // Threshold to distinguish between Scalping/DayTrade vs Swing setups
+    bool is_heavy_setup = (avg_period > 40.0); 
     
-    // DEBUG INITIALIZATION (Run once per bar 0 or initialization)
-    static bool debug_init_printed = false;
-    if(!debug_init_printed && index == 0)
-    {
-        PrintFormat("DEBUG: AvgPeriod=%.2f, IsHeavy=%s, Mode=%s", avg_period, (is_heavy_setup?"TRUE":"FALSE"), EnumToString(InpSignalMode));
-        debug_init_printed = true;
-    }
-
     //--- Adjust strength requirement dynamically
     int cross_req_strength = min_strength;
     
-    // If setup is heavy (slow to align), we allow 1 less confirmation in Moderate/Aggressive to catch entries earlier
-    // This fixes the issue where long periods take too long to align all 5 EMAs
     if(is_heavy_setup && InpSignalMode != MODE_CONSERVATIVE)
     {
-        // For Heavy setups (e.g. 14/36...), waiting for 2 confirmations (Strength 2) often misses the first move.
-        // We lower it to 1 (Just the Primary Cross) provided the Body Break and Slope are valid.
         cross_req_strength = 1; 
     }
-    // If setup is light (fast alignment), we stick to the user's strict requirement to avoid noise
-    // This prevents the "desajuste" for short periods mentioned by the user
     else 
     {
         cross_req_strength = min_strength;
@@ -697,16 +682,9 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             slope_tolerance *= 0.5; // Stricter in conservative mode
         
         //--- Trend Filter for Heavy Setups
-        // For Heavy Setups (Trend Following), we enforce strict adherence to the main trend (EMA200).
-        // We ignore counter-trend crossovers (e.g. Sell Cross in Uptrend) as they are likely deep pullbacks.
-        bool trend_buy_ok = true;
-        bool trend_sell_ok = true;
-        
-        if(is_heavy_setup)
-        {
-            trend_buy_ok = (close > ema_trend_curr); // Must be above EMA200
-            trend_sell_ok = (close < ema_trend_curr); // Must be below EMA200
-        }
+        // We removed the "Nuclear" filter. Instead, we rely on strict Body Break logic.
+        // For a valid signal, the candle must close beyond the FAST EMA of the crossover pair.
+        // This prevents signals where price is "hanging" on the Fast EMA (Support/Resistance).
 
         //--- Bullish crossover
         if(ema_fast_prev <= ema_slow_prev && ema_fast_curr > ema_slow_curr)
@@ -714,10 +692,10 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             // 1. Slope Check
             bool slope_ok = (ema_slow_curr >= ema_slow_prev - slope_tolerance);
             
-            // 2. Body Break Check
-            bool body_break = (close > open) && (close > ema_slow_curr);
+            // 2. Body Break Check (STRICT: Must close above FAST EMA)
+            bool body_break = (close > open) && (close > ema_fast_curr);
             
-            if(strength >= cross_req_strength && confluence_ok && slope_ok && body_break && trend_buy_ok)
+            if(strength >= cross_req_strength && confluence_ok && slope_ok && body_break)
             {
                 // Alert Logic
                 if(index == 0 && !InpAlertOnBarClose) 
@@ -732,23 +710,13 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             // 1. Slope Check
             bool slope_ok = (ema_slow_curr <= ema_slow_prev + slope_tolerance);
             
-            // 2. Body Break Check
-            bool body_break = (close < open) && (close < ema_slow_curr);
+            // 2. Body Break Check (STRICT: Must close below FAST EMA)
+            bool body_break = (close < open) && (close < ema_fast_curr);
             
-            // DEBUG: Print details when a crossover is detected but maybe rejected
-            if(is_heavy_setup && !trend_sell_ok)
-            {
-                 PrintFormat("DEBUG [SELL BLOCKED]: Time=%s, Close=%.5f, EMA200=%.5f, TrendSellOK=FALSE", 
-                     TimeToString(time), close, ema_trend_curr);
-            }
-            
-            if(MathAbs(strength) >= cross_req_strength && confluence_ok && slope_ok && body_break && trend_sell_ok)
+            if(MathAbs(strength) >= cross_req_strength && confluence_ok && slope_ok && body_break)
             {
                 FGM_Entry_Buffer[index] = -1; // Sell Signal
                 DrawSignalArrow(index, price, time, false);
-                
-                PrintFormat("DEBUG [SELL SIGNAL]: Time=%s, Strength=%d, TrendSellOK=%s, Close=%.5f, EMA200=%.5f",
-                    TimeToString(time), strength, (trend_sell_ok?"TRUE":"FALSE"), close, ema_trend_curr);
                 
                 if(index == 0 && !InpAlertOnBarClose) 
                    SendAdvancedAlert("SELL (Crossover)", time, price, (int)MathAbs(strength), confluence, phase);
@@ -772,24 +740,18 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             // Relaxed: Allow touching EMA2 (Slow) if EMA3 is too far, or just getting close to EMA3
             bool touched_value = (low <= ema_mid_curr) || (low <= ema_slow_curr); 
             
-            // Relaxed Bounce: Must close Bullish AND above EMA2 (Slow). 
-            // Requiring close > EMA1 (Fast) was too strict for deep pullbacks.
-            bool bounced_up = (close > open) && (close > ema_slow_curr); 
+            // Relaxed Bounce: 
+            // For Heavy Setups: Just need to recover above EMA1 (Fast) or show strong rejection.
+            // For Light Setups: Must recover above EMA2 (Slow).
+            double bounce_threshold = is_heavy_setup ? ema_fast_curr : ema_slow_curr;
             
-            // DEBUG: Print if we are close to a pullback
-            if(touched_value && !bounced_up)
-            {
-                 PrintFormat("DEBUG [PULLBACK BUY FAIL]: Time=%s, Touched=TRUE, Bounced=FALSE (Close=%.5f, EMA_Slow=%.5f)",
-                     TimeToString(time), close, ema_slow_curr);
-            }
+            bool bounced_up = (close > open) && (close > bounce_threshold); 
             
             // Ensure we are not too far from the EMAs (Confluence check)
             if(touched_value && bounced_up && confluence_ok)
             {
                  FGM_Entry_Buffer[index] = 1; // Buy Signal (Pullback)
                  DrawSignalArrow(index, price, time, true);
-                 
-                 PrintFormat("DEBUG [PULLBACK BUY SIGNAL]: Time=%s, Strength=%d", TimeToString(time), strength);
                  
                  if(index == 0 && !InpAlertOnBarClose) 
                     SendAdvancedAlert("BUY (Pullback)", time, price, strength, confluence, phase);
@@ -803,8 +765,10 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             // Price rallied into "Value Zone" (e.g., touched EMA3/Medium) but closed bearish
             bool touched_value = (high >= ema_mid_curr) || (high >= ema_slow_curr);
             
-            // Relaxed Bounce: Must close Bearish AND below EMA2 (Slow).
-            bool bounced_down = (close < open) && (close < ema_slow_curr); 
+            // Relaxed Bounce:
+            double bounce_threshold = is_heavy_setup ? ema_fast_curr : ema_slow_curr;
+            
+            bool bounced_down = (close < open) && (close < bounce_threshold); 
             
             if(touched_value && bounced_down && confluence_ok)
             {
