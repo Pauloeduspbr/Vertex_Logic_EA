@@ -386,6 +386,10 @@ double CRiskManager::CalculateLot(double slPoints, int strength, bool isVolatile
       else if(m_asset.IsWDO())
          maxLot = m_params.maxLotWDO;
       
+      //--- Proteção contra valores inválidos de maxLot (não inicializados)
+      if(maxLot <= 0 || !MathIsValidNumber(maxLot))
+         maxLot = m_asset.GetVolumeMax();
+      
       lot = MathMin(lot, maxLot);
       
       //--- Normalizar e retornar
@@ -450,6 +454,10 @@ double CRiskManager::CalculateLotByRisk(double riskAmount, double slPoints)
       maxLot = m_params.maxLotWIN;
    else if(m_asset.IsWDO())
       maxLot = m_params.maxLotWDO;
+   
+   //--- Proteção contra valores inválidos de maxLot
+   if(maxLot <= 0 || !MathIsValidNumber(maxLot))
+      maxLot = m_asset.GetVolumeMax();
    
    lot = MathMin(lot, maxLot);
    

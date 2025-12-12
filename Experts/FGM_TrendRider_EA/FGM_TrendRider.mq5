@@ -291,7 +291,9 @@ int OnInit()
    }
    
    //--- Configurar parâmetros de risco
-   RiskParams riskParams;
+   //--- IMPORTANTE: Obter parâmetros padrão primeiro para garantir que campos não mapeados (como maxLot) tenham valores válidos
+   RiskParams riskParams = g_RiskManager.GetRiskParams();
+   
    //--- Modo de Lote (NOVO)
    riskParams.lotMode = (int)Inp_LotMode;
    riskParams.fixedLot = Inp_FixedLot;
