@@ -360,6 +360,22 @@ int OnInit()
    b3Config.hardExitMinutes = Inp_HardExitMin;
    g_TimeFilter.SetB3Config(b3Config);
    
+   //--- Configurar horários e dias da semana para Forex
+   ForexTimeConfig fxConfig = g_TimeFilter.GetForexConfig();
+   fxConfig.mondayActive = Inp_Monday;
+   fxConfig.tuesdayActive = Inp_Tuesday;
+   fxConfig.wednesdayActive = Inp_Wednesday;
+   fxConfig.thursdayActive = Inp_Thursday;
+   fxConfig.fridayActive = Inp_Friday;
+   fxConfig.saturdayActive = Inp_Saturday;
+   fxConfig.sundayActive = Inp_Sunday;
+   
+   //--- Desativar filtro de rollover para permitir operação na virada do dia (00:00)
+   //--- O usuário reclamou que o EA parou às 23:59 e não voltou à 00:00
+   fxConfig.avoidRollover = false; 
+   
+   g_TimeFilter.SetForexConfig(fxConfig);
+   
    //--- Inicializar Regime Detector
    if(!g_RegimeDetector.Init(&g_AssetSpecs))
    {
