@@ -644,12 +644,6 @@ double CRiskManager::CalculateSLHybrid(bool isBuy, bool isVolatile = false)
    else
       distance = slPrice - ask;
    
-   double minDistance = m_asset.GetSLMin() * m_asset.GetPointValue();
-   double maxDistance = m_asset.GetSLMax() * m_asset.GetPointValue();
-   
-   distance = MathMax(distance, minDistance);
-   distance = MathMin(distance, maxDistance);
-   
    //--- Recalcular preço com distância limitada
    if(isBuy)
       slPrice = bid - distance;

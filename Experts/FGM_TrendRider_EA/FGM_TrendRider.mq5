@@ -782,9 +782,8 @@ void ProcessSignals()
    FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength, skipPhaseFilter);
    
    //--- Log detalhado do resultado dos filtros
-   g_Stats.LogDebug(StringFormat("Filtros: Spread=%s ATR=%s Slope=%s Volume=%s Phase=%s EMA200=%s Cooldown=%s Confluência=%s",
+   g_Stats.LogDebug(StringFormat("Filtros: Spread=%s Slope=%s Volume=%s Phase=%s EMA200=%s Cooldown=%s Confluência=%s",
                                  filterResult.spreadOK ? "OK" : "FALHOU",
-                                 filterResult.atrOK ? "OK" : "FALHOU",
                                  filterResult.slopeOK ? "OK" : "FALHOU",
                                  filterResult.volumeOK ? "OK" : "FALHOU",
                                  filterResult.phaseOK ? "OK" : "FALHOU",

@@ -558,18 +558,9 @@ void CAssetSpecs::PrintSpecs()
    Print("Volume Min:  ", m_specs.volumeMin);
    Print("Volume Max:  ", m_specs.volumeMax);
    Print("Volume Step: ", m_specs.volumeStep);
-   Print("Max Lot:     ", m_specs.maxLot);
    Print("───────────────────────────────────────────────────────────");
    Print("Stops Level:  ", m_specs.stopsLevel);
    Print("Freeze Level: ", m_specs.freezeLevel);
-   Print("Spread Max:   ", m_specs.spreadMaxAllowed);
-   Print("───────────────────────────────────────────────────────────");
-   Print("ATR Min:     ", m_specs.atrMinValid);
-   Print("ATR Max:     ", m_specs.atrMaxValid);
-   Print("Slope Min:   ", m_specs.slopeMinRequired);
-   Print("SL Min:      ", m_specs.slMin);
-   Print("SL Max:      ", m_specs.slMax);
-   Print("BE Offset:   ", m_specs.beOffset);
    Print("───────────────────────────────────────────────────────────");
    Print("Asset Code:  ", m_specs.assetCode);
    Print("═══════════════════════════════════════════════════════════");

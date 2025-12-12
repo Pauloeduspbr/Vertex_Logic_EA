@@ -21,7 +21,6 @@ struct FilterResult
    
    //--- Detalhes
    bool     spreadOK;            // Spread dentro do limite
-   bool     atrOK;               // ATR dentro do range
    bool     slopeOK;             // Slope adequado
    bool     volumeOK;            // Volume adequado
    bool     confluenceOK;        // Confluência adequada
@@ -33,7 +32,6 @@ struct FilterResult
    
    //--- Valores
    double   currentSpread;       // Spread atual
-   double   currentATR;          // ATR atual
    double   currentSlope;        // Slope atual
    double   currentVolume;       // Volume atual
    double   volumeMA;            // Média do volume
@@ -130,7 +128,6 @@ private:
    
    //--- Métodos privados
    bool               CheckSpread();
-   bool               CheckATR();
    bool               CheckSlope(bool isBuy);
    bool               CheckVolume(int strength);
    bool               CheckConfluence(int strength);
@@ -444,14 +441,6 @@ bool CFilters::CheckSpread()
 }
 
 //+------------------------------------------------------------------+
-//| Verificar ATR (REMOVIDO)                                         |
-//+------------------------------------------------------------------+
-bool CFilters::CheckATR()
-{
-   return true;
-}
-
-//+------------------------------------------------------------------+
 //| Verificar slope                                                  |
 //+------------------------------------------------------------------+
 bool CFilters::CheckSlope(bool isBuy)
@@ -650,7 +639,6 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
    
    //--- Obter valores atuais para o resultado
    result.currentSpread = GetCurrentSpread();
-   result.currentATR = GetCurrentATR();
    result.currentSlope = GetCurrentSlope(isBuy);
    result.currentVolume = GetCurrentVolume();
    result.volumeMA = GetVolumeMA();
@@ -680,9 +668,6 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
                                         maxSpread);
       return result;
    }
-   
-   // ATR Filter removido conforme solicitação
-   result.atrOK = true;
    
    result.strengthOK = CheckStrength(minStrength);
    if(!result.strengthOK)
@@ -868,14 +853,6 @@ double CFilters::GetCurrentSpread()
       return 0;
    
    return (double)SymbolInfoInteger(m_asset.GetSymbol(), SYMBOL_SPREAD);
-}
-
-//+------------------------------------------------------------------+
-//| Obter ATR atual (REMOVIDO)                                       |
-//+------------------------------------------------------------------+
-double CFilters::GetCurrentATR()
-{
-   return 0.0;
 }
 
 //+------------------------------------------------------------------+
