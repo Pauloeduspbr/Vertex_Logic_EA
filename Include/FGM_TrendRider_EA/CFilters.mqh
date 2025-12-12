@@ -136,7 +136,6 @@ private:
    bool               CheckEMA200(bool isBuy);
    bool               CheckCooldown(int strength);
    bool               CheckRSIOMA(bool isBuy);  // NOVO
-   double             CalculateRSIMA(int pos, int period, ENUM_MA_METHOD method, const double &array[]);  // NOVO
    void               UpdateCooldown();
    
 public:
@@ -968,7 +967,7 @@ double CFilters::GetCurrentRSI()
 }
 
 //+------------------------------------------------------------------+
-//| Obter RSI MA atual (NOVO) - Buffer 0 do RSIOMA (CORRIGIDO)       |
+//| Obter RSI MA atual (NOVO) - Buffer 1 do RSIOMA                       |
 //+------------------------------------------------------------------+
 double CFilters::GetCurrentRSIMA()
 {
@@ -980,70 +979,6 @@ double CFilters::GetCurrentRSIMA()
       return 50.0;
    
    return m_bufferRSIMA[0];
-}
-
-//+------------------------------------------------------------------+
-//| Calcular MA do RSI (emula iMAOnArray) (NOVO)                     |
-//+------------------------------------------------------------------+
-double CFilters::CalculateRSIMA(int pos, int period, ENUM_MA_METHOD method, const double &array[])
-{
-   double sum = 0.0;
-   int count = 0;
-   
-   switch(method)
-   {
-      case MODE_SMA:
-         for(int j = 0; j < period && (pos + j) < ArraySize(array); j++)
-         {
-            sum += array[pos + j];
-            count++;
-         }
-         return (count > 0) ? sum / count : array[pos];
-         
-      case MODE_EMA:
-      {
-         double alpha = 2.0 / (period + 1);
-         double ema = array[pos + period - 1];
-         for(int j = period - 2; j >= 0; j--)
-         {
-            if(pos + j >= ArraySize(array)) continue;
-            ema = alpha * array[pos + j] + (1 - alpha) * ema;
-         }
-         return ema;
-      }
-      
-      case MODE_SMMA:
-      {
-         double smma = array[pos + period - 1];
-         for(int j = period - 2; j >= 0; j--)
-         {
-            if(pos + j >= ArraySize(array)) continue;
-            smma = (smma * (period - 1) + array[pos + j]) / period;
-         }
-         return smma;
-      }
-      
-      case MODE_LWMA:
-      {
-         double weighted_sum = 0.0;
-         double weight_total = 0.0;
-         for(int j = 0; j < period && (pos + j) < ArraySize(array); j++)
-         {
-            double weight = period - j;
-            weighted_sum += array[pos + j] * weight;
-            weight_total += weight;
-         }
-         return (weight_total > 0) ? weighted_sum / weight_total : array[pos];
-      }
-      
-      default:
-         for(int j = 0; j < period && (pos + j) < ArraySize(array); j++)
-         {
-            sum += array[pos + j];
-            count++;
-         }
-         return (count > 0) ? sum / count : array[pos];
-   }
 }
 
 //+------------------------------------------------------------------+
@@ -1088,8 +1023,7 @@ bool CFilters::CheckRSIOMA(bool isBuy)
       return true;
    
    //--- DEBUG: Logar valores de todas as barras analisadas
-   //--- CORREÇÃO APLICADA: Buffers invertidos!
-   //--- Buffer 1 = RSI (linha vermelha visual) | Buffer 0 = MA (linha azul visual)
+   //--- Buffer 0 = RSI (linha vermelha visual) | Buffer 1 = MA (linha azul visual)
    Print("═══════════════════════════════════════════════════════════════════════");
    Print("RSIOMA DEBUG: ", isBuy ? "BUY" : "SELL", " | Verificando ", confirmBars, " barra(s)");
    Print("INDICADOR: FGM_TrendRider_EA\\RSIOMA_v2HHLSX_MT5");
