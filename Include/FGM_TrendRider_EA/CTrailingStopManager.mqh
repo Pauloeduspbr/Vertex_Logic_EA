@@ -8,6 +8,9 @@
 #property version   "2.00"
 #property strict
 
+#ifndef CTRAILINGSTOPMANAGER_MQH
+#define CTRAILINGSTOPMANAGER_MQH
+
 #include <Trade\Trade.mqh>
 
 //+------------------------------------------------------------------+
@@ -712,5 +715,7 @@ bool CTrailingStopManager::ShouldLogFailure(int record_idx, uint retcode, int er
     
     return true;
 }
+
+#endif // CTRAILINGSTOPMANAGER_MQH
 
 //+------------------------------------------------------------------+

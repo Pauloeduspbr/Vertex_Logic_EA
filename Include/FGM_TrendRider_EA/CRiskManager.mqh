@@ -7,6 +7,9 @@
 #property version   "1.00"
 #property strict
 
+#ifndef CRISKMANAGER_MQH
+#define CRISKMANAGER_MQH
+
 #include "CAssetSpecs.mqh"
 
 //+------------------------------------------------------------------+
@@ -1080,5 +1083,7 @@ void CRiskManager::PrintDailyStats()
    Print("Pausado:           ", m_daily.isPaused ? ("Sim - " + m_daily.pauseReason) : "Não");
    Print("═══════════════════════════════════════════════════════════");
 }
+
+#endif // CRISKMANAGER_MQH
 
 //+------------------------------------------------------------------+

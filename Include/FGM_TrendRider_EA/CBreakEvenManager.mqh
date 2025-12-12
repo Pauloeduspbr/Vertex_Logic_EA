@@ -8,6 +8,9 @@
 #property version   "2.00"
 #property strict
 
+#ifndef CBREAKEVENMANAGER_MQH
+#define CBREAKEVENMANAGER_MQH
+
 #include <Trade\Trade.mqh>
 
 //+------------------------------------------------------------------+
@@ -592,5 +595,7 @@ bool CBreakEvenManager::IsMarketOpenNow(string symbol)
     
     return true;
 }
+
+#endif // CBREAKEVENMANAGER_MQH
 
 //+------------------------------------------------------------------+

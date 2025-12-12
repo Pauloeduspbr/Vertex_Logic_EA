@@ -7,6 +7,9 @@
 #property version   "1.00"
 #property strict
 
+#ifndef CTIMEFILTER_MQH
+#define CTIMEFILTER_MQH
+
 #include "CAssetSpecs.mqh"
 
 //+------------------------------------------------------------------+
@@ -1143,5 +1146,7 @@ void CTimeFilter::PrintConfig()
    
    Print("═══════════════════════════════════════════════════════════");
 }
+
+#endif // CTIMEFILTER_MQH
 
 //+------------------------------------------------------------------+

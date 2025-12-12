@@ -7,6 +7,9 @@
 #property version   "1.00"
 #property strict
 
+#ifndef CREGIMEDETECTOR_MQH
+#define CREGIMEDETECTOR_MQH
+
 #include "CAssetSpecs.mqh"
 
 //+------------------------------------------------------------------+
@@ -445,5 +448,7 @@ void CRegimeDetector::PrintRegimeInfo()
    Print("  Volatile:    > ", DoubleToString(m_config.volatileThreshold, 0), "%");
    Print("═══════════════════════════════════════════════════════════");
 }
+
+#endif // CREGIMEDETECTOR_MQH
 
 //+------------------------------------------------------------------+

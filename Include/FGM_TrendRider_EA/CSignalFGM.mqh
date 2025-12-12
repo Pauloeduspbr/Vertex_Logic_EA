@@ -7,6 +7,9 @@
 #property version   "1.00"
 #property strict
 
+#ifndef CSIGNALFGM_MQH
+#define CSIGNALFGM_MQH
+
 //+------------------------------------------------------------------+
 //| Estrutura de dados do sinal FGM                                  |
 //+------------------------------------------------------------------+
@@ -787,5 +790,7 @@ void CSignalFGM::PrintSignalInfo(int shift = 1)
    Print("Leque Sell: ", IsLequeAberto(false, shift) ? "SIM" : "NÃO");
    Print("═══════════════════════════════════════════════════════════");
 }
+
+#endif // CSIGNALFGM_MQH
 
 //+------------------------------------------------------------------+

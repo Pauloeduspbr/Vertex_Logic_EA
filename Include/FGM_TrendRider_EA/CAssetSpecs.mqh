@@ -7,6 +7,9 @@
 #property version   "1.00"
 #property strict
 
+#ifndef CASSETSPECS_MQH
+#define CASSETSPECS_MQH
+
 //+------------------------------------------------------------------+
 //| Enumerações de Tipo de Ativo                                     |
 //+------------------------------------------------------------------+
@@ -564,5 +567,7 @@ void CAssetSpecs::PrintSpecs()
    Print("Asset Code:  ", m_specs.assetCode);
    Print("═══════════════════════════════════════════════════════════");
 }
+
+#endif // CASSETSPECS_MQH
 
 //+------------------------------------------------------------------+

@@ -7,6 +7,9 @@
 #property version   "1.00"
 #property strict
 
+#ifndef CFILTERS_MQH
+#define CFILTERS_MQH
+
 #include "CAssetSpecs.mqh"
 #include "CSignalFGM.mqh"
 #include "CRegimeDetector.mqh"
@@ -1155,5 +1158,7 @@ bool CFilters::IsRSIOMAOK(bool isBuy)
 {
    return CheckRSIOMA(isBuy);
 }
+
+#endif // CFILTERS_MQH
 
 //+------------------------------------------------------------------+

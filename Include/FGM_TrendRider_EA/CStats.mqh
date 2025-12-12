@@ -6,6 +6,9 @@
 #property copyright "FGM Trading Systems"
 #property version   "1.00"
 
+#ifndef CSTATS_MQH
+#define CSTATS_MQH
+
 //+------------------------------------------------------------------+
 //| Enumeração: Nível de Log                                         |
 //+------------------------------------------------------------------+
@@ -997,4 +1000,6 @@ void CStats::ResetDailyStats()
    
    LogNormal("Contadores diários resetados");
 }
+
+#endif // CSTATS_MQH
 //+------------------------------------------------------------------+

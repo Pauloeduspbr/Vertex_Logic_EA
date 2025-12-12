@@ -7,6 +7,9 @@
 #property version   "1.00"
 #property strict
 
+#ifndef CTRADEENGINE_MQH
+#define CTRADEENGINE_MQH
+
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
 #include "CAssetSpecs.mqh"
@@ -1265,5 +1268,7 @@ void CTradeEngine::PrintTradeResult(const TradeResult& result)
    Print("Mensagem:      ", result.message);
    Print("═══════════════════════════════════════════════════════════");
 }
+
+#endif // CTRADEENGINE_MQH
 
 //+------------------------------------------------------------------+
