@@ -646,22 +646,24 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         }
         
         //--- Get values based on indices
+        double ema_fast_prev2 = 0, ema_slow_prev2 = 0;
+        
         switch(fast_idx)
         {
-            case 0: ema_fast_curr = FGM_EMA1_Buffer[index]; ema_fast_prev = FGM_EMA1_Buffer[index + 1]; break;
-            case 1: ema_fast_curr = FGM_EMA2_Buffer[index]; ema_fast_prev = FGM_EMA2_Buffer[index + 1]; break;
-            case 2: ema_fast_curr = FGM_EMA3_Buffer[index]; ema_fast_prev = FGM_EMA3_Buffer[index + 1]; break;
-            case 3: ema_fast_curr = FGM_EMA4_Buffer[index]; ema_fast_prev = FGM_EMA4_Buffer[index + 1]; break;
-            case 4: ema_fast_curr = FGM_EMA5_Buffer[index]; ema_fast_prev = FGM_EMA5_Buffer[index + 1]; break;
+            case 0: ema_fast_curr = FGM_EMA1_Buffer[index]; ema_fast_prev = FGM_EMA1_Buffer[index + 1]; if(index < ArraySize(FGM_EMA1_Buffer)-2) ema_fast_prev2 = FGM_EMA1_Buffer[index + 2]; break;
+            case 1: ema_fast_curr = FGM_EMA2_Buffer[index]; ema_fast_prev = FGM_EMA2_Buffer[index + 1]; if(index < ArraySize(FGM_EMA2_Buffer)-2) ema_fast_prev2 = FGM_EMA2_Buffer[index + 2]; break;
+            case 2: ema_fast_curr = FGM_EMA3_Buffer[index]; ema_fast_prev = FGM_EMA3_Buffer[index + 1]; if(index < ArraySize(FGM_EMA3_Buffer)-2) ema_fast_prev2 = FGM_EMA3_Buffer[index + 2]; break;
+            case 3: ema_fast_curr = FGM_EMA4_Buffer[index]; ema_fast_prev = FGM_EMA4_Buffer[index + 1]; if(index < ArraySize(FGM_EMA4_Buffer)-2) ema_fast_prev2 = FGM_EMA4_Buffer[index + 2]; break;
+            case 4: ema_fast_curr = FGM_EMA5_Buffer[index]; ema_fast_prev = FGM_EMA5_Buffer[index + 1]; if(index < ArraySize(FGM_EMA5_Buffer)-2) ema_fast_prev2 = FGM_EMA5_Buffer[index + 2]; break;
         }
         
         switch(slow_idx)
         {
-            case 0: ema_slow_curr = FGM_EMA1_Buffer[index]; ema_slow_prev = FGM_EMA1_Buffer[index + 1]; break;
-            case 1: ema_slow_curr = FGM_EMA2_Buffer[index]; ema_slow_prev = FGM_EMA2_Buffer[index + 1]; break;
-            case 2: ema_slow_curr = FGM_EMA3_Buffer[index]; ema_slow_prev = FGM_EMA3_Buffer[index + 1]; break;
-            case 3: ema_slow_curr = FGM_EMA4_Buffer[index]; ema_slow_prev = FGM_EMA4_Buffer[index + 1]; break;
-            case 4: ema_slow_curr = FGM_EMA5_Buffer[index]; ema_slow_prev = FGM_EMA5_Buffer[index + 1]; break;
+            case 0: ema_slow_curr = FGM_EMA1_Buffer[index]; ema_slow_prev = FGM_EMA1_Buffer[index + 1]; if(index < ArraySize(FGM_EMA1_Buffer)-2) ema_slow_prev2 = FGM_EMA1_Buffer[index + 2]; break;
+            case 1: ema_slow_curr = FGM_EMA2_Buffer[index]; ema_slow_prev = FGM_EMA2_Buffer[index + 1]; if(index < ArraySize(FGM_EMA2_Buffer)-2) ema_slow_prev2 = FGM_EMA2_Buffer[index + 2]; break;
+            case 2: ema_slow_curr = FGM_EMA3_Buffer[index]; ema_slow_prev = FGM_EMA3_Buffer[index + 1]; if(index < ArraySize(FGM_EMA3_Buffer)-2) ema_slow_prev2 = FGM_EMA3_Buffer[index + 2]; break;
+            case 3: ema_slow_curr = FGM_EMA4_Buffer[index]; ema_slow_prev = FGM_EMA4_Buffer[index + 1]; if(index < ArraySize(FGM_EMA4_Buffer)-2) ema_slow_prev2 = FGM_EMA4_Buffer[index + 2]; break;
+            case 4: ema_slow_curr = FGM_EMA5_Buffer[index]; ema_slow_prev = FGM_EMA5_Buffer[index + 1]; if(index < ArraySize(FGM_EMA5_Buffer)-2) ema_slow_prev2 = FGM_EMA5_Buffer[index + 2]; break;
         }
         
         //--- Candle Data for Body Break Validation
@@ -687,7 +689,10 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         // This prevents signals where price is "hanging" on the Fast EMA (Support/Resistance).
 
         //--- Bullish crossover
-        if(ema_fast_prev <= ema_slow_prev && ema_fast_curr > ema_slow_curr)
+        bool cross_bull_now = (ema_fast_prev <= ema_slow_prev && ema_fast_curr > ema_slow_curr);
+        bool cross_bull_prev = (ema_fast_prev2 <= ema_slow_prev2 && ema_fast_prev > ema_slow_prev);
+
+        if(cross_bull_now || cross_bull_prev)
         {
             // 1. Slope Check
             bool slope_ok = (ema_slow_curr >= ema_slow_prev - slope_tolerance);
@@ -695,9 +700,23 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             // 2. Body Break Check (STRICT: Must close above FAST EMA)
             bool body_break = (close > open) && (close > ema_fast_curr);
             
-            if(strength >= cross_req_strength && confluence_ok && slope_ok && body_break)
+            // Check if we should ignore this signal because it was already valid on prev bar
+            bool ignore = false;
+            if(cross_bull_prev && !cross_bull_now)
+            {
+               double open_prev = iOpen(_Symbol, _Period, index+1);
+               double close_prev = iClose(_Symbol, _Period, index+1);
+               bool body_break_prev = (close_prev > open_prev) && (close_prev > ema_fast_prev);
+               
+               if(body_break_prev) ignore = true; // Already signaled
+            }
+            
+            if(!ignore && strength >= cross_req_strength && confluence_ok && slope_ok && body_break)
             {
                 // Alert Logic
+                FGM_Entry_Buffer[index] = 1; // Buy Signal
+                DrawSignalArrow(index, price, time, true);
+                
                 if(index == 0 && !InpAlertOnBarClose) 
                    SendAdvancedAlert("BUY (Crossover)", time, price, strength, confluence, phase);
                    
@@ -705,7 +724,10 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             }
         }
         //--- Bearish crossover
-        else if(ema_fast_prev >= ema_slow_prev && ema_fast_curr < ema_slow_curr)
+        bool cross_bear_now = (ema_fast_prev >= ema_slow_prev && ema_fast_curr < ema_slow_curr);
+        bool cross_bear_prev = (ema_fast_prev2 >= ema_slow_prev2 && ema_fast_prev < ema_slow_prev);
+
+        if(cross_bear_now || cross_bear_prev)
         {
             // 1. Slope Check
             bool slope_ok = (ema_slow_curr <= ema_slow_prev + slope_tolerance);
@@ -713,7 +735,18 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             // 2. Body Break Check (STRICT: Must close below FAST EMA)
             bool body_break = (close < open) && (close < ema_fast_curr);
             
-            if(MathAbs(strength) >= cross_req_strength && confluence_ok && slope_ok && body_break)
+            // Check if we should ignore this signal because it was already valid on prev bar
+            bool ignore = false;
+            if(cross_bear_prev && !cross_bear_now)
+            {
+               double open_prev = iOpen(_Symbol, _Period, index+1);
+               double close_prev = iClose(_Symbol, _Period, index+1);
+               bool body_break_prev = (close_prev < open_prev) && (close_prev < ema_fast_prev);
+               
+               if(body_break_prev) ignore = true; // Already signaled
+            }
+
+            if(!ignore && MathAbs(strength) >= cross_req_strength && confluence_ok && slope_ok && body_break)
             {
                 FGM_Entry_Buffer[index] = -1; // Sell Signal
                 DrawSignalArrow(index, price, time, false);
