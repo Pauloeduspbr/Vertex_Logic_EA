@@ -502,16 +502,9 @@ MARKET_PHASE CalculateMarketPhase(int index)
     if(current_close <= 0)
         return PHASE_NEUTRAL;
     
-    //--- Check price position relative to ALL EMAs
-    bool price_above_all = true;
-    bool price_below_all = true;
-    for(int i = 0; i < 5; i++)
-    {
-        if(current_close <= ema[i])
-            price_above_all = false;
-        if(current_close >= ema[i])
-            price_below_all = false;
-    }
+    //--- Check price position relative to EMA 200 (Trend Filter)
+    bool price_above_trend = (current_close > ema[4]);
+    bool price_below_trend = (current_close < ema[4]);
     
     //--- Check EMA alignment
     bool perfect_bull_alignment = true;
@@ -532,20 +525,20 @@ MARKET_PHASE CalculateMarketPhase(int index)
             bear_count++;
     }
     
-    //--- STRONG_BULL: Perfect EMA alignment AND price above ALL EMAs
-    if(perfect_bull_alignment && price_above_all)
+    //--- STRONG_BULL: Perfect EMA alignment AND price above EMA 200
+    if(perfect_bull_alignment && price_above_trend)
         return PHASE_STRONG_BULL;
     
-    //--- STRONG_BEAR: Perfect EMA alignment AND price below ALL EMAs
-    if(perfect_bear_alignment && price_below_all)
+    //--- STRONG_BEAR: Perfect EMA alignment AND price below EMA 200
+    if(perfect_bear_alignment && price_below_trend)
         return PHASE_STRONG_BEAR;
     
-    //--- WEAK_BULL: 3+ bullish conditions AND price above all EMAs
-    if(bull_count >= 3 && price_above_all)
+    //--- WEAK_BULL: 3+ bullish conditions (Price doesn't strictly need to be above EMA 200 for early reversal)
+    if(bull_count >= 3)
         return PHASE_WEAK_BULL;
     
-    //--- WEAK_BEAR: 3+ bearish conditions AND price below all EMAs
-    if(bear_count >= 3 && price_below_all)
+    //--- WEAK_BEAR: 3+ bearish conditions
+    if(bear_count >= 3)
         return PHASE_WEAK_BEAR;
     
     return PHASE_NEUTRAL;
@@ -653,7 +646,11 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         //--- Bullish crossover
         if(ema_fast_prev <= ema_slow_prev && ema_fast_curr > ema_slow_curr)
         {
-            if(strength >= min_strength && confluence_ok && phase > PHASE_NEUTRAL)
+            // Check if Slow EMA is sloping UP (or at least not sharply down) to avoid false signals
+            bool slope_ok = (ema_slow_curr >= ema_slow_prev);
+            
+            // Signal Condition: Strength + Confluence + Price above Slow MA (Sanity) + Slope
+            if(strength >= min_strength && confluence_ok && price > ema_slow_curr && slope_ok)
             {
                 FGM_Entry_Buffer[index] = 1; // Buy Signal
                 DrawSignalArrow(index, price, time, true);
@@ -662,7 +659,11 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         //--- Bearish crossover
         else if(ema_fast_prev >= ema_slow_prev && ema_fast_curr < ema_slow_curr)
         {
-            if(MathAbs(strength) >= min_strength && confluence_ok && phase < PHASE_NEUTRAL)
+            // Check if Slow EMA is sloping DOWN
+            bool slope_ok = (ema_slow_curr <= ema_slow_prev);
+            
+            // Signal Condition: Strength + Confluence + Price below Slow MA (Sanity) + Slope
+            if(MathAbs(strength) >= min_strength && confluence_ok && price < ema_slow_curr && slope_ok)
             {
                 FGM_Entry_Buffer[index] = -1; // Sell Signal
                 DrawSignalArrow(index, price, time, false);
