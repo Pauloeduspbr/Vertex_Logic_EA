@@ -222,8 +222,7 @@ ENUM_ASSET_TYPE CAssetSpecs::DetectAssetType(string symbol)
    }
    
    //--- CFDs (Indices, Stocks, Crypto)
-   if(calcMode == SYMBOL_CALC_MODE_CFD || calcMode == SYMBOL_CALC_MODE_CFD_INDEX || 
-      calcMode == SYMBOL_CALC_MODE_CFD_LEVERAGE)
+   if(calcMode == SYMBOL_CALC_MODE_CFD)
    {
       // Tentar refinar
       string path = SymbolInfoString(symbol, SYMBOL_PATH);
