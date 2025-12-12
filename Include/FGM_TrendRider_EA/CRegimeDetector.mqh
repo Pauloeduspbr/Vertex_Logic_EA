@@ -25,9 +25,9 @@ enum ENUM_MARKET_REGIME
 struct RegimeResult
 {
    ENUM_MARKET_REGIME regime;          // Regime atual
-   double             atrCurrent;      // ATR atual
-   double             atrAverage;      // ATR médio
-   double             atrRatio;        // Razão ATR (atual/média × 100)
+   double             rangeCurrent;    // Range atual (High-Low)
+   double             rangeAverage;    // Range médio
+   double             rangeRatio;      // Razão Range (atual/média × 100)
    
    //--- Ajustes por regime
    int                minStrength;     // Força mínima ajustada
@@ -44,12 +44,11 @@ struct RegimeResult
 //+------------------------------------------------------------------+
 struct RegimeConfig
 {
-   int                atrPeriod;       // Período do ATR
-   int                atrMAPeriod;     // Período da média do ATR
+   int                rangePeriod;     // Período para média do Range
    
    //--- Limiares
-   double             rangingThreshold;   // ATR < X% da média = ranging
-   double             volatileThreshold;  // ATR > X% da média = volatile
+   double             rangingThreshold;   // Range < X% da média = ranging
+   double             volatileThreshold;  // Range > X% da média = volatile
    
    //--- Ajustes para regime RANGING
    int                rangingMinStrength;
@@ -78,22 +77,12 @@ private:
    bool               m_initialized;    // Flag de inicialização
    string             m_lastError;      // Último erro
    
-   //--- Handles
-   int                m_handleATR;      // Handle do ATR
-   int                m_handleATRMA;    // Handle da MA do ATR (calculado)
-   
-   //--- Buffers
-   double             m_bufferATR[];
-   double             m_bufferATRMA[];
-   
    //--- Cache
    RegimeResult       m_lastResult;
    datetime           m_lastCalcTime;
    
    //--- Métodos privados
-   bool               CreateHandles();
-   void               ReleaseHandles();
-   double             CalculateATRMA(int period, int shift);
+   double             CalculateRangeMA(int period, int shift);
    
 public:
                       CRegimeDetector();
@@ -123,9 +112,9 @@ public:
    double             GetSLMultiplier();
    
    //--- Dados de volatilidade
-   double             GetATR(int shift = 1);
-   double             GetATRAverage(int shift = 1);
-   double             GetATRRatio(int shift = 1);
+   double             GetRange(int shift = 1);
+   double             GetRangeAverage(int shift = 1);
+   double             GetRangeRatio(int shift = 1);
    
    //--- Utilitários
    string             GetRegimeString(ENUM_MARKET_REGIME regime);
@@ -142,13 +131,7 @@ CRegimeDetector::CRegimeDetector()
    m_asset = NULL;
    m_initialized = false;
    m_lastError = "";
-   m_handleATR = INVALID_HANDLE;
-   m_handleATRMA = INVALID_HANDLE;
    m_lastCalcTime = 0;
-   
-   //--- Configurar buffers como series
-   ArraySetAsSeries(m_bufferATR, true);
-   ArraySetAsSeries(m_bufferATRMA, true);
    
    //--- Configuração padrão
    SetDefaultConfig();
@@ -177,13 +160,8 @@ bool CRegimeDetector::Init(CAssetSpecs* asset)
    }
    
    m_asset = asset;
-   
-   //--- Criar handles
-   if(!CreateHandles())
-      return false;
-   
    m_initialized = true;
-   Print("CRegimeDetector: Inicializado. ATR(", m_config.atrPeriod, ") MA(", m_config.atrMAPeriod, ")");
+   Print("CRegimeDetector: Inicializado. Range Period(", m_config.rangePeriod, ")");
    
    return true;
 }
@@ -193,37 +171,7 @@ bool CRegimeDetector::Init(CAssetSpecs* asset)
 //+------------------------------------------------------------------+
 void CRegimeDetector::Deinit()
 {
-   ReleaseHandles();
    m_initialized = false;
-}
-
-//+------------------------------------------------------------------+
-//| Criar handles de indicadores                                     |
-//+------------------------------------------------------------------+
-bool CRegimeDetector::CreateHandles()
-{
-   //--- Criar ATR
-   m_handleATR = iATR(m_asset.GetSymbol(), PERIOD_CURRENT, m_config.atrPeriod);
-   
-   if(m_handleATR == INVALID_HANDLE)
-   {
-      m_lastError = StringFormat("Falha ao criar handle ATR. Erro: %d", GetLastError());
-      return false;
-   }
-   
-   return true;
-}
-
-//+------------------------------------------------------------------+
-//| Liberar handles                                                  |
-//+------------------------------------------------------------------+
-void CRegimeDetector::ReleaseHandles()
-{
-   if(m_handleATR != INVALID_HANDLE)
-   {
-      IndicatorRelease(m_handleATR);
-      m_handleATR = INVALID_HANDLE;
-   }
 }
 
 //+------------------------------------------------------------------+
@@ -231,12 +179,11 @@ void CRegimeDetector::ReleaseHandles()
 //+------------------------------------------------------------------+
 void CRegimeDetector::SetDefaultConfig()
 {
-   m_config.atrPeriod = 14;
-   m_config.atrMAPeriod = 50;
+   m_config.rangePeriod = 14;
    
    //--- Limiares
-   m_config.rangingThreshold = 80.0;    // ATR < 80% da média
-   m_config.volatileThreshold = 150.0;  // ATR > 150% da média
+   m_config.rangingThreshold = 80.0;    // Range < 80% da média
+   m_config.volatileThreshold = 150.0;  // Range > 150% da média
    
    //--- Ajustes RANGING
    m_config.rangingMinStrength = 4;
@@ -260,39 +207,30 @@ void CRegimeDetector::SetDefaultConfig()
 void CRegimeDetector::SetConfig(const RegimeConfig& config)
 {
    m_config = config;
-   
-   //--- Recriar handles se período mudou
-   if(m_initialized)
-   {
-      ReleaseHandles();
-      CreateHandles();
-   }
 }
 
 //+------------------------------------------------------------------+
-//| Calcular média do ATR                                            |
+//| Calcular média do Range (High-Low)                               |
 //+------------------------------------------------------------------+
-double CRegimeDetector::CalculateATRMA(int period, int shift)
+double CRegimeDetector::CalculateRangeMA(int period, int shift)
 {
-   if(m_handleATR == INVALID_HANDLE)
-      return 0;
-   
-   //--- Copiar ATR para cálculo
-   double atrValues[];
-   ArraySetAsSeries(atrValues, true);
-   
-   int copied = CopyBuffer(m_handleATR, 0, shift, period, atrValues);
-   if(copied < period)
-      return 0;
-   
-   //--- Calcular média simples
    double sum = 0;
+   int count = 0;
+   
    for(int i = 0; i < period; i++)
    {
-      sum += atrValues[i];
+      double high = iHigh(m_asset.GetSymbol(), PERIOD_CURRENT, shift + i);
+      double low = iLow(m_asset.GetSymbol(), PERIOD_CURRENT, shift + i);
+      
+      if(high > 0 && low > 0)
+      {
+         sum += (high - low);
+         count++;
+      }
    }
    
-   return sum / period;
+   if(count == 0) return 0;
+   return sum / count;
 }
 
 //+------------------------------------------------------------------+
@@ -308,49 +246,52 @@ RegimeResult CRegimeDetector::Detect(int shift = 1)
    result.slMultiplier = 1.5;
    result.minStrength = 3;
    
-   if(!m_initialized || m_handleATR == INVALID_HANDLE)
+   if(!m_initialized)
    {
       result.description = "Detector não inicializado";
       return result;
    }
    
-   //--- Obter ATR atual
-   if(CopyBuffer(m_handleATR, 0, shift, 1, m_bufferATR) <= 0)
+   //--- Obter Range atual
+   double high = iHigh(m_asset.GetSymbol(), PERIOD_CURRENT, shift);
+   double low = iLow(m_asset.GetSymbol(), PERIOD_CURRENT, shift);
+   
+   if(high == 0 || low == 0)
    {
-      result.description = "Falha ao copiar ATR";
+      result.description = "Falha ao obter preços";
       return result;
    }
    
-   result.atrCurrent = m_bufferATR[0];
+   result.rangeCurrent = high - low;
    
-   //--- Calcular média do ATR
-   result.atrAverage = CalculateATRMA(m_config.atrMAPeriod, shift);
+   //--- Calcular média do Range
+   result.rangeAverage = CalculateRangeMA(m_config.rangePeriod, shift);
    
-   if(result.atrAverage <= 0)
+   if(result.rangeAverage <= 0)
    {
-      result.description = "Média do ATR inválida";
+      result.description = "Média do Range inválida";
       return result;
    }
    
    //--- Calcular razão
-   result.atrRatio = (result.atrCurrent / result.atrAverage) * 100.0;
+   result.rangeRatio = (result.rangeCurrent / result.rangeAverage) * 100.0;
    
    //--- Classificar regime
-   if(result.atrRatio < m_config.rangingThreshold)
+   if(result.rangeRatio < m_config.rangingThreshold)
    {
       result.regime = REGIME_RANGING;
       result.minStrength = m_config.rangingMinStrength;
       result.lotMultiplier = m_config.rangingLotMult;
       result.slMultiplier = m_config.rangingSLMult;
-      result.description = StringFormat("Mercado Lateral (ATR %.1f%% da média)", result.atrRatio);
+      result.description = StringFormat("Mercado Lateral (Range %.1f%% da média)", result.rangeRatio);
    }
-   else if(result.atrRatio > m_config.volatileThreshold)
+   else if(result.rangeRatio > m_config.volatileThreshold)
    {
       result.regime = REGIME_VOLATILE;
       result.minStrength = m_config.volatileMinStrength;
       result.lotMultiplier = m_config.volatileLotMult;
       result.slMultiplier = m_config.volatileSLMult;
-      result.description = StringFormat("Mercado Volátil (ATR %.1f%% da média)", result.atrRatio);
+      result.description = StringFormat("Mercado Volátil (Range %.1f%% da média)", result.rangeRatio);
    }
    else
    {
@@ -358,7 +299,7 @@ RegimeResult CRegimeDetector::Detect(int shift = 1)
       result.minStrength = m_config.trendingMinStrength;
       result.lotMultiplier = m_config.trendingLotMult;
       result.slMultiplier = m_config.trendingSLMult;
-      result.description = StringFormat("Mercado em Tendência (ATR %.1f%% da média)", result.atrRatio);
+      result.description = StringFormat("Mercado em Tendência (Range %.1f%% da média)", result.rangeRatio);
    }
    
    result.isValid = true;
@@ -431,39 +372,35 @@ double CRegimeDetector::GetSLMultiplier()
 }
 
 //+------------------------------------------------------------------+
-//| Obter ATR                                                        |
+//| Obter Range                                                      |
 //+------------------------------------------------------------------+
-double CRegimeDetector::GetATR(int shift = 1)
+double CRegimeDetector::GetRange(int shift = 1)
 {
-   if(m_handleATR == INVALID_HANDLE)
-      return 0;
-   
-   if(CopyBuffer(m_handleATR, 0, shift, 1, m_bufferATR) <= 0)
-      return 0;
-   
-   return m_bufferATR[0];
+   double high = iHigh(m_asset.GetSymbol(), PERIOD_CURRENT, shift);
+   double low = iLow(m_asset.GetSymbol(), PERIOD_CURRENT, shift);
+   return high - low;
 }
 
 //+------------------------------------------------------------------+
-//| Obter média do ATR                                               |
+//| Obter média do Range                                             |
 //+------------------------------------------------------------------+
-double CRegimeDetector::GetATRAverage(int shift = 1)
+double CRegimeDetector::GetRangeAverage(int shift = 1)
 {
-   return CalculateATRMA(m_config.atrMAPeriod, shift);
+   return CalculateRangeMA(m_config.rangePeriod, shift);
 }
 
 //+------------------------------------------------------------------+
-//| Obter razão do ATR                                               |
+//| Obter razão do Range                                             |
 //+------------------------------------------------------------------+
-double CRegimeDetector::GetATRRatio(int shift = 1)
+double CRegimeDetector::GetRangeRatio(int shift = 1)
 {
-   double atr = GetATR(shift);
-   double atrMA = GetATRAverage(shift);
+   double range = GetRange(shift);
+   double rangeMA = GetRangeAverage(shift);
    
-   if(atrMA <= 0)
+   if(rangeMA <= 0)
       return 100.0;
    
-   return (atr / atrMA) * 100.0;
+   return (range / rangeMA) * 100.0;
 }
 
 //+------------------------------------------------------------------+
@@ -495,9 +432,9 @@ void CRegimeDetector::PrintRegimeInfo()
    Print("Regime:        ", GetRegimeString(result.regime));
    Print("Descrição:     ", result.description);
    Print("───────────────────────────────────────────────────────────");
-   Print("ATR Atual:     ", DoubleToString(result.atrCurrent, _Digits));
-   Print("ATR Média:     ", DoubleToString(result.atrAverage, _Digits));
-   Print("ATR Ratio:     ", DoubleToString(result.atrRatio, 1), "%");
+   Print("Range Atual:   ", DoubleToString(result.rangeCurrent, _Digits));
+   Print("Range Média:   ", DoubleToString(result.rangeAverage, _Digits));
+   Print("Range Ratio:   ", DoubleToString(result.rangeRatio, 1), "%");
    Print("───────────────────────────────────────────────────────────");
    Print("Força Mín:     ", result.minStrength);
    Print("Mult. Lote:    ", DoubleToString(result.lotMultiplier, 2));

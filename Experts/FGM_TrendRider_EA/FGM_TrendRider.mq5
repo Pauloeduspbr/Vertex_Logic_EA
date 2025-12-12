@@ -338,6 +338,11 @@ int OnInit()
    
    //--- Configurar limites de confluência dos filtros para corresponder aos inputs do EA
    FilterConfig filterConfig = g_Filters.GetConfig();
+   //--- Atualizar limites de spread com o input do usuário
+   filterConfig.spreadMaxWIN = Inp_MaxSpread;
+   filterConfig.spreadMaxWDO = Inp_MaxSpread;
+   filterConfig.spreadMaxForex = Inp_MaxSpread;
+   
    filterConfig.confluenceMaxF3 = Inp_MaxConf_F3;
    filterConfig.confluenceMaxF4 = Inp_MaxConf_F4;
    filterConfig.confluenceMaxF5 = Inp_MaxConf_F5;

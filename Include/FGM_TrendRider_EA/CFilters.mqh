@@ -163,7 +163,6 @@ public:
    
    //--- Verificações individuais (públicas)
    bool               IsSpreadOK();
-   bool               IsATROK();
    bool               IsSlopeOK(bool isBuy);
    bool               IsVolumeOK(int strength);
    bool               IsConfluenceOK(int strength);
@@ -180,7 +179,6 @@ public:
    
    //--- Valores atuais
    double             GetCurrentSpread();
-   double             GetCurrentATR();
    double             GetCurrentSlope(bool isBuy = true);
    double             GetCurrentVolume();
    double             GetVolumeMA();
@@ -446,19 +444,11 @@ bool CFilters::CheckSpread()
 }
 
 //+------------------------------------------------------------------+
-//| Verificar ATR                                                    |
+//| Verificar ATR (REMOVIDO)                                         |
 //+------------------------------------------------------------------+
 bool CFilters::CheckATR()
 {
-   if(m_asset == NULL || m_regime == NULL)
-      return true; // Se não tem detector de regime, assume OK
-   
-   double atr = m_regime.GetATR(1);
-   
-   double minATR = m_asset.GetATRMin();
-   double maxATR = m_asset.GetATRMax();
-   
-   return (atr >= minATR && atr <= maxATR);
+   return true;
 }
 
 //+------------------------------------------------------------------+
@@ -679,19 +669,20 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
    if(!result.spreadOK)
    {
       result.passed = false;
+      // Usar m_config para obter o spread máximo correto
+      int maxSpread = 0;
+      if(m_asset.IsWIN()) maxSpread = m_config.spreadMaxWIN;
+      else if(m_asset.IsWDO()) maxSpread = m_config.spreadMaxWDO;
+      else maxSpread = m_config.spreadMaxForex;
+      
       result.failReason = StringFormat("Spread alto: %d (max: %d)", 
                                         (int)result.currentSpread, 
-                                        m_asset.GetSpreadMax());
+                                        maxSpread);
       return result;
    }
    
-   result.atrOK = CheckATR();
-   if(!result.atrOK)
-   {
-      result.passed = false;
-      result.failReason = StringFormat("ATR fora do range: %.2f", result.currentATR);
-      return result;
-   }
+   // ATR Filter removido conforme solicitação
+   result.atrOK = true;
    
    result.strengthOK = CheckStrength(minStrength);
    if(!result.strengthOK)
@@ -826,7 +817,6 @@ bool CFilters::PassesAllFilters(bool isBuy, int minStrength, bool skipPhaseFilte
 //| Verificações individuais públicas                                |
 //+------------------------------------------------------------------+
 bool CFilters::IsSpreadOK()     { return CheckSpread(); }
-bool CFilters::IsATROK()        { return CheckATR(); }
 bool CFilters::IsSlopeOK(bool isBuy)     { return CheckSlope(isBuy); }
 bool CFilters::IsVolumeOK(int strength)  { return CheckVolume(strength); }
 bool CFilters::IsConfluenceOK(int strength) { return CheckConfluence(strength); }
@@ -881,14 +871,11 @@ double CFilters::GetCurrentSpread()
 }
 
 //+------------------------------------------------------------------+
-//| Obter ATR atual                                                  |
+//| Obter ATR atual (REMOVIDO)                                       |
 //+------------------------------------------------------------------+
 double CFilters::GetCurrentATR()
 {
-   if(m_regime == NULL)
-      return 0;
-   
-   return m_regime.GetATR(1);
+   return 0.0;
 }
 
 //+------------------------------------------------------------------+
@@ -965,8 +952,7 @@ void CFilters::PrintFilterStatus(bool isBuy, int minStrength)
    Print("───────────────────────────────────────────────────────────");
    Print("Spread:        ", result.spreadOK ? "OK ✓" : "FALHOU ✗", 
          " (", DoubleToString(result.currentSpread, 0), ")");
-   Print("ATR:           ", result.atrOK ? "OK ✓" : "FALHOU ✗",
-         " (", DoubleToString(result.currentATR, _Digits), ")");
+   // ATR removido do log
    Print("Força:         ", result.strengthOK ? "OK ✓" : "FALHOU ✗",
          " (", result.currentStrength, "/", minStrength, ")");
    Print("Fase:          ", result.phaseOK ? "OK ✓" : "FALHOU ✗",

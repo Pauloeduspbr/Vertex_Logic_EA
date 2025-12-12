@@ -120,13 +120,11 @@ private:
    bool              m_initialized;     // Flag de inicialização
    string            m_lastError;       // Último erro
    
-   //--- Handle do ATR
-   int               m_handleATR;
-   double            m_bufferATR[];
-   int               m_atrPeriod;
+   //--- Parâmetros
+   int               m_atrPeriod; // Mantendo o nome para compatibilidade de config, mas é Range Period
    
    //--- Métodos privados
-   double            GetATR(int shift = 1);
+   double            GetAverageRange(int period, int shift = 1);
    double            FindSwingLow(int lookback = 3, int shift = 1);
    double            FindSwingHigh(int lookback = 3, int shift = 1);
    void              ResetDailyIfNewDay();
@@ -205,7 +203,6 @@ CRiskManager::CRiskManager()
    m_asset = NULL;
    m_initialized = false;
    m_lastError = "";
-   m_handleATR = INVALID_HANDLE;
    m_atrPeriod = 14;
    
    //--- Parâmetros padrão
@@ -240,9 +237,6 @@ CRiskManager::CRiskManager()
    
    //--- Inicializar proteção diária
    ZeroMemory(m_daily);
-   
-   //--- Configurar buffer ATR
-   ArraySetAsSeries(m_bufferATR, true);
 }
 
 //+------------------------------------------------------------------+
@@ -267,20 +261,11 @@ bool CRiskManager::Init(CAssetSpecs* asset, int atrPeriod = 14)
    m_asset = asset;
    m_atrPeriod = atrPeriod;
    
-   //--- Criar handle do ATR
-   m_handleATR = iATR(m_asset.GetSymbol(), PERIOD_CURRENT, atrPeriod);
-   
-   if(m_handleATR == INVALID_HANDLE)
-   {
-      m_lastError = StringFormat("Falha ao criar handle ATR. Erro: %d", GetLastError());
-      return false;
-   }
-   
    //--- Inicializar proteção diária
    ResetDailyProtection();
    
    m_initialized = true;
-   Print("CRiskManager: Inicializado com sucesso. ATR(", atrPeriod, ")");
+   Print("CRiskManager: Inicializado com sucesso. Range Period(", atrPeriod, ")");
    
    return true;
 }
@@ -290,11 +275,6 @@ bool CRiskManager::Init(CAssetSpecs* asset, int atrPeriod = 14)
 //+------------------------------------------------------------------+
 void CRiskManager::Deinit()
 {
-   if(m_handleATR != INVALID_HANDLE)
-   {
-      IndicatorRelease(m_handleATR);
-      m_handleATR = INVALID_HANDLE;
-   }
    m_initialized = false;
 }
 
@@ -307,17 +287,27 @@ void CRiskManager::SetRiskParams(const RiskParams& params)
 }
 
 //+------------------------------------------------------------------+
-//| Obter valor do ATR                                               |
+//| Obter valor do Range Médio (substituto do ATR)                   |
 //+------------------------------------------------------------------+
-double CRiskManager::GetATR(int shift = 1)
+double CRiskManager::GetAverageRange(int period, int shift = 1)
 {
-   if(m_handleATR == INVALID_HANDLE)
-      return 0;
+   double sum = 0;
+   int count = 0;
    
-   if(CopyBuffer(m_handleATR, 0, shift, 1, m_bufferATR) <= 0)
-      return 0;
+   for(int i = 0; i < period; i++)
+   {
+      double high = iHigh(m_asset.GetSymbol(), PERIOD_CURRENT, shift + i);
+      double low = iLow(m_asset.GetSymbol(), PERIOD_CURRENT, shift + i);
+      
+      if(high > 0 && low > 0)
+      {
+         sum += (high - low);
+         count++;
+      }
+   }
    
-   return m_bufferATR[0];
+   if(count == 0) return 0;
+   return sum / count;
 }
 
 //+------------------------------------------------------------------+
@@ -485,7 +475,7 @@ double CRiskManager::CalculateSLPoints(bool isBuy, bool isVolatile = false)
          
       case 1: // ATR
          {
-            double atr = GetATR(1);
+            double atr = GetAverageRange(m_atrPeriod, 1);
             double mult = isVolatile ? m_params.slATRMultVolatile : m_params.slATRMult;
             slPoints = m_asset.PriceToPoints(atr * mult);
          }
@@ -513,7 +503,7 @@ double CRiskManager::CalculateSLPoints(bool isBuy, bool isVolatile = false)
       default:
          {
             //--- Calcular por ATR
-            double atr = GetATR(1);
+            double atr = GetAverageRange(m_atrPeriod, 1);
             double mult = isVolatile ? m_params.slATRMultVolatile : m_params.slATRMult;
             double slATRPoints = m_asset.PriceToPoints(atr * mult);
             
@@ -575,7 +565,7 @@ double CRiskManager::CalculateSLByATR(bool isBuy, double atrMult)
    if(!m_initialized || m_asset == NULL)
       return 0;
    
-   double atr = GetATR(1);
+   double atr = GetAverageRange(m_atrPeriod, 1);
    if(atr <= 0)
       return 0;
    
@@ -604,7 +594,7 @@ double CRiskManager::CalculateSLBySwing(bool isBuy, int lookback = 3)
    if(!m_initialized || m_asset == NULL)
       return 0;
    
-   double atr = GetATR(1);
+   double atr = GetAverageRange(m_atrPeriod, 1);
    double buffer = atr * m_params.slBufferATR;
    
    double slPrice;
@@ -792,7 +782,7 @@ PositionCalcResult CRiskManager::CalculatePosition(double entryPrice, bool isBuy
          
       case 2: // ATR - Baseado em ATR
          {
-            double atr = GetATR(1);
+            double atr = GetAverageRange(m_atrPeriod, 1);
             tpPoints = m_asset.PriceToPoints(atr * m_params.tpATRMult);
          }
          break;

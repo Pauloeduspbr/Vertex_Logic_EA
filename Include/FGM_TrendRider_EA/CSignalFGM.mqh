@@ -377,6 +377,34 @@ FGM_DATA CSignalFGM::GetData(int shift = 1)
    if(CopyTime(m_symbol, m_timeframe, shift, 1, times) > 0)
       data.time = times[0];
    
+   //--- CORREÇÃO CRÍTICA: Forçar atualização da confluência
+   //--- O buffer de confluência às vezes vem zerado do indicador se não houver tick novo
+   //--- Recalcular confluência manualmente se estiver zerada mas houver sinal
+   if(data.confluence == 0 && data.strength > 0)
+   {
+      // Recalcular confluência baseada na proximidade das EMAs
+      // Fórmula simplificada: quanto mais próximas as EMAs, maior a confluência (compressão)
+      // Quanto mais afastadas (leque aberto), menor a confluência (tendência)
+      
+      double maxEMA = MathMax(data.ema1, MathMax(data.ema2, MathMax(data.ema3, MathMax(data.ema4, data.ema5))));
+      double minEMA = MathMin(data.ema1, MathMin(data.ema2, MathMin(data.ema3, MathMin(data.ema4, data.ema5))));
+      
+      if(minEMA > 0)
+      {
+         double spreadPercent = (maxEMA - minEMA) / minEMA * 100.0;
+         // Se spread < 0.05% -> Confluência 100%
+         // Se spread > 0.5% -> Confluência 0%
+         
+         if(spreadPercent < 0.05) data.confluence = 100.0;
+         else if(spreadPercent > 0.5) data.confluence = 10.0; // Mínimo 10% para indicar tendência forte
+         else
+         {
+            // Interpolação linear inversa
+            data.confluence = 100.0 - ((spreadPercent - 0.05) / (0.5 - 0.05) * 90.0);
+         }
+      }
+   }
+
    return data;
 }
 

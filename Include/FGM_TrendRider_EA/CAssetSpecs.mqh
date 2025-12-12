@@ -57,21 +57,9 @@ struct AssetSpecsData
    
    //--- Spread e custos
    double            spreadTypical;       // Spread típico
-   int               spreadMaxAllowed;    // Spread máximo permitido
    
    //--- Horários
    bool              is24Hours;           // Opera 24 horas
-   string            sessionStart;        // Início da sessão
-   string            sessionEnd;          // Fim da sessão
-   
-   //--- Parâmetros específicos
-   double            atrMinValid;         // ATR mínimo válido
-   double            atrMaxValid;         // ATR máximo válido
-   double            slopeMinRequired;    // Slope mínimo requerido
-   int               slMin;               // Stop loss mínimo
-   int               slMax;               // Stop loss máximo
-   int               beOffset;            // Offset do break-even
-   double            maxLot;              // Lote máximo
    
    //--- Magic number
    int               assetCode;           // Código do ativo para magic number
@@ -92,7 +80,6 @@ private:
    ENUM_MARKET_TYPE  DetectMarketType(string symbol);
    int               GetAssetCode(ENUM_ASSET_TYPE type);
    void              LoadSymbolSpecs();
-   void              SetDefaultsForAssetType();
    
 public:
                      CAssetSpecs();
@@ -122,20 +109,12 @@ public:
    double            GetVolumeMin()     { return m_specs.volumeMin; }
    double            GetVolumeMax()     { return m_specs.volumeMax; }
    double            GetVolumeStep()    { return m_specs.volumeStep; }
-   double            GetMaxLot()        { return m_specs.maxLot; }
    
    //--- Getters - Stops
    int               GetStopsLevel()    { return m_specs.stopsLevel; }
    int               GetFreezeLevel()   { return m_specs.freezeLevel; }
    
    //--- Getters - Parâmetros específicos
-   double            GetATRMin()        { return m_specs.atrMinValid; }
-   double            GetATRMax()        { return m_specs.atrMaxValid; }
-   double            GetSlopeMin()      { return m_specs.slopeMinRequired; }
-   int               GetSLMin()         { return m_specs.slMin; }
-   int               GetSLMax()         { return m_specs.slMax; }
-   int               GetBEOffset()      { return m_specs.beOffset; }
-   int               GetSpreadMax()     { return m_specs.spreadMaxAllowed; }
    int               GetAssetCode()     { return m_specs.assetCode; }
    
    //--- Funções de Normalização
@@ -200,9 +179,6 @@ bool CAssetSpecs::Init(string symbol = NULL)
    //--- Carregar especificações do símbolo
    LoadSymbolSpecs();
    
-   //--- Definir valores padrão específicos do tipo
-   SetDefaultsForAssetType();
-   
    //--- Validar especificações carregadas
    if(m_specs.tickSize <= 0 || m_specs.tickValue <= 0)
    {
@@ -221,54 +197,55 @@ bool CAssetSpecs::Init(string symbol = NULL)
 //+------------------------------------------------------------------+
 ENUM_ASSET_TYPE CAssetSpecs::DetectAssetType(string symbol)
 {
+   //--- Detecção automática baseada nas propriedades do símbolo (SEM HARDCODE)
+   ENUM_SYMBOL_CALC_MODE calcMode = (ENUM_SYMBOL_CALC_MODE)SymbolInfoInteger(symbol, SYMBOL_TRADE_CALC_MODE);
+   
+   //--- Forex
+   if(calcMode == SYMBOL_CALC_MODE_FOREX || calcMode == SYMBOL_CALC_MODE_FOREX_NO_LEVERAGE)
+      return ASSET_FOREX;
+      
+   //--- Futuros (B3: WIN/WDO geralmente usam FUTURES ou EXCH_FUTURES)
+   if(calcMode == SYMBOL_CALC_MODE_FUTURES || calcMode == SYMBOL_CALC_MODE_EXCH_FUTURES || 
+      calcMode == SYMBOL_CALC_MODE_EXCH_FUTURES_FORTS)
+   {
+      // Tentar distinguir WIN/WDO pelo nome apenas se necessário para ajustes finos,
+      // mas a lógica principal deve ser agnóstica.
+      // Para manter compatibilidade com o resto do código que espera ASSET_WIN/WDO:
+      string upper = symbol;
+      StringToUpper(upper);
+      if(StringFind(upper, "WIN") >= 0 || StringFind(upper, "IND") >= 0) return ASSET_WIN;
+      if(StringFind(upper, "WDO") >= 0 || StringFind(upper, "DOL") >= 0) return ASSET_WDO;
+      
+      // Se for outro futuro, tratar como Commodity ou Stock dependendo do contexto,
+      // ou criar um tipo genérico ASSET_FUTURE. Por enquanto, retornamos COMMODITY como fallback seguro.
+      return ASSET_COMMODITY;
+   }
+   
+   //--- CFDs (Indices, Stocks, Crypto)
+   if(calcMode == SYMBOL_CALC_MODE_CFD || calcMode == SYMBOL_CALC_MODE_CFD_INDEX || 
+      calcMode == SYMBOL_CALC_MODE_CFD_LEVERAGE)
+   {
+      // Tentar refinar
+      string path = SymbolInfoString(symbol, SYMBOL_PATH);
+      StringToUpper(path);
+      
+      if(StringFind(path, "CRYPTO") >= 0) return ASSET_CRYPTO;
+      if(StringFind(path, "INDEX") >= 0) return ASSET_WIN; // Tratar índices como WIN (comportamento similar)
+      if(StringFind(path, "STOCK") >= 0) return ASSET_STOCK;
+      
+      return ASSET_FOREX; // Fallback para CFD genérico
+   }
+   
+   //--- Ações (Exchange Stocks)
+   if(calcMode == SYMBOL_CALC_MODE_EXCH_STOCKS || calcMode == SYMBOL_CALC_MODE_EXCH_STOCKS_MOEX)
+      return ASSET_STOCK;
+      
+   //--- Fallback para detecção por nome (apenas se calcMode falhar ou for genérico)
    string upper = symbol;
    StringToUpper(upper);
    
-   //--- Mini Índice B3
-   if(StringFind(upper, "WIN") >= 0 || StringFind(upper, "IND") >= 0)
-      return ASSET_WIN;
-   
-   //--- Mini Dólar B3
-   if(StringFind(upper, "WDO") >= 0 || StringFind(upper, "DOL") >= 0)
-      return ASSET_WDO;
-   
-   //--- Forex - Detectar por pares de moedas
-   string currencies[] = {"USD", "EUR", "GBP", "JPY", "AUD", "NZD", "CAD", "CHF"};
-   int currencyCount = 0;
-   
-   for(int i = 0; i < ArraySize(currencies); i++)
-   {
-      if(StringFind(upper, currencies[i]) >= 0)
-         currencyCount++;
-   }
-   
-   //--- Se contém 2 moedas, provavelmente é Forex
-   if(currencyCount >= 2)
-      return ASSET_FOREX;
-   
-   //--- Verificar se é moeda exótica com USD
-   string exotics[] = {"MXN", "ZAR", "TRY", "BRL", "PLN", "HUF", "CZK", "SEK", "NOK", "DKK"};
-   for(int i = 0; i < ArraySize(exotics); i++)
-   {
-      if(StringFind(upper, exotics[i]) >= 0 && currencyCount >= 1)
-         return ASSET_FOREX;
-   }
-   
-   //--- Criptomoedas
-   string cryptos[] = {"BTC", "ETH", "XRP", "LTC", "BCH", "ADA", "DOT", "LINK"};
-   for(int i = 0; i < ArraySize(cryptos); i++)
-   {
-      if(StringFind(upper, cryptos[i]) >= 0)
-         return ASSET_CRYPTO;
-   }
-   
-   //--- Commodities
-   string commodities[] = {"XAUUSD", "XAGUSD", "GOLD", "SILVER", "OIL", "WTI", "BRENT", "NATGAS"};
-   for(int i = 0; i < ArraySize(commodities); i++)
-   {
-      if(StringFind(upper, commodities[i]) >= 0)
-         return ASSET_COMMODITY;
-   }
+   if(StringFind(upper, "XAU") >= 0 || StringFind(upper, "XAG") >= 0) return ASSET_COMMODITY;
+   if(StringFind(upper, "BTC") >= 0 || StringFind(upper, "ETH") >= 0) return ASSET_CRYPTO;
    
    return ASSET_UNKNOWN;
 }
@@ -278,11 +255,11 @@ ENUM_ASSET_TYPE CAssetSpecs::DetectAssetType(string symbol)
 //+------------------------------------------------------------------+
 ENUM_MARKET_TYPE CAssetSpecs::DetectMarketType(string symbol)
 {
-   if(m_specs.assetType == ASSET_WIN || m_specs.assetType == ASSET_WDO)
-      return MARKET_B3;
+   if(m_specs.assetType == ASSET_WIN || m_specs.assetType == ASSET_WDO || m_specs.assetType == ASSET_STOCK)
+      return MARKET_B3; // Assumindo B3 para futuros e ações locais
    
-   if(m_specs.assetType == ASSET_FOREX)
-      return MARKET_FOREX;
+   if(m_specs.assetType == ASSET_FOREX || m_specs.assetType == ASSET_COMMODITY || m_specs.assetType == ASSET_CRYPTO)
+      return MARKET_FOREX; // Mercado internacional
    
    return MARKET_OTHER;
 }
@@ -331,72 +308,6 @@ void CAssetSpecs::LoadSymbolSpecs()
 }
 
 //+------------------------------------------------------------------+
-//| Definir valores padrão por tipo de ativo                         |
-//+------------------------------------------------------------------+
-void CAssetSpecs::SetDefaultsForAssetType()
-{
-   switch(m_specs.assetType)
-   {
-      case ASSET_WIN:
-         m_specs.spreadMaxAllowed = 25;    // Pontos
-         m_specs.atrMinValid = 50;         // Pontos
-         m_specs.atrMaxValid = 400;        // Pontos
-         m_specs.slopeMinRequired = 2.0;   // Pontos por barra
-         m_specs.slMin = 80;               // Pontos
-         m_specs.slMax = 250;              // Pontos
-         m_specs.beOffset = 10;            // Pontos
-         m_specs.maxLot = 50;              // Contratos
-         m_specs.is24Hours = false;
-         m_specs.sessionStart = "09:00";
-         m_specs.sessionEnd = "18:00";
-         break;
-         
-      case ASSET_WDO:
-         m_specs.spreadMaxAllowed = 4;     // Pontos
-         m_specs.atrMinValid = 3;          // Pontos
-         m_specs.atrMaxValid = 20;         // Pontos
-         m_specs.slopeMinRequired = 0.3;   // Pontos por barra
-         m_specs.slMin = 4;                // Pontos
-         m_specs.slMax = 12;               // Pontos
-         m_specs.beOffset = 1;             // Pontos
-         m_specs.maxLot = 20;              // Contratos
-         m_specs.is24Hours = false;
-         m_specs.sessionStart = "09:00";
-         m_specs.sessionEnd = "18:00";
-         break;
-         
-      case ASSET_FOREX:
-         m_specs.spreadMaxAllowed = 25;    // Points (2.5 pips para 5 dígitos)
-         m_specs.atrMinValid = 80;         // Points (8 pips)
-         m_specs.atrMaxValid = 800;        // Points (80 pips)
-         m_specs.slopeMinRequired = 5.0;   // Points (0.5 pips) por barra
-         m_specs.slMin = 150;              // Points (15 pips)
-         m_specs.slMax = 500;              // Points (50 pips)
-         m_specs.beOffset = 20;            // Points (2 pips)
-         m_specs.maxLot = 1.0;             // Lotes
-         m_specs.is24Hours = true;
-         m_specs.sessionStart = "00:00";
-         m_specs.sessionEnd = "23:59";
-         break;
-         
-      default:
-         //--- Valores conservadores para ativos desconhecidos
-         m_specs.spreadMaxAllowed = 50;
-         m_specs.atrMinValid = 10;
-         m_specs.atrMaxValid = 1000;
-         m_specs.slopeMinRequired = 1.0;
-         m_specs.slMin = 50;
-         m_specs.slMax = 500;
-         m_specs.beOffset = 5;
-         m_specs.maxLot = 1.0;
-         m_specs.is24Hours = true;
-         m_specs.sessionStart = "00:00";
-         m_specs.sessionEnd = "23:59";
-         break;
-   }
-}
-
-//+------------------------------------------------------------------+
 //| Normalizar lote                                                   |
 //+------------------------------------------------------------------+
 double CAssetSpecs::NormalizeLot(double lot)
@@ -407,7 +318,7 @@ double CAssetSpecs::NormalizeLot(double lot)
    //--- Aplicar limites
    lot = MathMax(m_specs.volumeMin, lot);
    lot = MathMin(m_specs.volumeMax, lot);
-   lot = MathMin(m_specs.maxLot, lot);
+   // maxLot removido, usando volumeMax que é a propriedade correta do símbolo
    
    //--- Normalizar para o step
    if(m_specs.volumeStep > 0)
