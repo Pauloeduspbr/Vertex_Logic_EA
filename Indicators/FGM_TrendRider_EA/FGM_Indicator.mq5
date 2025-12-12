@@ -689,12 +689,12 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             slope_tolerance *= 0.5; // Stricter in conservative mode
         
         //--- Trend Filter for Heavy Setups
-        // If we are allowing low strength (1) signals in heavy setups, we MUST ensure they align with the main trend (EMA200)
-        // Otherwise, local crossovers in a correction will trigger false signals against the trend.
+        // For Heavy Setups (Trend Following), we enforce strict adherence to the main trend (EMA200).
+        // We ignore counter-trend crossovers (e.g. Sell Cross in Uptrend) as they are likely deep pullbacks.
         bool trend_buy_ok = true;
         bool trend_sell_ok = true;
         
-        if(is_heavy_setup && cross_req_strength <= 1)
+        if(is_heavy_setup)
         {
             trend_buy_ok = (close > ema_trend_curr); // Must be above EMA200
             trend_sell_ok = (close < ema_trend_curr); // Must be below EMA200
