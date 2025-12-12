@@ -770,9 +770,7 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
                  DrawSignalArrow(index, price, time, false);
                  
                  if(index == 0 && !InpAlertOnBarClose) 
-                    SendAdvancedAlert("SELL (Pullback)", time, price, (int)MathAbs(strength), confluence, pha
-                 FGM_Entry_Buffer[index] = -1; // Sell Signal (Pullback)
-                 DrawSignalArrow(index, price, time, false);
+                    SendAdvancedAlert("SELL (Pullback)", time, price, (int)MathAbs(strength), confluence, phase);
             }
         }
     }
@@ -810,17 +808,7 @@ void DrawSignalArrow(int index, double price, datetime time, bool is_buy)
 //+------------------------------------------------------------------+
 void CheckForAlerts(int shift, datetime bar_time, double price)
 {
-    if(!// Determine strategy type for alert (simplified check)
-        // In a real scenario, we'd pass this from GenerateTradeSignals, but here we infer or use generic
-        // Note: The direct calls in GenerateTradeSignals handle real-time alerts. 
-        // This function handles "OnBarClose" alerts.
-        
-        string strategy = "Signal";
-        // We can't easily know if it was Pullback or Crossover here without extra buffers.
-        // But we can infer from strength/trend.
-        // For now, we'll just send the alert. The real-time alerts in GenerateTradeSignals are more specific.
-        
-        InpEnableAlerts && !InpEnablePush && !InpEnableEmail)
+    if(!InpEnableAlerts && !InpEnablePush && !InpEnableEmail)
         return;
         
     //--- Check cooldown
