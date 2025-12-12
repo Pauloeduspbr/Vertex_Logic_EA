@@ -598,6 +598,27 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
     else if(InpSignalMode == MODE_AGGRESSIVE && min_strength > 2)
         min_strength = 2;
     
+    //--- Adaptive Logic: Detect if we are using "Heavy" (Long) periods or "Light" (Short) periods
+    // This gives the indicator "intelligence" to adapt to user settings
+    double avg_period = (ema_periods[0] + ema_periods[1] + ema_periods[2] + ema_periods[3] + ema_periods[4]) / 5.0;
+    bool is_heavy_setup = (avg_period > 40.0); // Threshold to distinguish between Scalping/DayTrade vs Swing setups
+    
+    //--- Adjust strength requirement dynamically
+    int cross_req_strength = min_strength;
+    
+    // If setup is heavy (slow to align), we allow 1 less confirmation in Moderate/Aggressive to catch entries earlier
+    // This fixes the issue where long periods take too long to align all 5 EMAs
+    if(is_heavy_setup && InpSignalMode != MODE_CONSERVATIVE)
+    {
+        cross_req_strength = MathMax(1, min_strength - 1);
+    }
+    // If setup is light (fast alignment), we stick to the user's strict requirement to avoid noise
+    // This prevents the "desajuste" for short periods mentioned by the user
+    else 
+    {
+        cross_req_strength = min_strength;
+    }
+    
     //--- Get crossover EMAs based on configuration
     double ema_fast_curr = 0, ema_slow_curr = 0;
     double ema_fast_prev = 0, ema_slow_prev = 0;
@@ -657,16 +678,25 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         // STRATEGY 1: CROSSOVER WITH BODY BREAK (Rompimento Real)
         //====================================================================
         
+        //--- Calculate Dynamic Slope Tolerance
+        // Intelligence: Longer periods turn slower, so they need more tolerance for "lag"
+        // Shorter periods turn fast, so they need strict slope checks
+        double period_factor = (double)ema_periods[slow_idx];
+        double slope_tolerance = _Point * (period_factor / 10.0); 
+        
+        if(InpSignalMode == MODE_CONSERVATIVE) 
+            slope_tolerance *= 0.5; // Stricter in conservative mode
+        
         //--- Bullish crossover
         if(ema_fast_prev <= ema_slow_prev && ema_fast_curr > ema_slow_curr)
         {
-            // 1. Slope Check: Slow EMA must not be pointing sharply down
-            bool slope_ok = (ema_slow_curr >= ema_slow_prev - _Point);
+            // 1. Slope Check: Slow EMA must not be pointing sharply down (Dynamic Tolerance)
+            bool slope_ok = (ema_slow_curr >= ema_slow_prev - slope_tolerance);
             
             // 2. Body Break Check: Candle must be Bullish AND Close above Slow EMA
             bool body_break = (close > open) && (close > ema_slow_curr);
             
-            if(strength >= min_strength && confluence_ok && slope_ok && body_break)
+            if(strength >= cross_req_strength && confluence_ok && slope_ok && body_break)
             {
                 FGM_Entry_Buffer[index] = 1; // Buy Signal
                 DrawSignalArrow(index, price, time, true);
@@ -676,13 +706,13 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         //--- Bearish crossover
         else if(ema_fast_prev >= ema_slow_prev && ema_fast_curr < ema_slow_curr)
         {
-            // 1. Slope Check: Slow EMA must not be pointing sharply up
-            bool slope_ok = (ema_slow_curr <= ema_slow_prev + _Point);
+            // 1. Slope Check: Slow EMA must not be pointing sharply up (Dynamic Tolerance)
+            bool slope_ok = (ema_slow_curr <= ema_slow_prev + slope_tolerance);
             
             // 2. Body Break Check: Candle must be Bearish AND Close below Slow EMA
             bool body_break = (close < open) && (close < ema_slow_curr);
             
-            if(MathAbs(strength) >= min_strength && confluence_ok && slope_ok && body_break)
+            if(MathAbs(strength) >= cross_req_strength && confluence_ok && slope_ok && body_break)
             {
                 FGM_Entry_Buffer[index] = -1; // Sell Signal
                 DrawSignalArrow(index, price, time, false);
@@ -697,7 +727,7 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         
         //--- Pullback BUY
         // Trend is UP (Price > EMA200) AND Strength is High
-        if(close > ema_trend_curr && strength >= 3)
+        if(close > ema_trend_curr && strength >= min_strength)
         {
             // Price dipped into "Value Zone" (e.g., touched EMA3/Medium) but closed bullish
             bool touched_value = (low <= ema_mid_curr); 
@@ -713,7 +743,7 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         
         //--- Pullback SELL
         // Trend is DOWN (Price < EMA200) AND Strength is High (Negative)
-        if(close < ema_trend_curr && MathAbs(strength) >= 3)
+        if(close < ema_trend_curr && MathAbs(strength) >= min_strength)
         {
             // Price rallied into "Value Zone" (e.g., touched EMA3/Medium) but closed bearish
             bool touched_value = (high >= ema_mid_curr);
