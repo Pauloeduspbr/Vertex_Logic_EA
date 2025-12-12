@@ -647,23 +647,74 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         
         //--- Get values based on indices
         double ema_fast_prev2 = 0, ema_slow_prev2 = 0;
+        double ema_fast_prev3 = 0, ema_slow_prev3 = 0;
         
         switch(fast_idx)
         {
-            case 0: ema_fast_curr = FGM_EMA1_Buffer[index]; ema_fast_prev = FGM_EMA1_Buffer[index + 1]; if(index < ArraySize(FGM_EMA1_Buffer)-2) ema_fast_prev2 = FGM_EMA1_Buffer[index + 2]; break;
-            case 1: ema_fast_curr = FGM_EMA2_Buffer[index]; ema_fast_prev = FGM_EMA2_Buffer[index + 1]; if(index < ArraySize(FGM_EMA2_Buffer)-2) ema_fast_prev2 = FGM_EMA2_Buffer[index + 2]; break;
-            case 2: ema_fast_curr = FGM_EMA3_Buffer[index]; ema_fast_prev = FGM_EMA3_Buffer[index + 1]; if(index < ArraySize(FGM_EMA3_Buffer)-2) ema_fast_prev2 = FGM_EMA3_Buffer[index + 2]; break;
-            case 3: ema_fast_curr = FGM_EMA4_Buffer[index]; ema_fast_prev = FGM_EMA4_Buffer[index + 1]; if(index < ArraySize(FGM_EMA4_Buffer)-2) ema_fast_prev2 = FGM_EMA4_Buffer[index + 2]; break;
-            case 4: ema_fast_curr = FGM_EMA5_Buffer[index]; ema_fast_prev = FGM_EMA5_Buffer[index + 1]; if(index < ArraySize(FGM_EMA5_Buffer)-2) ema_fast_prev2 = FGM_EMA5_Buffer[index + 2]; break;
+            case 0: 
+               ema_fast_curr = FGM_EMA1_Buffer[index]; 
+               ema_fast_prev = FGM_EMA1_Buffer[index + 1]; 
+               if(index < ArraySize(FGM_EMA1_Buffer)-2) ema_fast_prev2 = FGM_EMA1_Buffer[index + 2]; 
+               if(index < ArraySize(FGM_EMA1_Buffer)-3) ema_fast_prev3 = FGM_EMA1_Buffer[index + 3];
+               break;
+            case 1: 
+               ema_fast_curr = FGM_EMA2_Buffer[index]; 
+               ema_fast_prev = FGM_EMA2_Buffer[index + 1]; 
+               if(index < ArraySize(FGM_EMA2_Buffer)-2) ema_fast_prev2 = FGM_EMA2_Buffer[index + 2]; 
+               if(index < ArraySize(FGM_EMA2_Buffer)-3) ema_fast_prev3 = FGM_EMA2_Buffer[index + 3];
+               break;
+            case 2: 
+               ema_fast_curr = FGM_EMA3_Buffer[index]; 
+               ema_fast_prev = FGM_EMA3_Buffer[index + 1]; 
+               if(index < ArraySize(FGM_EMA3_Buffer)-2) ema_fast_prev2 = FGM_EMA3_Buffer[index + 2]; 
+               if(index < ArraySize(FGM_EMA3_Buffer)-3) ema_fast_prev3 = FGM_EMA3_Buffer[index + 3];
+               break;
+            case 3: 
+               ema_fast_curr = FGM_EMA4_Buffer[index]; 
+               ema_fast_prev = FGM_EMA4_Buffer[index + 1]; 
+               if(index < ArraySize(FGM_EMA4_Buffer)-2) ema_fast_prev2 = FGM_EMA4_Buffer[index + 2]; 
+               if(index < ArraySize(FGM_EMA4_Buffer)-3) ema_fast_prev3 = FGM_EMA4_Buffer[index + 3];
+               break;
+            case 4: 
+               ema_fast_curr = FGM_EMA5_Buffer[index]; 
+               ema_fast_prev = FGM_EMA5_Buffer[index + 1]; 
+               if(index < ArraySize(FGM_EMA5_Buffer)-2) ema_fast_prev2 = FGM_EMA5_Buffer[index + 2]; 
+               if(index < ArraySize(FGM_EMA5_Buffer)-3) ema_fast_prev3 = FGM_EMA5_Buffer[index + 3];
+               break;
         }
         
         switch(slow_idx)
         {
-            case 0: ema_slow_curr = FGM_EMA1_Buffer[index]; ema_slow_prev = FGM_EMA1_Buffer[index + 1]; if(index < ArraySize(FGM_EMA1_Buffer)-2) ema_slow_prev2 = FGM_EMA1_Buffer[index + 2]; break;
-            case 1: ema_slow_curr = FGM_EMA2_Buffer[index]; ema_slow_prev = FGM_EMA2_Buffer[index + 1]; if(index < ArraySize(FGM_EMA2_Buffer)-2) ema_slow_prev2 = FGM_EMA2_Buffer[index + 2]; break;
-            case 2: ema_slow_curr = FGM_EMA3_Buffer[index]; ema_slow_prev = FGM_EMA3_Buffer[index + 1]; if(index < ArraySize(FGM_EMA3_Buffer)-2) ema_slow_prev2 = FGM_EMA3_Buffer[index + 2]; break;
-            case 3: ema_slow_curr = FGM_EMA4_Buffer[index]; ema_slow_prev = FGM_EMA4_Buffer[index + 1]; if(index < ArraySize(FGM_EMA4_Buffer)-2) ema_slow_prev2 = FGM_EMA4_Buffer[index + 2]; break;
-            case 4: ema_slow_curr = FGM_EMA5_Buffer[index]; ema_slow_prev = FGM_EMA5_Buffer[index + 1]; if(index < ArraySize(FGM_EMA5_Buffer)-2) ema_slow_prev2 = FGM_EMA5_Buffer[index + 2]; break;
+            case 0: 
+               ema_slow_curr = FGM_EMA1_Buffer[index]; 
+               ema_slow_prev = FGM_EMA1_Buffer[index + 1]; 
+               if(index < ArraySize(FGM_EMA1_Buffer)-2) ema_slow_prev2 = FGM_EMA1_Buffer[index + 2]; 
+               if(index < ArraySize(FGM_EMA1_Buffer)-3) ema_slow_prev3 = FGM_EMA1_Buffer[index + 3];
+               break;
+            case 1: 
+               ema_slow_curr = FGM_EMA2_Buffer[index]; 
+               ema_slow_prev = FGM_EMA2_Buffer[index + 1]; 
+               if(index < ArraySize(FGM_EMA2_Buffer)-2) ema_slow_prev2 = FGM_EMA2_Buffer[index + 2]; 
+               if(index < ArraySize(FGM_EMA2_Buffer)-3) ema_slow_prev3 = FGM_EMA2_Buffer[index + 3];
+               break;
+            case 2: 
+               ema_slow_curr = FGM_EMA3_Buffer[index]; 
+               ema_slow_prev = FGM_EMA3_Buffer[index + 1]; 
+               if(index < ArraySize(FGM_EMA3_Buffer)-2) ema_slow_prev2 = FGM_EMA3_Buffer[index + 2]; 
+               if(index < ArraySize(FGM_EMA3_Buffer)-3) ema_slow_prev3 = FGM_EMA3_Buffer[index + 3];
+               break;
+            case 3: 
+               ema_slow_curr = FGM_EMA4_Buffer[index]; 
+               ema_slow_prev = FGM_EMA4_Buffer[index + 1]; 
+               if(index < ArraySize(FGM_EMA4_Buffer)-2) ema_slow_prev2 = FGM_EMA4_Buffer[index + 2]; 
+               if(index < ArraySize(FGM_EMA4_Buffer)-3) ema_slow_prev3 = FGM_EMA4_Buffer[index + 3];
+               break;
+            case 4: 
+               ema_slow_curr = FGM_EMA5_Buffer[index]; 
+               ema_slow_prev = FGM_EMA5_Buffer[index + 1]; 
+               if(index < ArraySize(FGM_EMA5_Buffer)-2) ema_slow_prev2 = FGM_EMA5_Buffer[index + 2]; 
+               if(index < ArraySize(FGM_EMA5_Buffer)-3) ema_slow_prev3 = FGM_EMA5_Buffer[index + 3];
+               break;
         }
         
         //--- Candle Data for Body Break Validation
@@ -691,8 +742,9 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         //--- Bullish crossover
         bool cross_bull_now = (ema_fast_prev <= ema_slow_prev && ema_fast_curr > ema_slow_curr);
         bool cross_bull_prev = (ema_fast_prev2 <= ema_slow_prev2 && ema_fast_prev > ema_slow_prev);
+        bool cross_bull_prev2 = (ema_fast_prev3 <= ema_slow_prev3 && ema_fast_prev2 > ema_slow_prev2);
 
-        if(cross_bull_now || cross_bull_prev)
+        if(cross_bull_now || cross_bull_prev || cross_bull_prev2)
         {
             // 1. Slope Check
             bool slope_ok = (ema_slow_curr >= ema_slow_prev - slope_tolerance);
@@ -706,9 +758,24 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             {
                double open_prev = iOpen(_Symbol, _Period, index+1);
                double close_prev = iClose(_Symbol, _Period, index+1);
-               bool body_break_prev = (close_prev > open_prev) && (close_prev > ema_fast_prev);
+               double ema_fast_prev_val = ema_fast_prev; // Use the value we already have
+               bool body_break_prev = (close_prev > open_prev) && (close_prev > ema_fast_prev_val);
                
                if(body_break_prev) ignore = true; // Already signaled
+            }
+            if(cross_bull_prev2 && !cross_bull_prev && !cross_bull_now)
+            {
+               // Check if it signaled on index+1 (delayed from index+2)
+               double open_prev = iOpen(_Symbol, _Period, index+1);
+               double close_prev = iClose(_Symbol, _Period, index+1);
+               bool body_break_prev = (close_prev > open_prev) && (close_prev > ema_fast_prev);
+               if(body_break_prev) ignore = true;
+
+               // Check if it signaled on index+2 (immediate)
+               double open_prev2 = iOpen(_Symbol, _Period, index+2);
+               double close_prev2 = iClose(_Symbol, _Period, index+2);
+               bool body_break_prev2 = (close_prev2 > open_prev2) && (close_prev2 > ema_fast_prev2);
+               if(body_break_prev2) ignore = true;
             }
             
             if(!ignore && strength >= cross_req_strength && confluence_ok && slope_ok && body_break)
@@ -726,8 +793,9 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         //--- Bearish crossover
         bool cross_bear_now = (ema_fast_prev >= ema_slow_prev && ema_fast_curr < ema_slow_curr);
         bool cross_bear_prev = (ema_fast_prev2 >= ema_slow_prev2 && ema_fast_prev < ema_slow_prev);
+        bool cross_bear_prev2 = (ema_fast_prev3 >= ema_slow_prev3 && ema_fast_prev2 < ema_slow_prev2);
 
-        if(cross_bear_now || cross_bear_prev)
+        if(cross_bear_now || cross_bear_prev || cross_bear_prev2)
         {
             // 1. Slope Check
             bool slope_ok = (ema_slow_curr <= ema_slow_prev + slope_tolerance);
@@ -741,9 +809,24 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             {
                double open_prev = iOpen(_Symbol, _Period, index+1);
                double close_prev = iClose(_Symbol, _Period, index+1);
-               bool body_break_prev = (close_prev < open_prev) && (close_prev < ema_fast_prev);
+               double ema_fast_prev_val = ema_fast_prev;
+               bool body_break_prev = (close_prev < open_prev) && (close_prev < ema_fast_prev_val);
                
                if(body_break_prev) ignore = true; // Already signaled
+            }
+            if(cross_bear_prev2 && !cross_bear_prev && !cross_bear_now)
+            {
+               // Check if it signaled on index+1 (delayed from index+2)
+               double open_prev = iOpen(_Symbol, _Period, index+1);
+               double close_prev = iClose(_Symbol, _Period, index+1);
+               bool body_break_prev = (close_prev < open_prev) && (close_prev < ema_fast_prev);
+               if(body_break_prev) ignore = true;
+
+               // Check if it signaled on index+2 (immediate)
+               double open_prev2 = iOpen(_Symbol, _Period, index+2);
+               double close_prev2 = iClose(_Symbol, _Period, index+2);
+               bool body_break_prev2 = (close_prev2 < open_prev2) && (close_prev2 < ema_fast_prev2);
+               if(body_break_prev2) ignore = true;
             }
 
             if(!ignore && MathAbs(strength) >= cross_req_strength && confluence_ok && slope_ok && body_break)

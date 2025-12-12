@@ -1,0 +1,2 @@
+"C:\Program Files\MetaTrader 5\metaeditor64.exe" /compile:"d:\EA_Projetos\Vertex_Logic_EA\Vertex_Logic_EA\Indicators\FGM_TrendRider_EA\FGM_Indicator.mq5" /log:"d:\EA_Projetos\Vertex_Logic_EA\Vertex_Logic_EA\compile_indicator.log"
+"C:\Program Files\MetaTrader 5\metaeditor64.exe" /compile:"d:\EA_Projetos\Vertex_Logic_EA\Vertex_Logic_EA\Experts\FGM_TrendRider_EA\FGM_TrendRider.mq5" /log:"d:\EA_Projetos\Vertex_Logic_EA\Vertex_Logic_EA\compile_ea.log"
