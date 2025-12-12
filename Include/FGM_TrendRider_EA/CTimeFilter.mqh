@@ -77,6 +77,10 @@ struct ForexTimeConfig
    string   sundayEnd;
    string   fridayEnd;           // Fechamento sexta
    
+   //--- Horários Gerais (Server Time)
+   string   startTime;           // Início geral (ex: 00:00)
+   string   endTime;             // Fim geral (ex: 23:59)
+   
    //--- Sessões permitidas
    bool     allowSydney;
    bool     allowTokyo;
@@ -307,6 +311,9 @@ void CTimeFilter::SetDefaultForexConfig()
    m_fxConfig.sundayStart = "22:00";
    m_fxConfig.sundayEnd = "23:59";
    m_fxConfig.fridayEnd = "18:00";
+   
+   m_fxConfig.startTime = "00:00";
+   m_fxConfig.endTime = "23:59";
    
    //--- Sessões permitidas
    m_fxConfig.allowSydney = false;
@@ -607,6 +614,24 @@ TimeFilterResult CTimeFilter::CheckForexTime()
    if(!dayActive)
    {
       result.message = "Dia não ativo para operação";
+      result.currentSession = SESSION_NONE;
+      return result;
+   }
+   
+   //--- Verificar horário geral (Server Time)
+   //--- Isso permite que o usuário restrinja o horário mesmo em Forex (ex: 09:00 as 17:00)
+   int currentMinutes = GetCurrentMinutes(); // Server Time
+   int startMinutes = TimeToMinutes(m_fxConfig.startTime);
+   int endMinutes = TimeToMinutes(m_fxConfig.endTime);
+   
+   //--- DEBUG TEMPORÁRIO
+   // Print(StringFormat("DEBUG TIME: Current=%d Start=%d End=%d ConfigStart='%s' ConfigEnd='%s'", 
+   //       currentMinutes, startMinutes, endMinutes, m_fxConfig.startTime, m_fxConfig.endTime));
+   
+   if(!IsInTimeRange(currentMinutes, startMinutes, endMinutes))
+   {
+      result.message = StringFormat("Fora do horário de trading (Forex) - Curr:%d Start:%d End:%d", 
+                                    currentMinutes, startMinutes, endMinutes);
       result.currentSession = SESSION_NONE;
       return result;
    }

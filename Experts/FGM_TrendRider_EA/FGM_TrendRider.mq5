@@ -370,6 +370,20 @@ int OnInit()
    fxConfig.saturdayActive = Inp_Saturday;
    fxConfig.sundayActive = Inp_Sunday;
    
+   //--- Configurar horários gerais (Server Time)
+   fxConfig.startTime = Inp_StartTime;
+   fxConfig.endTime = Inp_EndTime;
+   
+   //--- Habilitar todas as sessões para permitir que o usuário controle apenas pelo horário
+   fxConfig.allowSydney = true;
+   fxConfig.allowTokyo = true;
+   fxConfig.allowLondon = true;
+   fxConfig.allowNewYork = true;
+   
+   //--- Ajustar força mínima para baixa liquidez (Sydney/Tokyo) para igualar a configuração global
+   //--- Isso evita que sinais válidos sejam bloqueados apenas por ser sessão asiática
+   fxConfig.lowLiqMinStrength = Inp_MinStrength;
+   
    //--- Desativar filtro de rollover para permitir operação na virada do dia (00:00)
    //--- O usuário reclamou que o EA parou às 23:59 e não voltou à 00:00
    fxConfig.avoidRollover = false; 
@@ -599,7 +613,9 @@ void ProcessSignals()
    {
       if(!g_TimeFilter.CanOpenNewPosition())
       {
-         g_Stats.LogDebug("Fora do horário de trading ou Soft Exit ativo");
+         //--- Obter mensagem de erro detalhada do TimeFilter
+         TimeFilterResult tfResult = g_TimeFilter.Check();
+         g_Stats.LogDebug(StringFormat("Fora do horário de trading ou Soft Exit ativo. Detalhe: %s", tfResult.message));
          return;
       }
    }
