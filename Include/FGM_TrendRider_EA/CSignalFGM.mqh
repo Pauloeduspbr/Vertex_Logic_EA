@@ -109,7 +109,20 @@ public:
                           int period3 = 21,
                           int period4 = 50,
                           int period5 = 200,
-                          ENUM_APPLIED_PRICE appliedPrice = PRICE_CLOSE);
+                          ENUM_APPLIED_PRICE appliedPrice = PRICE_CLOSE,
+                          int primaryCross = 0,
+                          int secondaryCross = 1,
+                          int customCross1 = 1,
+                          int customCross2 = 2,
+                          int signalMode = 1,
+                          int minStrength = 3,
+                          double confluenceThreshold = 50.0,
+                          bool requireConfluence = false,
+                          bool enablePullbacks = true,
+                          double confRangeMax = 0.05,
+                          double confRangeHigh = 0.10,
+                          double confRangeMed = 0.20,
+                          double confRangeLow = 0.30);
    void              Deinit();
    bool              IsInitialized() { return m_initialized; }
    string            GetLastError() { return m_lastError; }
@@ -213,7 +226,20 @@ bool CSignalFGM::Init(string symbol = NULL,
                        int period3 = 21,
                        int period4 = 50,
                        int period5 = 200,
-                       ENUM_APPLIED_PRICE appliedPrice = PRICE_CLOSE)
+                       ENUM_APPLIED_PRICE appliedPrice = PRICE_CLOSE,
+                       int primaryCross = 0,
+                       int secondaryCross = 1,
+                       int customCross1 = 1,
+                       int customCross2 = 2,
+                       int signalMode = 1,
+                       int minStrength = 3,
+                       double confluenceThreshold = 50.0,
+                       bool requireConfluence = false,
+                       bool enablePullbacks = true,
+                       double confRangeMax = 0.05,
+                       double confRangeHigh = 0.10,
+                       double confRangeMed = 0.20,
+                       double confRangeLow = 0.30)
 {
    //--- Definir parâmetros
    m_symbol = (symbol == NULL || symbol == "") ? _Symbol : symbol;
@@ -243,7 +269,21 @@ bool CSignalFGM::Init(string symbol = NULL,
                        period3,           // EMA 3 Period
                        period4,           // EMA 4 Period
                        period5,           // EMA 5 Period
-                       appliedPrice);     // Applied Price
+                       appliedPrice,      // Applied Price
+                       primaryCross,      // Primary Crossover
+                       secondaryCross,    // Secondary Confirmation
+                       customCross1,      // Custom Cross 1
+                       customCross2,      // Custom Cross 2
+                       signalMode,        // Signal Mode
+                       minStrength,       // Min Strength
+                       confluenceThreshold, // Confluence Threshold
+                       requireConfluence, // Require Confluence
+                       enablePullbacks,   // Enable Pullbacks
+                       confRangeMax,      // Conf Range Max
+                       confRangeHigh,     // Conf Range High
+                       confRangeMed,      // Conf Range Med
+                       confRangeLow       // Conf Range Low
+                       );
    
    //--- Verificar se o handle foi criado com sucesso
    if(m_handle == INVALID_HANDLE)

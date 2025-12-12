@@ -31,9 +31,22 @@
 //+------------------------------------------------------------------+
 enum ENUM_EA_MODE
 {
-   MODE_AGGRESSIVE = 0,   // Agressivo - Mais entradas
-   MODE_MODERATE   = 1,   // Moderado - Equilibrado
-   MODE_CONSERVATIVE = 2  // Conservador - Menos entradas
+   MODE_AGGRESSIVE_EA = 0,   // Agressivo - Mais entradas
+   MODE_MODERATE_EA   = 1,   // Moderado - Equilibrado
+   MODE_CONSERVATIVE_EA = 2  // Conservador - Menos entradas
+};
+
+enum SIGNAL_MODE {
+    MODE_CONSERVATIVE = 0,  // Conservative (4-5 confirmations)
+    MODE_MODERATE = 1,      // Moderate (3-4 confirmations)
+    MODE_AGGRESSIVE = 2     // Aggressive (2+ confirmations)
+};
+
+enum CROSSOVER_TYPE {
+    CROSS_EMA1_EMA2 = 0,   // EMA1 x EMA2 (Fastest)
+    CROSS_EMA2_EMA3 = 1,   // EMA2 x EMA3 (Medium)
+    CROSS_EMA3_EMA4 = 2,   // EMA3 x EMA4 (Slow)
+    CROSS_CUSTOM = 3       // Custom Crossover
 };
 
 enum ENUM_SL_MODE
@@ -66,7 +79,7 @@ input string   Inp_EAComment       = "FGM_Platina";    // Comentário das Ordens
 
 //--- Modo de Operação
 input group "═══════════════ MODO DE OPERAÇÃO ═══════════════"
-input ENUM_EA_MODE Inp_EAMode      = MODE_MODERATE;    // Modo do EA
+input ENUM_EA_MODE Inp_EAMode      = MODE_MODERATE_EA; // Modo do EA
 input bool     Inp_AllowBuy        = true;             // Permitir Compras
 input bool     Inp_AllowSell       = true;             // Permitir Vendas
 input bool     Inp_TradeOnNewBar   = true;             // Operar apenas em nova barra
@@ -134,15 +147,35 @@ input bool     Inp_Sunday          = false;            // Domingo
 
 //--- Parâmetros do Indicador FGM
 input group "═══════════════ INDICADOR FGM ═══════════════"
-input int      Inp_FGM_Period1     = 8;                // Período EMA 1
-input int      Inp_FGM_Period2     = 21;               // Período EMA 2
-input int      Inp_FGM_Period3     = 50;               // Período EMA 3
-input int      Inp_FGM_Period4     = 100;              // Período EMA 4
-input int      Inp_FGM_Period5     = 200;              // Período EMA 5
-input int      Inp_MinStrength     = 3;                // Força Mínima (3-5)
-input double   Inp_MaxConf_F3      = 60.0;             // Máx Confluência para F3 (%)
-input double   Inp_MaxConf_F4      = 100.0;            // Máx Confluência para F4 (%)
-input double   Inp_MaxConf_F5      = 100.0;            // Máx Confluência para F5 (%)
+input int              Inp_FGM_Period1     = 5;        // Período EMA 1 (Fastest)
+input int              Inp_FGM_Period2     = 8;        // Período EMA 2 (Fast)
+input int              Inp_FGM_Period3     = 21;       // Período EMA 3 (Medium)
+input int              Inp_FGM_Period4     = 50;       // Período EMA 4 (Slow)
+input int              Inp_FGM_Period5     = 200;      // Período EMA 5 (Slowest)
+input ENUM_APPLIED_PRICE Inp_AppliedPrice = PRICE_CLOSE; // Applied Price
+
+//===== Crossover Configuration =====
+input CROSSOVER_TYPE   Inp_PrimaryCross = CROSS_EMA1_EMA2;    // Primary Crossover Signal
+input CROSSOVER_TYPE   Inp_SecondaryCross = CROSS_EMA2_EMA3;  // Secondary Confirmation
+input int              Inp_CustomCross1 = 1;   // Custom Cross EMA Index 1 (1-5)
+input int              Inp_CustomCross2 = 2;   // Custom Cross EMA Index 2 (1-5)
+
+//===== Signal Configuration =====
+input SIGNAL_MODE      Inp_SignalMode = MODE_MODERATE;  // Signal Mode
+input int              Inp_MinStrength = 3;             // Minimum Strength Required (1-5)
+input double           Inp_ConfluenceThreshold = 50.0;  // Min Confluence Level (0-100%)
+input bool             Inp_RequireConfluence = false;   // Require Confluence Filter
+input bool             Inp_EnablePullbacks = true;      // Enable Pullback Signals
+
+//===== Confluence Configuration (Percentage Based) =====
+input double           Inp_ConfRangeMax = 0.05;         // Max Range % for 100% Confluence
+input double           Inp_ConfRangeHigh = 0.10;        // Max Range % for 75% Confluence
+input double           Inp_ConfRangeMed = 0.20;         // Max Range % for 50% Confluence
+input double           Inp_ConfRangeLow = 0.30;         // Max Range % for 25% Confluence
+
+input double           Inp_MaxConf_F3      = 60.0;             // Máx Confluência para F3 (%)
+input double           Inp_MaxConf_F4      = 100.0;            // Máx Confluência para F4 (%)
+input double           Inp_MaxConf_F5      = 100.0;            // Máx Confluência para F5 (%)
 
 //--- Filtros Adicionais
 input group "═══════════════ FILTROS ═══════════════"
@@ -241,7 +274,10 @@ int OnInit()
    //--- Inicializar Signal FGM
    if(!g_SignalFGM.Init(Symbol(), Period(),
                         Inp_FGM_Period1, Inp_FGM_Period2, Inp_FGM_Period3,
-                        Inp_FGM_Period4, Inp_FGM_Period5))
+                        Inp_FGM_Period4, Inp_FGM_Period5, Inp_AppliedPrice,
+                        Inp_PrimaryCross, Inp_SecondaryCross, Inp_CustomCross1, Inp_CustomCross2,
+                        Inp_SignalMode, Inp_MinStrength, Inp_ConfluenceThreshold, Inp_RequireConfluence, Inp_EnablePullbacks,
+                        Inp_ConfRangeMax, Inp_ConfRangeHigh, Inp_ConfRangeMed, Inp_ConfRangeLow))
    {
       Print("[FGM] Erro ao inicializar indicador FGM");
       return INIT_FAILED;
@@ -557,143 +593,37 @@ void ProcessSignals()
       return;
    }
    
-   //--- NOVA ESTRATÉGIA DE ENTRADA:
-   //--- ============================================================
-   //--- O EA deve entrar NO INÍCIO da tendência, não quando já está estabelecida.
-   //--- 
-   //--- FORMA 1 - CROSSOVER DIRETO (PREFERENCIAL):
-   //---    O indicador gera Entry != 0 quando há cruzamento de EMAs.
-   //---    Esta é a melhor forma de entrada - captura o início exato.
-   //---
-   //--- FORMA 2 - PREÇO CRUZA TODAS AS EMAs (NOVO!):
-   //---    Quando o candle FECHA acima (ou abaixo) de TODAS as 5 EMAs pela primeira vez,
-   //---    isso indica INÍCIO de tendência. Devemos entrar no PRÓXIMO candle.
-   //---    Isso captura movimentos explosivos que podem não ter crossover de EMAs
-   //---    mas o preço "rompe" todas as resistências dinâmicas.
-   //---
-   //--- A entrada por "tendência estabelecida" (Phase=2/-2) foi REMOVIDA
-   //--- porque isso significa que a tendência JÁ COMEÇOU há muito tempo.
-   //--- ============================================================
-   
    FGM_DATA fgmData;
    int signalBar = -1;
-   bool isDirectCrossover = false;   // Flag: crossover de EMAs
-   bool isPriceCrossover = false;    // Flag: preço cruzou todas EMAs
    
-   //--- ETAPA 1: Verificar cruzamento direto de EMAs nas barras 0 e 1
+   //--- Verificar sinal na barra 0 (sinal em tempo real/abertura) ou barra 1 (fechada)
+   //--- O indicador FGM gera o sinal no buffer ENTRY (8)
+   
+   //--- Checar barra 0 (Sinal imediato)
    fgmData = g_SignalFGM.GetData(0);
    if(fgmData.isValid && fgmData.entry != 0)
    {
       signalBar = 0;
-      isDirectCrossover = true;
-      g_Stats.LogNormal(StringFormat("CROSSOVER DIRETO detectado na barra 0: Entry=%.0f", fgmData.entry));
    }
    else
    {
+      //--- Checar barra 1 (Sinal confirmado no fechamento)
       fgmData = g_SignalFGM.GetData(1);
       if(fgmData.isValid && fgmData.entry != 0)
       {
          signalBar = 1;
-         isDirectCrossover = true;
-         g_Stats.LogNormal(StringFormat("CROSSOVER DIRETO detectado na barra 1: Entry=%.0f", fgmData.entry));
       }
    }
    
-   //--- ETAPA 2: Verificar se PREÇO cruzou TODAS as EMAs (INÍCIO de tendência por preço)
-   //--- Isso detecta quando o candle fechou PELA PRIMEIRA VEZ acima/abaixo de TODAS as EMAs
-   if(signalBar < 0)
-   {
-      fgmData = g_SignalFGM.GetData(1);  // Barra fechada mais recente
-      
-      if(fgmData.isValid)
-      {
-         //--- Obter preço de fechamento da barra 1 e barra 2
-         double close1[], close2[];
-         ArraySetAsSeries(close1, true);
-         ArraySetAsSeries(close2, true);
-         
-         if(CopyClose(Symbol(), Period(), 1, 1, close1) > 0 &&
-            CopyClose(Symbol(), Period(), 2, 1, close2) > 0)
-         {
-            double closeBar1 = close1[0];
-            double closeBar2 = close2[0];
-            
-            //--- Verificar posição do preço em relação às EMAs
-            //--- Barra 1 (atual fechada)
-            bool priceAboveAllBar1 = (closeBar1 > fgmData.ema1 && 
-                                      closeBar1 > fgmData.ema2 && 
-                                      closeBar1 > fgmData.ema3 && 
-                                      closeBar1 > fgmData.ema4 && 
-                                      closeBar1 > fgmData.ema5);
-            bool priceBelowAllBar1 = (closeBar1 < fgmData.ema1 && 
-                                      closeBar1 < fgmData.ema2 && 
-                                      closeBar1 < fgmData.ema3 && 
-                                      closeBar1 < fgmData.ema4 && 
-                                      closeBar1 < fgmData.ema5);
-            
-            //--- Barra 2 (anterior) - precisamos dos dados da barra 2
-            FGM_DATA fgmData2 = g_SignalFGM.GetData(2);
-            bool priceAboveAllBar2 = false;
-            bool priceBelowAllBar2 = false;
-            
-            if(fgmData2.isValid)
-            {
-               priceAboveAllBar2 = (closeBar2 > fgmData2.ema1 && 
-                                    closeBar2 > fgmData2.ema2 && 
-                                    closeBar2 > fgmData2.ema3 && 
-                                    closeBar2 > fgmData2.ema4 && 
-                                    closeBar2 > fgmData2.ema5);
-               priceBelowAllBar2 = (closeBar2 < fgmData2.ema1 && 
-                                    closeBar2 < fgmData2.ema2 && 
-                                    closeBar2 < fgmData2.ema3 && 
-                                    closeBar2 < fgmData2.ema4 && 
-                                    closeBar2 < fgmData2.ema5);
-            }
-            
-            //--- Detectar CRUZAMENTO de preço:
-            //--- BUY: Barra 2 NÃO estava acima de todas, mas Barra 1 ESTÁ acima de todas
-            //--- SELL: Barra 2 NÃO estava abaixo de todas, mas Barra 1 ESTÁ abaixo de todas
-            bool priceCrossedUp = (priceAboveAllBar1 && !priceAboveAllBar2);
-            bool priceCrossedDown = (priceBelowAllBar1 && !priceBelowAllBar2);
-            
-            //--- Verificar força mínima (pelo menos F3)
-            int absStrength = (int)MathAbs(fgmData.strength);
-            
-            if(priceCrossedUp && absStrength >= 3)
-            {
-               signalBar = 1;
-               isPriceCrossover = true;
-               fgmData.entry = 1;  // Simular sinal de compra
-               g_Stats.LogNormal(StringFormat("PREÇO CRUZOU TODAS EMAs (BUY): Close=%.2f > EMAs, F%d, Conf=%.1f%%", 
-                                              closeBar1, absStrength, fgmData.confluence));
-            }
-            else if(priceCrossedDown && absStrength >= 3)
-            {
-               signalBar = 1;
-               isPriceCrossover = true;
-               fgmData.entry = -1;  // Simular sinal de venda
-               g_Stats.LogNormal(StringFormat("PREÇO CRUZOU TODAS EMAs (SELL): Close=%.2f < EMAs, F%d, Conf=%.1f%%", 
-                                              closeBar1, absStrength, fgmData.confluence));
-            }
-         }
-      }
-   }
-   
-   //--- Se não há sinal de nenhuma forma, retornar
+   //--- Se não há sinal, retornar
    if(signalBar < 0 || !fgmData.isValid)
    {
       return;
    }
    
    //--- DEBUG: Log valores lidos do indicador
-   string entryType = isDirectCrossover ? "EMA CROSSOVER" : (isPriceCrossover ? "PRICE CROSSOVER" : "UNKNOWN");
-   g_Stats.LogDebug(StringFormat("FGM Data (bar %d): Strength=%.0f, Entry=%.0f, Confluence=%.1f%% [%s]", 
-                                 signalBar, fgmData.strength, fgmData.entry, fgmData.confluence, entryType));
-   
-   //--- DEBUG: Log valores das EMAs para análise
-   g_Stats.LogDebug(StringFormat("EMAs: EMA8=%.2f EMA21=%.2f EMA50=%.2f EMA100=%.2f EMA200=%.2f",
-                                 fgmData.ema1, fgmData.ema2, fgmData.ema3, fgmData.ema4, fgmData.ema5));
-   g_Stats.LogDebug(StringFormat("Phase=%.0f | Signal=%.0f", fgmData.phase, fgmData.signal));
+   g_Stats.LogDebug(StringFormat("FGM Data (bar %d): Strength=%.0f, Entry=%.0f, Confluence=%.1f%%", 
+                                 signalBar, fgmData.strength, fgmData.entry, fgmData.confluence));
    
    //--- Verificar sinal de entrada
    double entrySignal = fgmData.entry;
@@ -712,43 +642,11 @@ void ProcessSignals()
    }
    
    //--- Verificar confluência (compressão das EMAs)
-   //--- IMPORTANTE: neste indicador, confluência ALTA = EMAs MUITO próximas = MERCADO LATERAL
-   //---              confluência BAIXA = EMAs afastadas = TENDÊNCIA FORTE
-   //--- NOTA: Para PRICE CROSSOVER, IGNORAMOS a confluência porque o preço já cruzou TODAS as EMAs
-   //---       Isso é confirmação suficiente de tendência, independente da distância entre EMAs.
+   //--- O indicador já calcula a confluência baseada em porcentagem.
+   //--- Se InpRequireConfluence for true no indicador, o sinal já vem filtrado.
+   //--- Aqui fazemos uma verificação adicional se necessário.
+   
    double confluence = fgmData.confluence;
-
-   //--- Para PRICE CROSSOVER: NÃO verificar confluência (rompimento de todas EMAs já confirma tendência)
-   if(!isPriceCrossover)
-   {
-      //--- Limite máximo de confluência aceitável por força do sinal.
-      //--- Estes limites são ajustáveis por input para não descaracterizar
-      //--- o EA em outros ativos/mercados.
-      double maxConfluenceAllowed = 100.0;
-
-      if(signalStrength >= 5)
-         maxConfluenceAllowed = Inp_MaxConf_F5;
-      else if(signalStrength == 4)
-         maxConfluenceAllowed = Inp_MaxConf_F4;
-      else if(signalStrength == 3)
-         maxConfluenceAllowed = Inp_MaxConf_F3;
-
-      if(confluence > maxConfluenceAllowed)
-      {
-         g_Stats.LogNormal(StringFormat("Confluência alta demais (mercado lateral) para F%d: %.1f%% (máx: %.1f%%)",
-                                       signalStrength, confluence, maxConfluenceAllowed));
-         return;
-      }
-      
-      g_Stats.LogNormal(StringFormat("Sinal aprovado! F%d, Confluência=%.1f%% (máx: %.1f%%)",
-                                     signalStrength, confluence, maxConfluenceAllowed));
-   }
-   else
-   {
-      //--- PRICE CROSSOVER: confluência ignorada (preço cruzou TODAS as EMAs)
-      g_Stats.LogNormal(StringFormat("PRICE CROSSOVER aprovado! F%d (confluência ignorada: %.1f%%)",
-                                     signalStrength, confluence));
-   }
    
    //--- Determinar direção
    bool isBuy = (entrySignal > 0);
@@ -768,18 +666,10 @@ void ProcessSignals()
    }
    
    //--- Aplicar filtros
-   //--- NOTA: A confluência já foi validada acima pelo EA. CFilters verifica outros filtros
-   //---       (spread, ATR, slope, volume, cooldown, etc.) mas NÃO deve bloquear por confluência
-   //---       novamente pois usamos os mesmos limites já validados.
-   //--- NOTA 2: Para PRICE CROSSOVER, pulamos o Phase Filter porque já validamos que o preço
-   //---         cruzou TODAS as EMAs - isso é confirmação suficiente de tendência.
-   g_Stats.LogDebug(StringFormat("Aplicando filtros para %s (Força F%d) [%s]...", 
-                                 isBuy ? "COMPRA" : "VENDA", signalStrength,
-                                 isPriceCrossover ? "SKIP_PHASE" : "FULL_FILTERS"));
+   g_Stats.LogDebug(StringFormat("Aplicando filtros para %s (Força F%d)...", 
+                                 isBuy ? "COMPRA" : "VENDA", signalStrength));
    
-   //--- Para PRICE CROSSOVER: pular Phase Filter (já confirmamos que preço está do lado certo de TODAS as EMAs)
-   bool skipPhaseFilter = isPriceCrossover;
-   FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength, skipPhaseFilter);
+   FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength, false);
    
    //--- Log detalhado do resultado dos filtros
    g_Stats.LogDebug(StringFormat("Filtros: Spread=%s Slope=%s Volume=%s Phase=%s EMA200=%s Cooldown=%s Confluência=%s",
@@ -863,9 +753,7 @@ void ProcessSignals()
       g_positionType = isBuy ? POSITION_TYPE_BUY : POSITION_TYPE_SELL;
       g_todayTrades++;
       
-      //--- Log tipo de entrada
-      string entryTypeStr = isDirectCrossover ? "EMA CROSSOVER" : (isPriceCrossover ? "PRICE CROSSOVER" : "UNKNOWN");
-      g_Stats.LogNormal(StringFormat("Entrada executada via %s", entryTypeStr));
+      g_Stats.LogNormal("Entrada executada via FGM Indicator");
       
       //--- Armazenar TPs no trade engine
       g_TradeEngine.SetTP1Price(posCalc.tp1Price);
