@@ -602,6 +602,10 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
     double ema_fast_curr = 0, ema_slow_curr = 0;
     double ema_fast_prev = 0, ema_slow_prev = 0;
     
+    //--- Get Trend EMAs for Pullback Logic
+    double ema_trend_curr = FGM_EMA5_Buffer[index]; // Slowest EMA (200)
+    double ema_mid_curr   = FGM_EMA3_Buffer[index]; // Medium EMA (21)
+    
     if(index > 0 && index < ArraySize(FGM_EMA1_Buffer) - 1)
     {
         //--- Determine which EMAs to use for crossover
@@ -643,30 +647,82 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             case 4: ema_slow_curr = FGM_EMA5_Buffer[index]; ema_slow_prev = FGM_EMA5_Buffer[index + 1]; break;
         }
         
+        //--- Candle Data for Body Break Validation
+        double open = iOpen(_Symbol, _Period, index);
+        double close = iClose(_Symbol, _Period, index);
+        double low = iLow(_Symbol, _Period, index);
+        double high = iHigh(_Symbol, _Period, index);
+        
+        //====================================================================
+        // STRATEGY 1: CROSSOVER WITH BODY BREAK (Rompimento Real)
+        //====================================================================
+        
         //--- Bullish crossover
         if(ema_fast_prev <= ema_slow_prev && ema_fast_curr > ema_slow_curr)
         {
-            // Check if Slow EMA is sloping UP (or at least not sharply down) to avoid false signals
-            bool slope_ok = (ema_slow_curr >= ema_slow_prev);
+            // 1. Slope Check: Slow EMA must not be pointing sharply down
+            bool slope_ok = (ema_slow_curr >= ema_slow_prev - _Point);
             
-            // Signal Condition: Strength + Confluence + Price above Slow MA (Sanity) + Slope
-            if(strength >= min_strength && confluence_ok && price > ema_slow_curr && slope_ok)
+            // 2. Body Break Check: Candle must be Bullish AND Close above Slow EMA
+            bool body_break = (close > open) && (close > ema_slow_curr);
+            
+            if(strength >= min_strength && confluence_ok && slope_ok && body_break)
             {
                 FGM_Entry_Buffer[index] = 1; // Buy Signal
                 DrawSignalArrow(index, price, time, true);
+                return; // Signal found, exit
             }
         }
         //--- Bearish crossover
         else if(ema_fast_prev >= ema_slow_prev && ema_fast_curr < ema_slow_curr)
         {
-            // Check if Slow EMA is sloping DOWN
-            bool slope_ok = (ema_slow_curr <= ema_slow_prev);
+            // 1. Slope Check: Slow EMA must not be pointing sharply up
+            bool slope_ok = (ema_slow_curr <= ema_slow_prev + _Point);
             
-            // Signal Condition: Strength + Confluence + Price below Slow MA (Sanity) + Slope
-            if(MathAbs(strength) >= min_strength && confluence_ok && price < ema_slow_curr && slope_ok)
+            // 2. Body Break Check: Candle must be Bearish AND Close below Slow EMA
+            bool body_break = (close < open) && (close < ema_slow_curr);
+            
+            if(MathAbs(strength) >= min_strength && confluence_ok && slope_ok && body_break)
             {
                 FGM_Entry_Buffer[index] = -1; // Sell Signal
                 DrawSignalArrow(index, price, time, false);
+                return; // Signal found, exit
+            }
+        }
+        
+        //====================================================================
+        // STRATEGY 2: PULLBACK LOGIC (Retração na Tendência)
+        //====================================================================
+        // Only if no crossover signal was generated
+        
+        //--- Pullback BUY
+        // Trend is UP (Price > EMA200) AND Strength is High
+        if(close > ema_trend_curr && strength >= 3)
+        {
+            // Price dipped into "Value Zone" (e.g., touched EMA3/Medium) but closed bullish
+            bool touched_value = (low <= ema_mid_curr); 
+            bool bounced_up = (close > open) && (close > ema_fast_curr); // Closed back above fast EMA
+            
+            // Ensure we are not too far from the EMAs (Confluence check)
+            if(touched_value && bounced_up && confluence_ok)
+            {
+                 FGM_Entry_Buffer[index] = 1; // Buy Signal (Pullback)
+                 DrawSignalArrow(index, price, time, true);
+            }
+        }
+        
+        //--- Pullback SELL
+        // Trend is DOWN (Price < EMA200) AND Strength is High (Negative)
+        if(close < ema_trend_curr && MathAbs(strength) >= 3)
+        {
+            // Price rallied into "Value Zone" (e.g., touched EMA3/Medium) but closed bearish
+            bool touched_value = (high >= ema_mid_curr);
+            bool bounced_down = (close < open) && (close < ema_fast_curr); // Closed back below fast EMA
+            
+            if(touched_value && bounced_down && confluence_ok)
+            {
+                 FGM_Entry_Buffer[index] = -1; // Sell Signal (Pullback)
+                 DrawSignalArrow(index, price, time, false);
             }
         }
     }
