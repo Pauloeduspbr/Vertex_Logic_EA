@@ -5,11 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2025, ExpertTrader MQL5"
 #property link      "https://www.experttrader.net"
-#property version   "2.10"
-#property description "FGM Advanced System - 5 EMAs Fully Configurable for EA Integration"
+#property version   "3.00" // Major update: Removed ATR, optimized for speed
+#property description "FGM Advanced System - 5 EMAs with Percentage-Based Confluence"
 #property indicator_chart_window
 #property indicator_buffers 11
-#property indicator_plots   11  // TODOS os 11 buffers acessíveis (5 visíveis + 6 invisíveis)
+#property indicator_plots   11
 
 //--- Plot EMA Lines (0-4: visíveis)
 #property indicator_label1  "FGM_EMA1"
@@ -99,12 +99,13 @@ input int              InpMinStrength = 3;             // Minimum Strength Requi
 input double           InpConfluenceThreshold = 50.0;  // Min Confluence Level (0-100%)
 input bool             InpRequireConfluence = false;   // Require Confluence Filter
 
-//===== ATR Configuration =====
-input int              InpATRPeriod = 14;              // ATR Period for Confluence
-input double           InpATRMultiplier1 = 0.5;        // ATR Multiplier for Max Confluence
-input double           InpATRMultiplier2 = 1.0;        // ATR Multiplier for High Confluence
-input double           InpATRMultiplier3 = 2.0;        // ATR Multiplier for Med Confluence
-input double           InpATRMultiplier4 = 3.0;        // ATR Multiplier for Low Confluence
+//===== Confluence Configuration (Percentage Based) =====
+// Substituindo ATR por % do preço para medir compressão
+// Ex: 0.05% de range entre EMA1 e EMA5 = compressão extrema
+input double           InpConfRangeMax = 0.05;         // Max Range % for 100% Confluence (Extreme Compression)
+input double           InpConfRangeHigh = 0.10;        // Max Range % for 75% Confluence
+input double           InpConfRangeMed = 0.20;         // Max Range % for 50% Confluence
+input double           InpConfRangeLow = 0.30;         // Max Range % for 25% Confluence
 
 //===== Visual Settings =====
 input bool             InpShowArrows = true;           // Show Signal Arrows
@@ -156,13 +157,7 @@ int handle_ema3;
 int handle_ema4;
 int handle_ema5;
 
-//--- ATR handle for confluence calculation
-int handle_atr;
-double ATR_Buffer[];
-//--- ATR runtime flags (do not modify input variables)
-bool   ATR_Enabled = false;
-int    ATR_Period_Effective = 0;
-//--- Core engine enable flag (graceful-degrade if something fails in OnInit)
+//--- Core engine enable flag
 bool   CORE_Enabled = true;
 
 //--- Global variables
@@ -195,8 +190,8 @@ int OnInit()
     {
         if(ema_periods[i] <= 0)
         {
-            Print("FGM_Pro Error: Invalid period for EMA ", i+1, " (", ema_periods[i], ") - running in disabled mode.");
-            CORE_Enabled = false;
+            Print("FGM_Pro Error: Invalid EMA period: ", ema_periods[i]);
+            return(INIT_FAILED);
         }
     }
     
@@ -205,11 +200,7 @@ int OnInit()
     {
         if(ema_periods[i] >= ema_periods[i+1])
         {
-            Print("FGM_Pro Error: EMA periods must be in ascending order");
-            Print("Current: ", ema_periods[0], ", ", ema_periods[1], ", ", 
-                  ema_periods[2], ", ", ema_periods[3], ", ", ema_periods[4]);
-            CORE_Enabled = false;
-            break;
+            Print("FGM_Pro Warning: EMAs should be in ascending order for best results.");
         }
     }
     
@@ -220,24 +211,9 @@ int OnInit()
            InpCustomCross2 < 1 || InpCustomCross2 > 5 ||
            InpCustomCross1 == InpCustomCross2)
         {
-            Print("FGM_Pro Error: Invalid custom crossover indices - running in disabled mode.");
-            CORE_Enabled = false;
+            Print("FGM_Pro Error: Invalid custom crossover indices.");
+            return(INIT_FAILED);
         }
-    }
-    
-    //--- Validate ATR parameters (do not modify input, use effective variables)
-    if(InpATRPeriod <= 0)
-    {
-        // Do not abort, just disable ATR-based confluence
-        Print("FGM_Pro Warning: Invalid ATR period (", InpATRPeriod,
-              ") - ATR-based confluence will be disabled.");
-        ATR_Enabled = false;
-        ATR_Period_Effective = 0;
-    }
-    else
-    {
-        ATR_Enabled = true;
-        ATR_Period_Effective = InpATRPeriod;
     }
     
     //--- Create MA handles
@@ -256,30 +232,12 @@ int OnInit()
         CORE_Enabled = false;
     }
     
-    //--- Create ATR handle (optional)
-    handle_atr = INVALID_HANDLE;
-    if(ATR_Enabled)
-    {
-        handle_atr = iATR(_Symbol, _Period, ATR_Period_Effective);
-        if(handle_atr == INVALID_HANDLE)
-        {
-            int errATR = GetLastError();
-            Print("FGM_Pro Warning: Failed to create ATR handle. err=", errATR,
-                  ". ATR-based confluence will be disabled, but EMAs/signals remain active.");
-            ResetLastError();
-            ATR_Enabled = false;
-            ATR_Period_Effective = 0;
-        }
-    }
-    
     //--- Set indicator buffers
-    // Buffers 0-4: EMAs visíveis (INDICATOR_DATA)
     SetIndexBuffer(0, FGM_EMA1_Buffer, INDICATOR_DATA);
     SetIndexBuffer(1, FGM_EMA2_Buffer, INDICATOR_DATA);
     SetIndexBuffer(2, FGM_EMA3_Buffer, INDICATOR_DATA);
     SetIndexBuffer(3, FGM_EMA4_Buffer, INDICATOR_DATA);
     SetIndexBuffer(4, FGM_EMA5_Buffer, INDICATOR_DATA);
-    // Buffers 5-10: Dados de sinal acessíveis via iCustom (INDICATOR_DATA, não CALCULATIONS!)
     SetIndexBuffer(5, FGM_Signal_Buffer, INDICATOR_DATA);
     SetIndexBuffer(6, FGM_Strength_Buffer, INDICATOR_DATA);
     SetIndexBuffer(7, FGM_Phase_Buffer, INDICATOR_DATA);
@@ -294,12 +252,8 @@ int OnInit()
     PlotIndexSetInteger(3, PLOT_DRAW_TYPE, InpShowEMA4 ? DRAW_LINE : DRAW_NONE);
     PlotIndexSetInteger(4, PLOT_DRAW_TYPE, InpShowEMA5 ? DRAW_LINE : DRAW_NONE);
     
-    //--- ATR buffer
-    ArrayResize(ATR_Buffer, 1000);
-    ArraySetAsSeries(ATR_Buffer, true);
-    
     //--- Set buffer properties
-    int max_period = MathMax(InpPeriod5, (ATR_Enabled ? ATR_Period_Effective : 0));
+    int max_period = InpPeriod5;
     for(int i = 0; i < 5; i++)
     {
         PlotIndexSetInteger(i, PLOT_DRAW_BEGIN, max_period);
@@ -332,10 +286,8 @@ int OnInit()
     Print("FGM_Pro initialized for: Pauloeduspbr");
     Print("EMAs: ", InpPeriod1, "/", InpPeriod2, "/", InpPeriod3, "/", 
         InpPeriod4, "/", InpPeriod5, " | CORE_Enabled=", (CORE_Enabled?"true":"false"));
-    PrintFormat("EMAs visibility: EMA1=%s EMA2=%s EMA3=%s EMA4=%s EMA5=%s",
-                (InpShowEMA1?"true":"false"), (InpShowEMA2?"true":"false"), (InpShowEMA3?"true":"false"), (InpShowEMA4?"true":"false"), (InpShowEMA5?"true":"false"));
     Print("Mode: ", EnumToString(InpSignalMode));
-    Print("ATR Period: ", InpATRPeriod, " | ATR_Enabled=", (ATR_Enabled?"true":"false"));
+    Print("Confluence: Percentage Based (No ATR)");
     Print("Primary Cross: ", GetCrossoverName(InpPrimaryCross));
     Print("════════════════════════════════════");
     
@@ -353,7 +305,6 @@ void OnDeinit(const int reason)
     if(handle_ema3 != INVALID_HANDLE) IndicatorRelease(handle_ema3);
     if(handle_ema4 != INVALID_HANDLE) IndicatorRelease(handle_ema4);
     if(handle_ema5 != INVALID_HANDLE) IndicatorRelease(handle_ema5);
-    if(handle_atr != INVALID_HANDLE) IndicatorRelease(handle_atr);
     
     //--- Clean up chart objects
     ObjectsDeleteAll(0, "FGM_", -1, -1);
@@ -379,7 +330,7 @@ int OnCalculate(const int rates_total,
     if(!CORE_Enabled)
         return(prev_calculated);
     //--- Check for sufficient data
-    int min_bars = MathMax(InpPeriod5, (ATR_Enabled ? ATR_Period_Effective : 0)) + 10;
+    int min_bars = InpPeriod5 + 10;
     if(rates_total < min_bars)
         return(0);
     
@@ -397,14 +348,7 @@ int OnCalculate(const int rates_total,
     int copied4 = CopyBuffer(handle_ema4, 0, 0, rates_total, FGM_EMA4_Buffer);
     int copied5 = CopyBuffer(handle_ema5, 0, 0, rates_total, FGM_EMA5_Buffer);
     
-    //--- Copy ATR for confluence (if available)
-    int copied_atr = 0;
-    if(ATR_Enabled && handle_atr != INVALID_HANDLE)
-    {
-        copied_atr = CopyBuffer(handle_atr, 0, 0, MathMin(1000, rates_total), ATR_Buffer);
-    }
-    
-    //--- Check copy success para EMAs (ATR é opcional)
+    //--- Check copy success
     if(copied1 <= 0 || copied2 <= 0 || copied3 <= 0 || 
        copied4 <= 0 || copied5 <= 0)
     {
@@ -434,8 +378,8 @@ int OnCalculate(const int rates_total,
         MARKET_PHASE phase = CalculateMarketPhase(i);
         FGM_Phase_Buffer[i] = (double)phase;
         
-        //--- Calculate confluence
-        double confluence = CalculateConfluence(i);
+        //--- Calculate confluence (Percentage Based)
+        double confluence = CalculateConfluence(i, close[i]);
         FGM_Confluence_Buffer[i] = confluence;
         
         //--- Check confluence filter if required
@@ -463,12 +407,6 @@ int OnCalculate(const int rates_total,
     }
     
     //--- Check for alerts
-    // Ajuste para alinhar visualmente o alerta com o candle em que
-    // o cruzamento/sinal está sendo considerado pelo EA.
-    // Quando InpAlertOnBarClose=true, o EA agora prioriza a barra 0
-    // (barra atual/fechamento recente) via GetData(0). Para que o
-    // alerta apareça no MESMO candle em que o EA detecta o sinal,
-    // usamos shift 0 também.
     int check_shift = InpAlertOnBarClose ? 0 : 0;
     if(rates_total > check_shift + 1)
     {
@@ -539,11 +477,6 @@ int CalculateSignalStrength(int index)
 
 //+------------------------------------------------------------------+
 //| Calculate Market Phase                                           |
-//| CORREÇÃO: Agora considera TANTO o alinhamento das EMAs           |
-//| QUANTO a posição do preço em relação às EMAs.                    |
-//| - STRONG_BULL: EMAs alinhadas bullish E preço acima de todas     |
-//| - STRONG_BEAR: EMAs alinhadas bearish E preço abaixo de todas    |
-//| - Se preço contradiz o alinhamento das EMAs = NEUTRAL            |
 //+------------------------------------------------------------------+
 MARKET_PHASE CalculateMarketPhase(int index)
 {
@@ -615,49 +548,39 @@ MARKET_PHASE CalculateMarketPhase(int index)
     if(bear_count >= 3 && price_below_all)
         return PHASE_WEAK_BEAR;
     
-    //--- If price contradicts EMA alignment or EMAs are mixed = NEUTRAL
-    //--- Isso previne sinais falsos quando preço está revertendo
     return PHASE_NEUTRAL;
 }
 
 //+------------------------------------------------------------------+
-//| Calculate Confluence (EMA compression)                           |
+//| Calculate Confluence (Percentage Based - No ATR)                 |
 //+------------------------------------------------------------------+
-double CalculateConfluence(int index)
+double CalculateConfluence(int index, double current_price)
 {
-    // Se ATR não estiver disponível (handle inválido ou buffer vazio),
-    // retornamos uma confluência neutra baixa em vez de abortar o cálculo.
     if(index < 0 || index >= ArraySize(FGM_EMA1_Buffer))
         return 0.0;
 
     double ema1 = FGM_EMA1_Buffer[index];
     double ema5 = FGM_EMA5_Buffer[index];
 
-    // Sem ATR: use um valor neutro fixo (10%) apenas para manter a API
-    // consistente para o EA, evitando divisões por zero ou leituras inválidas.
-    if(!ATR_Enabled || handle_atr == INVALID_HANDLE || index >= ArraySize(ATR_Buffer))
-    {
-        if(ema1 == EMPTY_VALUE || ema5 == EMPTY_VALUE)
-            return 0.0;
-        return 10.0;
-    }
-
-    double atr = ATR_Buffer[index];
-    if(atr <= 0)
+    if(ema1 == EMPTY_VALUE || ema5 == EMPTY_VALUE || current_price <= 0)
         return 0.0;
     
     //--- Calculate range between fastest and slowest EMA
     double ema_range = MathAbs(ema1 - ema5);
+    
+    //--- Calculate range as percentage of price
+    double range_percent = (ema_range / current_price) * 100.0;
+    
     double confluence = 0.0;
     
-    //--- Use configurable ATR multipliers
-    if(ema_range < atr * InpATRMultiplier1)
+    //--- Use configurable Percentage thresholds
+    if(range_percent < InpConfRangeMax)
         confluence = 100.0;
-    else if(ema_range < atr * InpATRMultiplier2)
+    else if(range_percent < InpConfRangeHigh)
         confluence = 75.0;
-    else if(ema_range < atr * InpATRMultiplier3)
+    else if(range_percent < InpConfRangeMed)
         confluence = 50.0;
-    else if(ema_range < atr * InpATRMultiplier4)
+    else if(range_percent < InpConfRangeLow)
         confluence = 25.0;
     else
         confluence = 10.0;
@@ -730,45 +653,20 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         //--- Bullish crossover
         if(ema_fast_prev <= ema_slow_prev && ema_fast_curr > ema_slow_curr)
         {
-            if(MathAbs(strength) >= min_strength && phase >= PHASE_WEAK_BULL && confluence_ok)
+            if(strength >= min_strength && confluence_ok && phase > PHASE_NEUTRAL)
             {
-                FGM_Entry_Buffer[index] = 1; // Buy signal
-                
-                if(InpShowArrows)
-                {
-                    bool isTester = (bool)MQLInfoInteger(MQL_TESTER);
-                    int maxDrawShift = isTester ? 5 : 50; // avoid heavy drawing in tester
-                    if(index <= maxDrawShift)
-                        DrawSignalArrow(index, price, time, true);
-                }
+                FGM_Entry_Buffer[index] = 1; // Buy Signal
+                DrawSignalArrow(index, price, time, true);
             }
         }
-        
         //--- Bearish crossover
         else if(ema_fast_prev >= ema_slow_prev && ema_fast_curr < ema_slow_curr)
         {
-            if(MathAbs(strength) >= min_strength && phase <= PHASE_WEAK_BEAR && confluence_ok)
+            if(MathAbs(strength) >= min_strength && confluence_ok && phase < PHASE_NEUTRAL)
             {
-                FGM_Entry_Buffer[index] = -1; // Sell signal
-                
-                if(InpShowArrows)
-                {
-                    bool isTester = (bool)MQLInfoInteger(MQL_TESTER);
-                    int maxDrawShift = isTester ? 5 : 50; // avoid heavy drawing in tester
-                    if(index <= maxDrawShift)
-                        DrawSignalArrow(index, price, time, false);
-                }
+                FGM_Entry_Buffer[index] = -1; // Sell Signal
+                DrawSignalArrow(index, price, time, false);
             }
-        }
-        
-        //--- Exit signals
-        if(ema_fast_prev > ema_slow_prev && ema_fast_curr <= ema_slow_curr)
-        {
-            FGM_Exit_Buffer[index] = 1; // Exit long
-        }
-        else if(ema_fast_prev < ema_slow_prev && ema_fast_curr >= ema_slow_curr)
-        {
-            FGM_Exit_Buffer[index] = -1; // Exit short
         }
     }
 }
@@ -778,24 +676,23 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
 //+------------------------------------------------------------------+
 void DrawSignalArrow(int index, double price, datetime time, bool is_buy)
 {
+    if(!InpShowArrows) return;
+    
     string name = "FGM_Arrow_" + TimeToString(time, TIME_DATE|TIME_MINUTES);
     
     //--- Remove old arrow if exists
-    ObjectDelete(0, name);
-    
-    //--- Calculate arrow distance
-    double distance = InpArrowDistance * _Point;
-    
-    //--- Create new arrow
+    if(ObjectFind(0, name) >= 0)
+        ObjectDelete(0, name);
+        
     if(is_buy)
     {
-        ObjectCreate(0, name, OBJ_ARROW_UP, 0, time, price - distance);
+        ObjectCreate(0, name, OBJ_ARROW_BUY, 0, time, price - InpArrowDistance * _Point);
         ObjectSetInteger(0, name, OBJPROP_COLOR, clrLime);
         ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
     }
     else
     {
-        ObjectCreate(0, name, OBJ_ARROW_DOWN, 0, time, price + distance);
+        ObjectCreate(0, name, OBJ_ARROW_SELL, 0, time, price + InpArrowDistance * _Point);
         ObjectSetInteger(0, name, OBJPROP_COLOR, clrRed);
         ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
     }
@@ -806,24 +703,30 @@ void DrawSignalArrow(int index, double price, datetime time, bool is_buy)
 //+------------------------------------------------------------------+
 void CheckForAlerts(int shift, datetime bar_time, double price)
 {
+    if(!InpEnableAlerts && !InpEnablePush && !InpEnableEmail)
+        return;
+        
     //--- Check cooldown
     if(alert_cooldown_counter > 0)
         return;
+        
+    //--- Check for new signal
+    int entry_signal = (int)FGM_Entry_Buffer[shift];
     
-    //--- Check if we have a new signal
-    if(FGM_Entry_Buffer[shift] != 0 && bar_time != last_alert_time)
+    if(entry_signal != 0)
     {
-        string signal_type = (FGM_Entry_Buffer[shift] > 0) ? "BUY" : "SELL";
+        //--- Avoid duplicate alerts for same bar
+        if(bar_time == last_alert_time)
+            return;
+            
+        string type = (entry_signal > 0) ? "BUY" : "SELL";
         int strength = (int)MathAbs(FGM_Strength_Buffer[shift]);
         double confluence = FGM_Confluence_Buffer[shift];
         MARKET_PHASE phase = (MARKET_PHASE)FGM_Phase_Buffer[shift];
         
-        //--- Send alert
-        SendAdvancedAlert(signal_type, bar_time, price, strength, confluence, phase);
+        SendAdvancedAlert(type, bar_time, price, strength, confluence, phase);
         
-        //--- Update tracking variables
         last_alert_time = bar_time;
-        last_signal_type = signal_type;
         alert_cooldown_counter = InpAlertCooldown;
     }
 }
@@ -834,59 +737,32 @@ void CheckForAlerts(int shift, datetime bar_time, double price)
 void SendAdvancedAlert(string signal_type, datetime alert_time, double price,
                        int strength, double confluence, MARKET_PHASE phase)
 {
-    //--- Build alert message
-    string alert_title = StringFormat("FGM Pro %s [%d/5]", signal_type, strength);
-    
-    string alert_message = "";
-    alert_message += StringFormat("Signal: %s\n", signal_type);
-    alert_message += StringFormat("Symbol: %s | TF: %s\n", _Symbol, EnumToString(_Period));
-    alert_message += StringFormat("Time: %s\n", TimeToString(alert_time, TIME_DATE|TIME_MINUTES));
-    
-    if(InpShowPriceValue)
-        alert_message += StringFormat("Price: %.5f\n", price);
-    
+    string message = StringFormat("FGM Pro Signal: %s\nSymbol: %s | Time: %s\nPrice: %.5f",
+                                  signal_type, _Symbol, TimeToString(alert_time, TIME_MINUTES), price);
+                                  
+    if(InpShowStrength)
+        message += StringFormat("\nStrength: %d/5 Stars", strength);
+        
+    if(InpShowConfluence)
+        message += StringFormat("\nConfluence: %.1f%%", confluence);
+        
+    if(InpShowMarketPhase)
+        message += StringFormat("\nPhase: %s", GetPhaseString(phase));
+        
     if(InpShowEMAValues)
     {
-        alert_message += StringFormat("EMA%d: %.5f\n", InpPeriod1, FGM_EMA1_Buffer[0]);
-        alert_message += StringFormat("EMA%d: %.5f\n", InpPeriod2, FGM_EMA2_Buffer[0]);
-        alert_message += StringFormat("EMA%d: %.5f\n", InpPeriod3, FGM_EMA3_Buffer[0]);
-        alert_message += StringFormat("EMA%d: %.5f\n", InpPeriod4, FGM_EMA4_Buffer[0]);
-        alert_message += StringFormat("EMA%d: %.5f\n", InpPeriod5, FGM_EMA5_Buffer[0]);
+        message += StringFormat("\nEMAs: %.5f / %.5f / %.5f", 
+                                FGM_EMA1_Buffer[0], FGM_EMA3_Buffer[0], FGM_EMA5_Buffer[0]);
     }
     
-    if(InpShowStrength)
-        alert_message += StringFormat("Strength: %d/5\n", strength);
-    
-    if(InpShowConfluence)
-        alert_message += StringFormat("Confluence: %.1f%%\n", confluence);
-    
-    if(InpShowMarketPhase)
-        alert_message += StringFormat("Phase: %s\n", GetPhaseString(phase));
-    
-    //--- Position size recommendation
-    double pos_size = GetPositionSizeMultiplier(strength);
-    alert_message += StringFormat("Recommended Size: %.2fx\n", pos_size);
-    
-    //--- Send alerts
     if(InpEnableAlerts)
-        Alert(alert_title, "\n", alert_message);
-    
+        Alert(message);
+        
     if(InpEnablePush)
-    {
-        string push_msg = StringFormat("FGM %s %s [%d/5] @%.5f", 
-                                      signal_type, _Symbol, strength, price);
-        SendNotification(push_msg);
-    }
-    
+        SendNotification(message);
+        
     if(InpEnableEmail)
-    {
-        string subject = StringFormat("FGM Pro %s - %s", signal_type, _Symbol);
-        SendMail(subject, alert_message);
-    }
-    
-    //--- Console log
-    Print("FGM Alert: ", signal_type, " | ", _Symbol, " | Strength: ", strength, 
-          "/5 | User: Pauloeduspbr");
+        SendMail("FGM Pro Signal", message);
 }
 
 //+------------------------------------------------------------------+
@@ -896,18 +772,11 @@ string GetCrossoverName(CROSSOVER_TYPE type)
 {
     switch(type)
     {
-        case CROSS_EMA1_EMA2:
-            return StringFormat("EMA%d x EMA%d", InpPeriod1, InpPeriod2);
-        case CROSS_EMA2_EMA3:
-            return StringFormat("EMA%d x EMA%d", InpPeriod2, InpPeriod3);
-        case CROSS_EMA3_EMA4:
-            return StringFormat("EMA%d x EMA%d", InpPeriod3, InpPeriod4);
-        case CROSS_CUSTOM:
-            return StringFormat("Custom (EMA%d x EMA%d)", 
-                              ema_periods[InpCustomCross1-1], 
-                              ema_periods[InpCustomCross2-1]);
-        default: 
-            return "Unknown";
+        case CROSS_EMA1_EMA2: return "EMA1 x EMA2 (Fastest)";
+        case CROSS_EMA2_EMA3: return "EMA2 x EMA3 (Medium)";
+        case CROSS_EMA3_EMA4: return "EMA3 x EMA4 (Slow)";
+        case CROSS_CUSTOM:    return "Custom Crossover";
+        default:              return "Unknown";
     }
 }
 
@@ -918,30 +787,12 @@ string GetPhaseString(MARKET_PHASE phase)
 {
     switch(phase)
     {
-        case PHASE_STRONG_BULL: return "Strong Bullish";
-        case PHASE_WEAK_BULL: return "Weak Bullish";
-        case PHASE_NEUTRAL: return "Neutral";
-        case PHASE_WEAK_BEAR: return "Weak Bearish";
-        case PHASE_STRONG_BEAR: return "Strong Bearish";
-        default: return "Unknown";
-    }
-}
-
-//+------------------------------------------------------------------+
-//| Get Position Size Multiplier based on configuration             |
-//+------------------------------------------------------------------+
-double GetPositionSizeMultiplier(int strength)
-{
-    int abs_strength = MathAbs(strength);
-    
-    switch(abs_strength)
-    {
-        case 1: return InpPosSize1Star;
-        case 2: return InpPosSize2Star;
-        case 3: return InpPosSize3Star;
-        case 4: return InpPosSize4Star;
-        case 5: return InpPosSize5Star;
-        default: return 0.0;
+        case PHASE_STRONG_BULL: return "Strong Bull";
+        case PHASE_WEAK_BULL:   return "Weak Bull";
+        case PHASE_NEUTRAL:     return "Neutral";
+        case PHASE_WEAK_BEAR:   return "Weak Bear";
+        case PHASE_STRONG_BEAR: return "Strong Bear";
+        default:                return "Unknown";
     }
 }
 
@@ -950,43 +801,31 @@ double GetPositionSizeMultiplier(int strength)
 //+------------------------------------------------------------------+
 double GetSignalStrength(int shift = 0)
 {
-    if(shift >= 0 && shift < ArraySize(FGM_Strength_Buffer))
-        return FGM_Strength_Buffer[shift];
-    return 0.0;
+    if(shift < 0 || shift >= ArraySize(FGM_Strength_Buffer)) return 0;
+    return FGM_Strength_Buffer[shift];
 }
 
 int GetMarketPhase(int shift = 0)
 {
-    if(shift >= 0 && shift < ArraySize(FGM_Phase_Buffer))
-        return (int)FGM_Phase_Buffer[shift];
-    return 0;
+    if(shift < 0 || shift >= ArraySize(FGM_Phase_Buffer)) return PHASE_NEUTRAL;
+    return (int)FGM_Phase_Buffer[shift];
 }
 
 double GetConfluence(int shift = 0)
 {
-    if(shift >= 0 && shift < ArraySize(FGM_Confluence_Buffer))
-        return FGM_Confluence_Buffer[shift];
-    return 0.0;
+    if(shift < 0 || shift >= ArraySize(FGM_Confluence_Buffer)) return 0;
+    return FGM_Confluence_Buffer[shift];
 }
 
 bool HasEntrySignal(int shift = 0)
 {
-    if(shift >= 0 && shift < ArraySize(FGM_Entry_Buffer))
-        return (FGM_Entry_Buffer[shift] != 0);
-    return false;
+    if(shift < 0 || shift >= ArraySize(FGM_Entry_Buffer)) return false;
+    return FGM_Entry_Buffer[shift] != 0;
 }
 
 int GetEntrySignal(int shift = 0)
 {
-    if(shift >= 0 && shift < ArraySize(FGM_Entry_Buffer))
-        return (int)FGM_Entry_Buffer[shift];
-    return 0;
+    if(shift < 0 || shift >= ArraySize(FGM_Entry_Buffer)) return 0;
+    return (int)FGM_Entry_Buffer[shift];
 }
-
-double GetPositionSize(int shift = 0)
-{
-    int strength = (int)MathAbs(GetSignalStrength(shift));
-    return GetPositionSizeMultiplier(strength);
-}
-
 //+------------------------------------------------------------------+
