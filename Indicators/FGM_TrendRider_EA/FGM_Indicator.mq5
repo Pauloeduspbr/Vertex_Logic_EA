@@ -604,6 +604,14 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
     double avg_period = (ema_periods[0] + ema_periods[1] + ema_periods[2] + ema_periods[3] + ema_periods[4]) / 5.0;
     bool is_heavy_setup = (avg_period > 40.0); // Threshold to distinguish between Scalping/DayTrade vs Swing setups
     
+    // DEBUG INITIALIZATION (Run once per bar 0 or initialization)
+    static bool debug_init_printed = false;
+    if(!debug_init_printed && index == 0)
+    {
+        PrintFormat("DEBUG: AvgPeriod=%.2f, IsHeavy=%s, Mode=%s", avg_period, (is_heavy_setup?"TRUE":"FALSE"), EnumToString(InpSignalMode));
+        debug_init_printed = true;
+    }
+
     //--- Adjust strength requirement dynamically
     int cross_req_strength = min_strength;
     
@@ -727,10 +735,20 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             // 2. Body Break Check
             bool body_break = (close < open) && (close < ema_slow_curr);
             
+            // DEBUG: Print details when a crossover is detected but maybe rejected
+            if(is_heavy_setup && !trend_sell_ok)
+            {
+                 PrintFormat("DEBUG [SELL BLOCKED]: Time=%s, Close=%.5f, EMA200=%.5f, TrendSellOK=FALSE", 
+                     TimeToString(time), close, ema_trend_curr);
+            }
+            
             if(MathAbs(strength) >= cross_req_strength && confluence_ok && slope_ok && body_break && trend_sell_ok)
             {
                 FGM_Entry_Buffer[index] = -1; // Sell Signal
                 DrawSignalArrow(index, price, time, false);
+                
+                PrintFormat("DEBUG [SELL SIGNAL]: Time=%s, Strength=%d, TrendSellOK=%s, Close=%.5f, EMA200=%.5f",
+                    TimeToString(time), strength, (trend_sell_ok?"TRUE":"FALSE"), close, ema_trend_curr);
                 
                 if(index == 0 && !InpAlertOnBarClose) 
                    SendAdvancedAlert("SELL (Crossover)", time, price, (int)MathAbs(strength), confluence, phase);
@@ -758,11 +776,20 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             // Requiring close > EMA1 (Fast) was too strict for deep pullbacks.
             bool bounced_up = (close > open) && (close > ema_slow_curr); 
             
+            // DEBUG: Print if we are close to a pullback
+            if(touched_value && !bounced_up)
+            {
+                 PrintFormat("DEBUG [PULLBACK BUY FAIL]: Time=%s, Touched=TRUE, Bounced=FALSE (Close=%.5f, EMA_Slow=%.5f)",
+                     TimeToString(time), close, ema_slow_curr);
+            }
+            
             // Ensure we are not too far from the EMAs (Confluence check)
             if(touched_value && bounced_up && confluence_ok)
             {
                  FGM_Entry_Buffer[index] = 1; // Buy Signal (Pullback)
                  DrawSignalArrow(index, price, time, true);
+                 
+                 PrintFormat("DEBUG [PULLBACK BUY SIGNAL]: Time=%s, Strength=%d", TimeToString(time), strength);
                  
                  if(index == 0 && !InpAlertOnBarClose) 
                     SendAdvancedAlert("BUY (Pullback)", time, price, strength, confluence, phase);
