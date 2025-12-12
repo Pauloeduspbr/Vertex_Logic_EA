@@ -98,6 +98,7 @@ input SIGNAL_MODE      InpSignalMode = MODE_MODERATE;  // Signal Mode
 input int              InpMinStrength = 3;             // Minimum Strength Required (1-5)
 input double           InpConfluenceThreshold = 50.0;  // Min Confluence Level (0-100%)
 input bool             InpRequireConfluence = false;   // Require Confluence Filter
+input bool             InpEnablePullbacks = true;      // Enable Pullback Signals
 
 //===== Confluence Configuration (Percentage Based) =====
 // Substituindo ATR por % do preço para medir compressão
@@ -610,7 +611,9 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
     // This fixes the issue where long periods take too long to align all 5 EMAs
     if(is_heavy_setup && InpSignalMode != MODE_CONSERVATIVE)
     {
-        cross_req_strength = MathMax(1, min_strength - 1);
+        // For Heavy setups (e.g. 14/36...), waiting for 2 confirmations (Strength 2) often misses the first move.
+        // We lower it to 1 (Just the Primary Cross) provided the Body Break and Slope are valid.
+        cross_req_strength = 1; 
     }
     // If setup is light (fast alignment), we stick to the user's strict requirement to avoid noise
     // This prevents the "desajuste" for short periods mentioned by the user
@@ -698,8 +701,11 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             
             if(strength >= cross_req_strength && confluence_ok && slope_ok && body_break)
             {
-                FGM_Entry_Buffer[index] = 1; // Buy Signal
-                DrawSignalArrow(index, price, time, true);
+                
+                // Alert Logic (Immediate or Bar Close handled in CheckForAlerts)
+                if(index == 0 && !InpAlertOnBarClose) 
+                   SendAdvancedAlert("BUY (Crossover)", time, price, strength, confluence, phase);
+                   
                 return; // Signal found, exit
             }
         }
@@ -716,6 +722,10 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             {
                 FGM_Entry_Buffer[index] = -1; // Sell Signal
                 DrawSignalArrow(index, price, time, false);
+                
+                if(index == 0 && !InpAlertOnBarClose) 
+                   SendAdvancedAlert("SELL (Crossover)", time, price, (int)MathAbs(strength), confluence, phase);
+
                 return; // Signal found, exit
             }
         }
@@ -723,8 +733,10 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         //====================================================================
         // STRATEGY 2: PULLBACK LOGIC (Retração na Tendência)
         //====================================================================
-        // Only if no crossover signal was generated
+        // Only if no crossover signal was generated AND Pullbacks are enabled
         
+        if(!InpEnablePullbacks) return;
+
         //--- Pullback BUY
         // Trend is UP (Price > EMA200) AND Strength is High
         if(close > ema_trend_curr && strength >= min_strength)
@@ -738,6 +750,9 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             {
                  FGM_Entry_Buffer[index] = 1; // Buy Signal (Pullback)
                  DrawSignalArrow(index, price, time, true);
+                 
+                 if(index == 0 && !InpAlertOnBarClose) 
+                    SendAdvancedAlert("BUY (Pullback)", time, price, strength, confluence, phase);
             }
         }
         
@@ -751,6 +766,11 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
             
             if(touched_value && bounced_down && confluence_ok)
             {
+                 FGM_Entry_Buffer[index] = -1; // Sell Signal (Pullback)
+                 DrawSignalArrow(index, price, time, false);
+                 
+                 if(index == 0 && !InpAlertOnBarClose) 
+                    SendAdvancedAlert("SELL (Pullback)", time, price, (int)MathAbs(strength), confluence, pha
                  FGM_Entry_Buffer[index] = -1; // Sell Signal (Pullback)
                  DrawSignalArrow(index, price, time, false);
             }
@@ -790,7 +810,17 @@ void DrawSignalArrow(int index, double price, datetime time, bool is_buy)
 //+------------------------------------------------------------------+
 void CheckForAlerts(int shift, datetime bar_time, double price)
 {
-    if(!InpEnableAlerts && !InpEnablePush && !InpEnableEmail)
+    if(!// Determine strategy type for alert (simplified check)
+        // In a real scenario, we'd pass this from GenerateTradeSignals, but here we infer or use generic
+        // Note: The direct calls in GenerateTradeSignals handle real-time alerts. 
+        // This function handles "OnBarClose" alerts.
+        
+        string strategy = "Signal";
+        // We can't easily know if it was Pullback or Crossover here without extra buffers.
+        // But we can infer from strength/trend.
+        // For now, we'll just send the alert. The real-time alerts in GenerateTradeSignals are more specific.
+        
+        InpEnableAlerts && !InpEnablePush && !InpEnableEmail)
         return;
         
     //--- Check cooldown
