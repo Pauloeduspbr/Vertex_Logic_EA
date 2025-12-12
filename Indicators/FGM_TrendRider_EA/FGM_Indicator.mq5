@@ -682,27 +682,36 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         //====================================================================
         
         //--- Calculate Dynamic Slope Tolerance
-        // Intelligence: Longer periods turn slower, so they need more tolerance for "lag"
-        // Shorter periods turn fast, so they need strict slope checks
         double period_factor = (double)ema_periods[slow_idx];
         double slope_tolerance = _Point * (period_factor / 10.0); 
         
         if(InpSignalMode == MODE_CONSERVATIVE) 
             slope_tolerance *= 0.5; // Stricter in conservative mode
         
+        //--- Trend Filter for Heavy Setups
+        // If we are allowing low strength (1) signals in heavy setups, we MUST ensure they align with the main trend (EMA200)
+        // Otherwise, local crossovers in a correction will trigger false signals against the trend.
+        bool trend_buy_ok = true;
+        bool trend_sell_ok = true;
+        
+        if(is_heavy_setup && cross_req_strength <= 1)
+        {
+            trend_buy_ok = (close > ema_trend_curr); // Must be above EMA200
+            trend_sell_ok = (close < ema_trend_curr); // Must be below EMA200
+        }
+
         //--- Bullish crossover
         if(ema_fast_prev <= ema_slow_prev && ema_fast_curr > ema_slow_curr)
         {
-            // 1. Slope Check: Slow EMA must not be pointing sharply down (Dynamic Tolerance)
+            // 1. Slope Check
             bool slope_ok = (ema_slow_curr >= ema_slow_prev - slope_tolerance);
             
-            // 2. Body Break Check: Candle must be Bullish AND Close above Slow EMA
+            // 2. Body Break Check
             bool body_break = (close > open) && (close > ema_slow_curr);
             
-            if(strength >= cross_req_strength && confluence_ok && slope_ok && body_break)
+            if(strength >= cross_req_strength && confluence_ok && slope_ok && body_break && trend_buy_ok)
             {
-                
-                // Alert Logic (Immediate or Bar Close handled in CheckForAlerts)
+                // Alert Logic
                 if(index == 0 && !InpAlertOnBarClose) 
                    SendAdvancedAlert("BUY (Crossover)", time, price, strength, confluence, phase);
                    
@@ -712,13 +721,13 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         //--- Bearish crossover
         else if(ema_fast_prev >= ema_slow_prev && ema_fast_curr < ema_slow_curr)
         {
-            // 1. Slope Check: Slow EMA must not be pointing sharply up (Dynamic Tolerance)
+            // 1. Slope Check
             bool slope_ok = (ema_slow_curr <= ema_slow_prev + slope_tolerance);
             
-            // 2. Body Break Check: Candle must be Bearish AND Close below Slow EMA
+            // 2. Body Break Check
             bool body_break = (close < open) && (close < ema_slow_curr);
             
-            if(MathAbs(strength) >= cross_req_strength && confluence_ok && slope_ok && body_break)
+            if(MathAbs(strength) >= cross_req_strength && confluence_ok && slope_ok && body_break && trend_sell_ok)
             {
                 FGM_Entry_Buffer[index] = -1; // Sell Signal
                 DrawSignalArrow(index, price, time, false);
@@ -742,8 +751,12 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         if(close > ema_trend_curr && strength >= min_strength)
         {
             // Price dipped into "Value Zone" (e.g., touched EMA3/Medium) but closed bullish
-            bool touched_value = (low <= ema_mid_curr); 
-            bool bounced_up = (close > open) && (close > ema_fast_curr); // Closed back above fast EMA
+            // Relaxed: Allow touching EMA2 (Slow) if EMA3 is too far, or just getting close to EMA3
+            bool touched_value = (low <= ema_mid_curr) || (low <= ema_slow_curr); 
+            
+            // Relaxed Bounce: Must close Bullish AND above EMA2 (Slow). 
+            // Requiring close > EMA1 (Fast) was too strict for deep pullbacks.
+            bool bounced_up = (close > open) && (close > ema_slow_curr); 
             
             // Ensure we are not too far from the EMAs (Confluence check)
             if(touched_value && bounced_up && confluence_ok)
@@ -761,8 +774,10 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         if(close < ema_trend_curr && MathAbs(strength) >= min_strength)
         {
             // Price rallied into "Value Zone" (e.g., touched EMA3/Medium) but closed bearish
-            bool touched_value = (high >= ema_mid_curr);
-            bool bounced_down = (close < open) && (close < ema_fast_curr); // Closed back below fast EMA
+            bool touched_value = (high >= ema_mid_curr) || (high >= ema_slow_curr);
+            
+            // Relaxed Bounce: Must close Bearish AND below EMA2 (Slow).
+            bool bounced_down = (close < open) && (close < ema_slow_curr); 
             
             if(touched_value && bounced_down && confluence_ok)
             {
