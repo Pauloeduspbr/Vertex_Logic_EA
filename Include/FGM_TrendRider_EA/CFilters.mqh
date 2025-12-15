@@ -13,6 +13,7 @@
 #include "CAssetSpecs.mqh"
 #include "CSignalFGM.mqh"
 #include "CRegimeDetector.mqh"
+#include "COBVMACD.mqh"
 
 //+------------------------------------------------------------------+
 //| Estrutura de resultado dos filtros                               |
@@ -32,6 +33,7 @@ struct FilterResult
    bool     ema200OK;            // Preço vs EMA200
    bool     cooldownOK;          // Cooldown respeitado
    bool     rsiomaOK;            // RSIOMA OK (NOVO)
+   bool     obvmACDOK;           // OBV MACD OK (NOVO)
    
    //--- Valores
    double   currentSpread;       // Spread atual
@@ -43,6 +45,7 @@ struct FilterResult
    int      currentPhase;        // Fase atual
    double   currentRSI;          // RSI atual (NOVO)
    double   currentRSIMA;        // RSI MA atual (NOVO)
+   int      obvmACDSignal;       // Sinal OBV MACD (-1, 0, 1) (NOVO)
 };
 
 //+------------------------------------------------------------------+
@@ -100,6 +103,13 @@ struct FilterConfig
    bool     rsiomaCheckMidLevel; // Verificar nível 50 (momentum)
    bool     rsiomaCheckCrossover;// Verificar cruzamento RSI×MA
    int      rsiomaConfirmBars;   // Número de barras para confirmação (1-5)
+   
+   //--- OBV MACD Filter (NOVO - Nexus Logic)
+   bool     obvmACDActive;       // Filtro OBV MACD ativo
+   bool     obvmACDRequireBuy;   // Exigir sinal de compra
+   bool     obvmACDRequireSell;  // Exigir sinal de venda
+   bool     obvmACDAllowWeakSignals; // Permitir sinais fracos (HOLD_B/HOLD_S)
+   bool     obvmACDCheckVolumeRelevance; // Verificar volume relevante
 };
 
 //+------------------------------------------------------------------+
@@ -124,6 +134,9 @@ private:
    double             m_bufferRSI[];
    double             m_bufferRSIMA[];
    
+   //--- OBV MACD (NOVO - Nexus Logic)
+   COBVMACD*          m_obvmacd;        // Ponteiro para OBV MACD
+   
    //--- Cooldown tracking
    int                m_cooldownCounter;    // Contador de barras em cooldown
    datetime           m_lastBarTime;        // Tempo da última barra processada
@@ -139,6 +152,7 @@ private:
    bool               CheckEMA200(bool isBuy);
    bool               CheckCooldown(int strength);
    bool               CheckRSIOMA(bool isBuy);  // NOVO
+   bool               CheckOBVMACD(bool isBuy); // NOVO
    void               UpdateCooldown();
    
 public:
@@ -155,6 +169,9 @@ public:
    void               SetConfig(const FilterConfig& config);
    FilterConfig       GetConfig() { return m_config; }
    void               SetDefaultConfig();
+   void               SetOBVMACDParams(int fastEMA, int slowEMA, int signalSMA, 
+                                       int obvSmooth, bool useTickVolume, 
+                                       int threshPeriod, double threshMult);
    
    //--- Verificação principal
    FilterResult       CheckAll(bool isBuy, int minStrength, bool skipPhaseFilter = false);
@@ -204,6 +221,7 @@ CFilters::CFilters()
    m_lastError = "";
    m_handleVolumeMA = INVALID_HANDLE;
    m_handleRSI = INVALID_HANDLE;
+   m_obvmacd = NULL;
    m_cooldownCounter = 0;
    m_lastBarTime = 0;
    m_lastStopTime = 0;
@@ -287,6 +305,28 @@ bool CFilters::Init(CAssetSpecs* asset, CSignalFGM* signal, CRegimeDetector* reg
       }
    }
    
+   //--- Inicializar OBV MACD (NOVO - Nexus Logic)
+   if(m_config.obvmACDActive)
+   {
+      m_obvmacd = new COBVMACD();
+      if(m_obvmacd != NULL)
+      {
+         //--- Parâmetros padrão (serão atualizados pelo EA via SetOBVMACDParams)
+         if(!m_obvmacd.Init(m_asset.GetSymbol(), PERIOD_CURRENT, 12, 26, 9, 5, true, 34, 0.6))
+         {
+            Print("CFilters: Aviso - Não foi possível inicializar OBV MACD");
+            Print("CFilters: Erro: ", m_obvmacd.GetLastError());
+            delete m_obvmacd;
+            m_obvmacd = NULL;
+            m_config.obvmACDActive = false;
+         }
+         else
+         {
+            Print("CFilters: OBV MACD Filter ativado com parâmetros padrão (serão atualizados pelo EA)");
+         }
+      }
+   }
+   
    m_initialized = true;
    Print("CFilters: Inicializado com sucesso");
    
@@ -307,6 +347,12 @@ void CFilters::Deinit()
    {
       IndicatorRelease(m_handleRSI);
       m_handleRSI = INVALID_HANDLE;
+   }
+   if(m_obvmacd != NULL)
+   {
+      m_obvmacd.Deinit();
+      delete m_obvmacd;
+      m_obvmacd = NULL;
    }
    m_initialized = false;
 }
@@ -365,6 +411,13 @@ void CFilters::SetDefaultConfig()
    m_config.rsiomaCheckMidLevel = true;     // Verificar nível 50
    m_config.rsiomaCheckCrossover = false;   // Não verificar cruzamento por padrão
    m_config.rsiomaConfirmBars = 1;          // Padrão: apenas 1 barra (comportamento atual)
+   
+   //--- OBV MACD Filter (NOVO - Nexus Logic)
+   m_config.obvmACDActive = false;          // Desativado por padrão
+   m_config.obvmACDRequireBuy = false;      // Não exigir compra por padrão
+   m_config.obvmACDRequireSell = false;     // Não exigir venda por padrão
+   m_config.obvmACDAllowWeakSignals = true; // Permitir sinais fracos por padrão
+   m_config.obvmACDCheckVolumeRelevance = false; // Não verificar volume relevante por padrão
 }
 
 //+------------------------------------------------------------------+
@@ -374,6 +427,9 @@ void CFilters::SetConfig(const FilterConfig& config)
 {
    //--- Verificar se RSIOMA foi ativado e precisa criar handle
    bool needsRSIHandle = (config.rsiomaActive && m_handleRSI == INVALID_HANDLE);
+   
+   //--- Verificar se OBV MACD foi ativado e precisa inicializar
+   bool needsOBVMACD = (config.obvmACDActive && m_obvmacd == NULL);
    
    m_config = config;
    
@@ -406,6 +462,28 @@ void CFilters::SetConfig(const FilterConfig& config)
       }
    }
    
+   //--- Inicializar OBV MACD se foi ativado agora (NOVO)
+   if(needsOBVMACD && m_asset != NULL)
+   {
+      m_obvmacd = new COBVMACD();
+      if(m_obvmacd != NULL)
+      {
+         //--- Parâmetros padrão (serão atualizados pelo EA via SetOBVMACDParams)
+         if(!m_obvmacd.Init(m_asset.GetSymbol(), PERIOD_CURRENT, 12, 26, 9, 5, true, 34, 0.6))
+         {
+            Print("CFilters: Aviso - Não foi possível inicializar OBV MACD em SetConfig");
+            Print("CFilters: Erro: ", m_obvmacd.GetLastError());
+            delete m_obvmacd;
+            m_obvmacd = NULL;
+            m_config.obvmACDActive = false;
+         }
+         else
+         {
+            Print("CFilters: OBV MACD Filter ativado em SetConfig com parâmetros padrão (serão atualizados pelo EA)");
+         }
+      }
+   }
+   
    //--- DEBUG: Log da configuração recebida
    Print("CFilters::SetConfig - Confluência máxima configurada:");
    Print(StringFormat("  F3: %.1f%% | F4: %.1f%% | F5: %.1f%%", 
@@ -419,6 +497,11 @@ void CFilters::SetConfig(const FilterConfig& config)
                       m_config.rsiomaCheckMidLevel ? "SIM" : "NÃO",
                       m_config.rsiomaCheckCrossover ? "SIM" : "NÃO",
                       m_config.rsiomaConfirmBars));
+   Print(StringFormat("  OBV MACD ativo: %s | RequireBuy: %s | RequireSell: %s | AllowWeak: %s",
+                      m_config.obvmACDActive ? "SIM" : "NÃO",
+                      m_config.obvmACDRequireBuy ? "SIM" : "NÃO",
+                      m_config.obvmACDRequireSell ? "SIM" : "NÃO",
+                      m_config.obvmACDAllowWeakSignals ? "SIM" : "NÃO"));
 }
 
 //+------------------------------------------------------------------+
@@ -781,6 +864,18 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
       else
          result.failReason = StringFormat("RSIOMA filtro falhou: RSI=%.1f MA=%.1f", 
                                            result.currentRSI, result.currentRSIMA);
+      return result;
+   }
+   
+   //--- OBV MACD Filter (NOVO - Nexus Logic com sincronismo sequencial)
+   result.obvmACDOK = CheckOBVMACD(isBuy);
+   if(!result.obvmACDOK)
+   {
+      result.passed = false;
+      if(isBuy)
+         result.failReason = "OBV MACD: Sem sinal de compra ou em lateralização";
+      else
+         result.failReason = "OBV MACD: Sem sinal de venda ou em lateralização";
       return result;
    }
    
@@ -1152,12 +1247,146 @@ bool CFilters::CheckRSIOMA(bool isBuy)
 }
 
 //+------------------------------------------------------------------+
+//| Check OBV MACD (Nexus Logic - Sincronismo Sequencial)            |
+//+------------------------------------------------------------------+
+bool CFilters::CheckOBVMACD(bool isBuy)
+{
+   //--- Se não está ativado, permite (passa silenciosamente)
+   if(!m_config.obvmACDActive || m_obvmacd == NULL)
+      return true;
+   
+   //--- Obter sinal do OBV MACD (barra fechada)
+   ENUM_CUSTOM_SIGNAL signal = m_obvmacd.GetSignal(1);
+   
+   //--- DEBUG: Log do sinal obtido
+   Print(StringFormat("OBV MACD GetSignal retornou: %d (SIGNAL_BUY=1, SIGNAL_SELL=-1, SIGNAL_HOLD_B=2, SIGNAL_HOLD_S=-2, SIGNAL_NONE=0)", signal));
+   
+   //--- Verificar se o mercado está em lateralização (ruído)
+   if(m_obvmacd.IsSideways(1))
+   {
+      Print("OBV MACD: Mercado em lateralização (Death Zone) - BLOQUEADO");
+      return false;
+   }
+   
+   //--- Verificar se há volume relevante
+   if(m_config.obvmACDCheckVolumeRelevance)
+   {
+      if(!m_obvmacd.IsVolumeRelevant(1))
+      {
+         Print("OBV MACD: Volume não relevante - BLOQUEADO");
+         return false;
+      }
+   }
+   
+   //--- SINCRONISMO SEQUENCIAL com Sinal FGM
+   //    A lógica é: OBV MACD deve estar em sincronismo com a intenção de compra/venda
+   
+   if(isBuy)
+   {
+      //--- Para COMPRA: Verificar se RequireBuy está ativado
+      if(m_config.obvmACDRequireBuy)
+      {
+         //--- RequireBuy ativo: exigir sinal de COMPRA válido
+         if(signal == SIGNAL_BUY)
+         {
+            Print("OBV MACD: COMPRA FORTE (Green Strong) - APROVADO para BUY");
+            return true;
+         }
+         else if(signal == SIGNAL_HOLD_B && m_config.obvmACDAllowWeakSignals)
+         {
+            Print("OBV MACD: COMPRA ENFRAQUECENDO (Green Weak) - ACEITO para BUY (fraco)");
+            return true;
+         }
+         else
+         {
+            Print("OBV MACD: RequireBuy ativo - Sem sinal de compra válido. Sinal: ", signal);
+            return false;
+         }
+      }
+      else
+      {
+         //--- RequireBuy inativo: permitir compra (validação silenciosa)
+         Print("OBV MACD: RequireBuy desativado - Compra permitida (sem verificação OBV)");
+         return true;
+      }
+   }
+   else
+   {
+      //--- Para VENDA: Verificar se RequireSell está ativado
+      if(m_config.obvmACDRequireSell)
+      {
+         //--- RequireSell ativo: exigir sinal de VENDA válido
+         if(signal == SIGNAL_SELL)
+         {
+            Print("OBV MACD: VENDA FORTE (Red Strong) - APROVADO para SELL");
+            return true;
+         }
+         else if(signal == SIGNAL_HOLD_S && m_config.obvmACDAllowWeakSignals)
+         {
+            Print("OBV MACD: VENDA ENFRAQUECENDO (Red Weak) - ACEITO para SELL (fraco)");
+            return true;
+         }
+         else
+         {
+            Print("OBV MACD: RequireSell ativo - Sem sinal de venda válido. Sinal: ", signal);
+            return false;
+         }
+      }
+      else
+      {
+         //--- RequireSell inativo: permitir venda (validação silenciosa)
+         Print("OBV MACD: RequireSell desativado - Venda permitida (sem verificação OBV)");
+         return true;
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Verificar RSIOMA público (NOVO)                                  |
 //+------------------------------------------------------------------+
 bool CFilters::IsRSIOMAOK(bool isBuy)
 {
    return CheckRSIOMA(isBuy);
 }
+
+//+------------------------------------------------------------------+
+//| Configurar parâmetros do OBV MACD (NOVO)                         |
+//+------------------------------------------------------------------+
+void CFilters::SetOBVMACDParams(int fastEMA, int slowEMA, int signalSMA, 
+                                int obvSmooth, bool useTickVolume, 
+                                int threshPeriod, double threshMult)
+{
+   //--- Se OBV MACD já foi inicializado, reinicializar com novos parâmetros
+   if(m_obvmacd != NULL && m_config.obvmACDActive)
+   {
+      m_obvmacd.Deinit();
+      delete m_obvmacd;
+      m_obvmacd = NULL;
+      
+      //--- Recriar com novos parâmetros
+      m_obvmacd = new COBVMACD();
+      if(m_obvmacd != NULL)
+      {
+         if(!m_obvmacd.Init(m_asset.GetSymbol(), PERIOD_CURRENT, 
+                           fastEMA, slowEMA, signalSMA, obvSmooth, 
+                           useTickVolume, threshPeriod, threshMult))
+         {
+            Print("CFilters: Aviso - Não foi possível reinicializar OBV MACD com novos parâmetros");
+            Print("CFilters: Erro: ", m_obvmacd.GetLastError());
+            delete m_obvmacd;
+            m_obvmacd = NULL;
+         }
+         else
+         {
+            Print("CFilters: OBV MACD reconfigurado com novos parâmetros:");
+            Print("  FastEMA: ", fastEMA, " SlowEMA: ", slowEMA, 
+                  " SignalSMA: ", signalSMA, " ObvSmooth: ", obvSmooth);
+         }
+      }
+   }
+}
+
+#endif // CFILTERS_MQH
 
 #endif // CFILTERS_MQH
 

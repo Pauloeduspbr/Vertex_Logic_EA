@@ -12,19 +12,20 @@
 //+------------------------------------------------------------------+
 //| Includes                                                         |
 //+------------------------------------------------------------------+
-#include <Trade\Trade.mqh>
-#include <Trade\PositionInfo.mqh>
-#include <Trade\OrderInfo.mqh>
-#include "..\..\Include\FGM_TrendRider_EA\CAssetSpecs.mqh"
-#include "..\..\Include\FGM_TrendRider_EA\CSignalFGM.mqh"
-#include "..\..\Include\FGM_TrendRider_EA\CRiskManager.mqh"
-#include "..\..\Include\FGM_TrendRider_EA\CTradeEngine.mqh"
-#include "..\..\Include\FGM_TrendRider_EA\CTimeFilter.mqh"
-#include "..\..\Include\FGM_TrendRider_EA\CRegimeDetector.mqh"
-#include "..\..\Include\FGM_TrendRider_EA\CFilters.mqh"
-#include "..\..\Include\FGM_TrendRider_EA\CStats.mqh"
-#include "..\..\Include\FGM_TrendRider_EA\CBreakEvenManager.mqh"
-#include "..\..\Include\FGM_TrendRider_EA\CTrailingStopManager.mqh"
+#include <Trade/Trade.mqh>
+#include <Trade/PositionInfo.mqh>
+#include <Trade/OrderInfo.mqh>
+#include "../../Include/FGM_TrendRider_EA/CAssetSpecs.mqh"
+#include "../../Include/FGM_TrendRider_EA/CSignalFGM.mqh"
+#include "../../Include/FGM_TrendRider_EA/CRiskManager.mqh"
+#include "../../Include/FGM_TrendRider_EA/CTradeEngine.mqh"
+#include "../../Include/FGM_TrendRider_EA/CTimeFilter.mqh"
+#include "../../Include/FGM_TrendRider_EA/CRegimeDetector.mqh"
+#include "../../Include/FGM_TrendRider_EA/COBVMACD.mqh"
+#include "../../Include/FGM_TrendRider_EA/CFilters.mqh"
+#include "../../Include/FGM_TrendRider_EA/CStats.mqh"
+#include "../../Include/FGM_TrendRider_EA/CBreakEvenManager.mqh"
+#include "../../Include/FGM_TrendRider_EA/CTrailingStopManager.mqh"
 
 //+------------------------------------------------------------------+
 //| Enumerações de Input                                             |
@@ -194,6 +195,24 @@ input int      Inp_RSIOMA_Oversold = 30;               // Nível Sobrevenda (nã
 input bool     Inp_RSIOMA_CheckMid = true;             // Verificar nível 50 (momentum)
 input bool     Inp_RSIOMA_CheckCross = true;           // Verificar RSI × MA (direção)
 input int      Inp_RSIOMA_ConfirmBars = 2;             // Barras de Confirmação (1-5)
+
+//--- Filtro OBV MACD (NOVO - Nexus Logic)
+input group "═══════════════ FILTRO OBV MACD (NEXUS) ═══════════════"
+input bool     Inp_UseOBVMACD      = true;             // Usar Filtro OBV MACD (Nexus Logic)
+input bool     Inp_OBVMACD_RequireBuy = false;         // Exigir sinal de compra (recomendado: false)
+input bool     Inp_OBVMACD_RequireSell = false;        // Exigir sinal de venda (recomendado: false)
+input bool     Inp_OBVMACD_AllowWeak = true;           // Permitir sinais fracos (Green Weak/Red Weak)
+input bool     Inp_OBVMACD_CheckVolume = false;        // Verificar volume relevante (recomendado: false)
+
+//--- Parâmetros do Indicador OBV MACD v3
+input group "═══════════════ OBV MACD v3 - PARÂMETROS ═══════════════"
+input int      Inp_OBVMACD_FastEMA = 12;               // Fast EMA Period
+input int      Inp_OBVMACD_SlowEMA = 26;               // Slow EMA Period
+input int      Inp_OBVMACD_SignalSMA = 9;              // Signal SMA Period
+input int      Inp_OBVMACD_ObvSmooth = 5;              // OBV Smoothing SMA Period
+input bool     Inp_OBVMACD_UseTickVolume = true;       // Use Tick Volume (true) ou Real (false)
+input int      Inp_OBVMACD_ThreshPeriod = 34;          // Threshold EMA period
+input double   Inp_OBVMACD_ThreshMult = 0.6;           // Threshold multiplier
 
 //--- Regime de Mercado
 input group "═══════════════ REGIME DE MERCADO ═══════════════"
@@ -428,7 +447,21 @@ int OnInit()
    filterConfig.rsiomaCheckMidLevel = Inp_RSIOMA_CheckMid;
    filterConfig.rsiomaCheckCrossover = Inp_RSIOMA_CheckCross;
    filterConfig.rsiomaConfirmBars = Inp_RSIOMA_ConfirmBars;
+   
+   //--- Configurar OBV MACD Filter (NOVO - Nexus Logic)
+   filterConfig.obvmACDActive = Inp_UseOBVMACD;
+   filterConfig.obvmACDRequireBuy = Inp_OBVMACD_RequireBuy;
+   filterConfig.obvmACDRequireSell = Inp_OBVMACD_RequireSell;
+   filterConfig.obvmACDAllowWeakSignals = Inp_OBVMACD_AllowWeak;
+   filterConfig.obvmACDCheckVolumeRelevance = Inp_OBVMACD_CheckVolume;
+   
    g_Filters.SetConfig(filterConfig);
+   
+   //--- Configurar parâmetros do indicador OBV MACD v3
+   g_Filters.SetOBVMACDParams(Inp_OBVMACD_FastEMA, Inp_OBVMACD_SlowEMA, 
+                              Inp_OBVMACD_SignalSMA, Inp_OBVMACD_ObvSmooth,
+                              Inp_OBVMACD_UseTickVolume, Inp_OBVMACD_ThreshPeriod,
+                              Inp_OBVMACD_ThreshMult);
    
    //--- Inicializar Stats
    if(!g_Stats.Init(Inp_MagicNumber, Inp_LogLevel,
@@ -613,9 +646,8 @@ void ProcessSignals()
    {
       if(!g_TimeFilter.CanOpenNewPosition())
       {
-         //--- Obter mensagem de erro detalhada do TimeFilter
-         TimeFilterResult tfResult = g_TimeFilter.Check();
-         g_Stats.LogDebug(StringFormat("Fora do horário de trading ou Soft Exit ativo. Detalhe: %s", tfResult.message));
+         //--- Fora do horário de trading ou Soft Exit ativo
+         g_Stats.LogDebug("Fora do horário de trading ou Soft Exit ativo.");
          return;
       }
    }
@@ -766,7 +798,8 @@ void ProcessSignals()
    
    //--- Armazenar força e sessão
    g_currentStrength = signalStrength;
-   g_currentSession = g_TimeFilter.GetSessionName(g_TimeFilter.GetCurrentForexSession());
+   ENUM_FOREX_SESSION session = g_TimeFilter.GetCurrentForexSession();
+   g_currentSession = g_TimeFilter.GetSessionName(session);
    
    //--- Executar entrada
    TradeResult tradeResult;
