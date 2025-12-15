@@ -169,7 +169,7 @@ bool COBVMACD::Init(string symbol,
    
    //--- Criar handle do indicador
    m_handle = iCustom(m_symbol, m_timeframe,
-                      "Indicators\\FGM_TrendRider_EA\\OBV_MACD_v3",
+                      "FGM_TrendRider_EA\\OBV_MACD_v3",
                       m_fastEMA,
                       m_slowEMA,
                       m_signalSMA,
@@ -182,7 +182,7 @@ bool COBVMACD::Init(string symbol,
    
    if(m_handle == INVALID_HANDLE)
    {
-      int err = GetLastError();
+      int err = ::GetLastError();
       m_lastError = StringFormat("Falha ao criar handle OBV_MACD_v3. Erro: %d", err);
       return false;
    }

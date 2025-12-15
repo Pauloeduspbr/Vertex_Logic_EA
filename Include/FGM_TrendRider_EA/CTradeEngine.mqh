@@ -230,7 +230,7 @@ bool CTradeEngine::Init(CAssetSpecs* asset, long magic, string comment = "FGM_TR
    m_trade.SetExpertMagicNumber(magic);
    m_trade.SetDeviationInPoints(slippage);
    m_trade.SetTypeFilling(ORDER_FILLING_FOK);
-   m_trade.SetTypeFillingBySymbol(m_asset.GetSymbol());
+   m_trade.SetTypeFillingBySymbol(m_asset->GetSymbol());
    
    //--- Verificar se tem posição aberta
    m_hasPosition = HasPosition();
@@ -238,7 +238,7 @@ bool CTradeEngine::Init(CAssetSpecs* asset, long magic, string comment = "FGM_TR
       UpdatePositionData();
    
    m_initialized = true;
-   Print("CTradeEngine: Inicializado. Magic: ", magic, " | Symbol: ", m_asset.GetSymbol());
+   Print("CTradeEngine: Inicializado. Magic: ", magic, " | Symbol: ", m_asset->GetSymbol());
    
    return true;
 }
@@ -263,7 +263,7 @@ bool CTradeEngine::HasPosition()
    {
       if(m_position.SelectByIndex(i))
       {
-         if(m_position.Symbol() == m_asset.GetSymbol() && 
+         if(m_position.Symbol() == m_asset->GetSymbol() && 
             m_position.Magic() == m_magicNumber)
          {
             m_hasPosition = true;
@@ -305,7 +305,7 @@ int CTradeEngine::CountPositions()
    {
       if(m_position.SelectByIndex(i))
       {
-         if(m_position.Symbol() == m_asset.GetSymbol())
+         if(m_position.Symbol() == m_asset->GetSymbol())
             count++;
       }
    }
@@ -341,7 +341,7 @@ void CTradeEngine::UpdatePositionData()
    {
       if(m_position.SelectByIndex(i))
       {
-         if(m_position.Symbol() == m_asset.GetSymbol() && 
+         if(m_position.Symbol() == m_asset->GetSymbol() && 
             m_position.Magic() == m_magicNumber)
          {
             m_currentPos.ticket = m_position.Ticket();
@@ -462,7 +462,7 @@ TradeResult CTradeEngine::OpenPosition(bool isBuy, double volume, double sl, dou
    }
    
    //--- Validar volume
-   volume = m_asset.NormalizeLot(volume);
+   volume = m_asset->NormalizeLot(volume);
    if(!ValidateVolume(volume))
    {
       result.message = "Volume inválido: " + DoubleToString(volume, 2);
@@ -470,9 +470,9 @@ TradeResult CTradeEngine::OpenPosition(bool isBuy, double volume, double sl, dou
    }
    
    //--- Normalizar preços
-   sl = m_asset.NormalizeSL(sl, isBuy);
+   sl = m_asset->NormalizeSL(sl, isBuy);
    if(tp > 0)
-      tp = m_asset.NormalizeTP(tp, isBuy);
+      tp = m_asset->NormalizeTP(tp, isBuy);
    
    //--- Obter preço
    double price = isBuy ? GetCurrentAsk() : GetCurrentBid();
@@ -487,9 +487,9 @@ TradeResult CTradeEngine::OpenPosition(bool isBuy, double volume, double sl, dou
    for(int attempt = 1; attempt <= m_maxRetries; attempt++)
    {
       if(isBuy)
-         success = m_trade.Buy(volume, m_asset.GetSymbol(), price, sl, tp, orderComment);
+         success = m_trade.Buy(volume, m_asset->GetSymbol(), price, sl, tp, orderComment);
       else
-         success = m_trade.Sell(volume, m_asset.GetSymbol(), price, sl, tp, orderComment);
+         success = m_trade.Sell(volume, m_asset->GetSymbol(), price, sl, tp, orderComment);
       
       if(m_trade.ResultRetcode() == TRADE_RETCODE_DONE)
       {
@@ -594,7 +594,7 @@ TradeResult CTradeEngine::ClosePositionPartial(double volumeToClose)
    UpdatePositionData();
    
    //--- Validar volume
-   volumeToClose = m_asset.NormalizeLot(volumeToClose);
+   volumeToClose = m_asset->NormalizeLot(volumeToClose);
    if(volumeToClose <= 0)
    {
       result.message = "Volume para fechar inválido";
@@ -609,7 +609,7 @@ TradeResult CTradeEngine::ClosePositionPartial(double volumeToClose)
    
    //--- Verificar volume mínimo restante
    double remainingVolume = m_currentPos.volume - volumeToClose;
-   if(remainingVolume < m_asset.GetVolumeMin())
+   if(remainingVolume < m_asset->GetVolumeMin())
    {
       //--- Fechar tudo se restante for menor que mínimo
       return ClosePosition();
@@ -656,7 +656,7 @@ TradeResult CTradeEngine::ClosePositionPercent(int percent)
    UpdatePositionData();
    
    double volumeToClose = m_currentPos.volume * (percent / 100.0);
-   volumeToClose = m_asset.NormalizeLot(volumeToClose);
+   volumeToClose = m_asset->NormalizeLot(volumeToClose);
    
    return ClosePositionPartial(volumeToClose);
 }
@@ -718,7 +718,7 @@ TradeResult CTradeEngine::ModifySL(double newSL)
    
    //--- Normalizar SL
    bool isBuy = (m_currentPos.type == POSITION_TYPE_BUY);
-   newSL = m_asset.NormalizeSL(newSL, isBuy);
+   newSL = m_asset->NormalizeSL(newSL, isBuy);
    
    //--- Verificar se é melhor que o atual
    if(isBuy)
@@ -777,7 +777,7 @@ TradeResult CTradeEngine::ModifyTP(double newTP)
    //--- Normalizar TP
    bool isBuy = (m_currentPos.type == POSITION_TYPE_BUY);
    if(newTP > 0)
-      newTP = m_asset.NormalizeTP(newTP, isBuy);
+      newTP = m_asset->NormalizeTP(newTP, isBuy);
    
    //--- Modificar
    bool success = m_trade.PositionModify(m_currentPos.ticket, m_currentPos.sl, newTP);
@@ -817,9 +817,9 @@ TradeResult CTradeEngine::ModifySLTP(double newSL, double newTP)
    
    //--- Normalizar preços
    bool isBuy = (m_currentPos.type == POSITION_TYPE_BUY);
-   newSL = m_asset.NormalizeSL(newSL, isBuy);
+   newSL = m_asset->NormalizeSL(newSL, isBuy);
    if(newTP > 0)
-      newTP = m_asset.NormalizeTP(newTP, isBuy);
+      newTP = m_asset->NormalizeTP(newTP, isBuy);
    
    //--- Modificar
    bool success = m_trade.PositionModify(m_currentPos.ticket, newSL, newTP);
@@ -850,7 +850,7 @@ bool CTradeEngine::MoveToBreakeven(double offset = 0)
    
    if(offset > 0)
    {
-      double offsetPrice = offset * m_asset.GetPointValue();
+      double offsetPrice = offset * m_asset->GetPointValue();
       if(isBuy)
          bePrice = bePrice + offsetPrice;
       else
@@ -882,7 +882,7 @@ bool CTradeEngine::MoveToBreakeven(double offset = 0)
    }
    
    //--- Normalizar e modificar
-   bePrice = m_asset.NormalizeSL(bePrice, isBuy);
+   bePrice = m_asset->NormalizeSL(bePrice, isBuy);
    TradeResult result = ModifySL(bePrice);
    
    if(result.success)
@@ -932,7 +932,7 @@ bool CTradeEngine::UpdateTrailingStop(ENUM_TRAILING_MODE mode, double value)
       case TRAIL_EMA8:
       case TRAIL_EMA21:
       case TRAIL_EMA50:
-         return TrailingByEMA(value, m_asset.GetPointValue() * 5); // Buffer de 5 pontos
+         return TrailingByEMA(value, m_asset->GetPointValue() * 5); // Buffer de 5 pontos
          
       default:
          return false;
@@ -1186,10 +1186,10 @@ bool CTradeEngine::ValidateVolume(double volume)
    if(!m_initialized || m_asset == NULL)
       return false;
    
-   if(volume < m_asset.GetVolumeMin())
+   if(volume < m_asset->GetVolumeMin())
       return false;
    
-   if(volume > m_asset.GetVolumeMax())
+   if(volume > m_asset->GetVolumeMax())
       return false;
    
    return true;
@@ -1201,7 +1201,7 @@ bool CTradeEngine::ValidateVolume(double volume)
 double CTradeEngine::GetCurrentBid()
 {
    if(m_asset != NULL)
-      return SymbolInfoDouble(m_asset.GetSymbol(), SYMBOL_BID);
+      return SymbolInfoDouble(m_asset->GetSymbol(), SYMBOL_BID);
    return SymbolInfoDouble(_Symbol, SYMBOL_BID);
 }
 
@@ -1211,7 +1211,7 @@ double CTradeEngine::GetCurrentBid()
 double CTradeEngine::GetCurrentAsk()
 {
    if(m_asset != NULL)
-      return SymbolInfoDouble(m_asset.GetSymbol(), SYMBOL_ASK);
+      return SymbolInfoDouble(m_asset->GetSymbol(), SYMBOL_ASK);
    return SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 }
 

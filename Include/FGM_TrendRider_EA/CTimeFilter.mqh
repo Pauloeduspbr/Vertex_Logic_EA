@@ -235,7 +235,7 @@ CTimeFilter::~CTimeFilter()
 //+------------------------------------------------------------------+
 bool CTimeFilter::Init(CAssetSpecs* asset, int brokerOffsetHours = 0)
 {
-   if(asset == NULL || !asset.IsInitialized())
+   if(asset == NULL || !asset->IsInitialized())
    {
       m_lastError = "CAssetSpecs inválido ou não inicializado";
       return false;
@@ -447,9 +447,9 @@ TimeFilterResult CTimeFilter::Check()
    }
    
    //--- Verificar por tipo de mercado
-   if(m_asset.IsB3())
+   if(m_asset->IsB3())
       return CheckB3Time();
-   else if(m_asset.IsForex())
+   else if(m_asset->IsForex())
       return CheckForexTime();
    else
    {
