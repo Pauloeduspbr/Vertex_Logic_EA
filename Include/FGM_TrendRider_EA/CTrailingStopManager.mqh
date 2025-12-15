@@ -229,13 +229,22 @@ bool CTrailingStopManager::Init(string symbol, bool enabled, int trigger, int di
         step_converted = 1;
     }
     
-    // Validação: Trigger deve ser maior que Distance (ratio mínimo 2:1 recomendado)
-    if(trigger_converted <= distance_converted)
+    // Validação: Trigger deve ser maior ou igual a Distance
+    // NOTA: Se Trigger == Distance, o SL começa exatamente no entry
+    //       Se Trigger > Distance, o SL já começa no lucro
+    if(trigger_converted < distance_converted)
     {
-        Print("❌ [TS] ERRO: Trigger (", trigger_converted, ") deve ser MAIOR que Distance (", distance_converted, ")");
-        Print("   O TS só ativa quando lucro >= Trigger, então se Trigger <= Distance,");
-        Print("   o SL estaria no preço de entrada ou pior desde o início!");
+        Print("❌ [TS] ERRO: Trigger (", trigger_converted, ") deve ser MAIOR ou IGUAL a Distance (", distance_converted, ")");
+        Print("   O TS só ativa quando lucro >= Trigger, então se Trigger < Distance,");
+        Print("   o SL estaria ANTES do preço de entrada!");
         return false;
+    }
+    
+    // Aviso se Trigger == Distance (SL começa no entry, sem lucro protegido inicialmente)
+    if(trigger_converted == distance_converted)
+    {
+        Print("⚠️ [TS] AVISO: Trigger == Distance (ambos ", trigger_converted, " steps)");
+        Print("   O SL começará no preço de entrada. Recomendado: Trigger > Distance para iniciar com lucro protegido.");
     }
     
     // Validação: Ratio Trigger:Step deve ser >= 2:1
@@ -246,6 +255,7 @@ bool CTrailingStopManager::Init(string symbol, bool enabled, int trigger, int di
               " (recomendado >= 2.0)");
         Print("   Trigger baixo demais em relação ao Step pode causar movimentos prematuros");
     }
+
     
     // Armazenar configurações convertidas
     m_trigger = trigger_converted;

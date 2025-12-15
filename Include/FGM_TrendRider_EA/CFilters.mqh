@@ -13,7 +13,6 @@
 #include "CAssetSpecs.mqh"
 #include "CSignalFGM.mqh"
 #include "CRegimeDetector.mqh"
-#include "COBVMACD.mqh"
 
 //+------------------------------------------------------------------+
 //| Estrutura de resultado dos filtros                               |
@@ -72,13 +71,13 @@ struct FilterConfig
    bool     volumeIgnoreF5;      // Ignorar para força 5
    
    //--- Confluência por força (limite MÁXIMO de compressão aceitável)
-   //    Lembrando: no indicador FGM, confluência ALTA (75-100%) = EMAs comprimidas = mercado lateral
-   //                confluência BAIXA (10-25%) = EMAs afastadas = tendência forte.
-   //    Aqui usamos o MESMO conceito do EA: bloquear somente quando a confluência
-   //    ultrapassa um limite máximo configurado por força do sinal.
    double   confluenceMaxF3;     // Confluência MÁXIMA aceitável para força 3 (0 = ignorar)
    double   confluenceMaxF4;     // Confluência MÁXIMA aceitável para força 4 (0 = ignorar)
    double   confluenceMaxF5;     // Confluência MÁXIMA aceitável para força 5 (0 = ignorar)
+   
+   //--- Confluência MÍNIMA para entrada (NOVO - filtro de sinais fracos)
+   double   confluenceMin;       // Confluência MÍNIMA para aceitar entrada (% de 0-100)
+   bool     confluenceMinActive; // Ativar filtro de confluência mínima
    
    //--- Fase de mercado
    bool     phaseFilterActive;   // Filtro de fase ativo
@@ -110,6 +109,15 @@ struct FilterConfig
    bool     obvmACDRequireSell;  // Exigir sinal de venda
    bool     obvmACDAllowWeakSignals; // Permitir sinais fracos (HOLD_B/HOLD_S)
    bool     obvmACDCheckVolumeRelevance; // Verificar volume relevante
+   
+   //--- Parâmetros do Indicador OBV MACD
+   int      obvFastEMA;
+   int      obvSlowEMA;
+   int      obvSignalSMA;
+   int      obvSmooth;
+   bool     obvUseTickVolume;
+   int      obvThreshPeriod;
+   double   obvThreshMult;
 };
 
 //+------------------------------------------------------------------+
@@ -134,8 +142,14 @@ private:
    double             m_bufferRSI[];
    double             m_bufferRSIMA[];
    
-   //--- OBV MACD (NOVO - Nexus Logic)
-   COBVMACD*          m_obvmacd;        // Ponteiro para OBV MACD
+   //--- OBV MACD (NOVO - Direct Logic)
+   int                m_handleOBVMACD;  // Handle do indicador OBV MACD
+   double             m_bufferOBVHist[];      // Buffer 0
+   double             m_bufferOBVColor[];     // Buffer 1
+   double             m_bufferOBVThreshold[]; // Buffer 4
+   
+   //--- SINCRONIZAÇÃO: Shift atual para leitura de buffers
+   int                m_currentShift;   // Barra atual do sinal (0 ou 1)
    
    //--- Cooldown tracking
    int                m_cooldownCounter;    // Contador de barras em cooldown
@@ -155,6 +169,8 @@ private:
    bool               CheckOBVMACD(bool isBuy); // NOVO
    void               UpdateCooldown();
    
+   void               CreateOBVMACDHandle(); // Helper para criar handle
+   
 public:
                       CFilters();
                      ~CFilters();
@@ -173,9 +189,9 @@ public:
                                        int obvSmooth, bool useTickVolume, 
                                        int threshPeriod, double threshMult);
    
-   //--- Verificação principal
-   FilterResult       CheckAll(bool isBuy, int minStrength, bool skipPhaseFilter = false);
-   bool               PassesAllFilters(bool isBuy, int minStrength, bool skipPhaseFilter = false);
+   //--- Verificação principal (signalShift = barra onde o sinal foi detectado)
+   FilterResult       CheckAll(bool isBuy, int minStrength, bool skipPhaseFilter = false, int signalShift = 1);
+   bool               PassesAllFilters(bool isBuy, int minStrength, bool skipPhaseFilter = false, int signalShift = 1);
    
    //--- Verificações individuais (públicas)
    bool               IsSpreadOK();
@@ -221,16 +237,22 @@ CFilters::CFilters()
    m_lastError = "";
    m_handleVolumeMA = INVALID_HANDLE;
    m_handleRSI = INVALID_HANDLE;
-   m_obvmacd = NULL;
+   m_handleOBVMACD = INVALID_HANDLE;
    m_cooldownCounter = 0;
    m_lastBarTime = 0;
    m_lastStopTime = 0;
+   m_currentShift = 1;  // Default: barra fechada (mais seguro)
    
    ArraySetAsSeries(m_bufferVolumeMA, true);
    ArraySetAsSeries(m_bufferRSI, true);
    ArraySetAsSeries(m_bufferRSIMA, true);
+   ArraySetAsSeries(m_bufferOBVHist, true);
+   ArraySetAsSeries(m_bufferOBVColor, true);
+   ArraySetAsSeries(m_bufferOBVThreshold, true);
+   
    SetDefaultConfig();
 }
+
 
 //+------------------------------------------------------------------+
 //| Destrutor                                                         |
@@ -278,21 +300,19 @@ bool CFilters::Init(CAssetSpecs* asset, CSignalFGM* signal, CRegimeDetector* reg
    if(m_config.rsiomaActive)
    {
       //--- Usar indicador RSIOMA customizado via iCustom
-      //--- Parâmetros: RSI_Period, MA_Period, MA_Method, HighLevel, LowLevel, ShowLevels
       m_handleRSI = iCustom(m_asset.GetSymbol(), PERIOD_CURRENT, 
                             "FGM_TrendRider_EA\\RSIOMA_v2HHLSX_MT5",
-                            m_config.rsiomaPeriod,           // RSI_Period
-                            m_config.rsiomaMA_Period,        // MA_Period
-                            m_config.rsiomaMA_Method,        // MA_Method
-                            (double)m_config.rsiomaOverbought, // HighLevel
-                            (double)m_config.rsiomaOversold,   // LowLevel
-                            true);                           // ShowLevels
+                            m_config.rsiomaPeriod,
+                            m_config.rsiomaMA_Period,
+                            m_config.rsiomaMA_Method,
+                            (double)m_config.rsiomaOverbought,
+                            (double)m_config.rsiomaOversold,
+                            true);
       
       if(m_handleRSI == INVALID_HANDLE)
       {
          Print("CFilters: Aviso - Não foi possível criar handle RSIOMA customizado");
          Print("CFilters: Erro: ", GetLastError());
-         // Não falha, apenas desativa o filtro
          m_config.rsiomaActive = false;
       }
       else
@@ -305,32 +325,50 @@ bool CFilters::Init(CAssetSpecs* asset, CSignalFGM* signal, CRegimeDetector* reg
       }
    }
    
-   //--- Inicializar OBV MACD (NOVO - Nexus Logic)
+   //--- Inicializar OBV MACD (Direto no CFilters)
    if(m_config.obvmACDActive)
    {
-      m_obvmacd = new COBVMACD();
-      if(m_obvmacd != NULL)
-      {
-         //--- Parâmetros padrão (serão atualizados pelo EA via SetOBVMACDParams)
-         if(!m_obvmacd.Init(m_asset.GetSymbol(), PERIOD_CURRENT, 12, 26, 9, 5, true, 34, 0.6))
-         {
-            Print("CFilters: Aviso - Não foi possível inicializar OBV MACD");
-            Print("CFilters: Erro: ", m_obvmacd.GetLastError());
-            delete m_obvmacd;
-            m_obvmacd = NULL;
-            m_config.obvmACDActive = false;
-         }
-         else
-         {
-            Print("CFilters: OBV MACD Filter ativado com parâmetros padrão (serão atualizados pelo EA)");
-         }
-      }
+      CreateOBVMACDHandle();
    }
    
    m_initialized = true;
    Print("CFilters: Inicializado com sucesso");
    
    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Helper para criar handle OBV MACD                                |
+//+------------------------------------------------------------------+
+void CFilters::CreateOBVMACDHandle()
+{
+   if(m_handleOBVMACD != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_handleOBVMACD);
+      m_handleOBVMACD = INVALID_HANDLE;
+   }
+   
+   //--- Caminho do indicador: FGM_TrendRider_EA\OBV_MACD_v3.ex5
+   m_handleOBVMACD = iCustom(m_asset.GetSymbol(), PERIOD_CURRENT,
+                             "FGM_TrendRider_EA\\OBV_MACD_v3",
+                             m_config.obvFastEMA,
+                             m_config.obvSlowEMA,
+                             m_config.obvSignalSMA,
+                             m_config.obvSmooth,
+                             m_config.obvUseTickVolume,
+                             m_config.obvThreshPeriod,
+                             m_config.obvThreshMult);
+                             
+   if(m_handleOBVMACD == INVALID_HANDLE)
+   {
+      Print("CFilters: Aviso - Não foi possível criar handle OBV MACD");
+      Print("CFilters: Erro: ", GetLastError());
+      m_config.obvmACDActive = false;
+   }
+   else
+   {
+      Print("CFilters: OBV MACD Filter ativado - Handle criado com sucesso");
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -348,11 +386,10 @@ void CFilters::Deinit()
       IndicatorRelease(m_handleRSI);
       m_handleRSI = INVALID_HANDLE;
    }
-   if(m_obvmacd != NULL)
+   if(m_handleOBVMACD != INVALID_HANDLE)
    {
-      m_obvmacd.Deinit();
-      delete m_obvmacd;
-      m_obvmacd = NULL;
+      IndicatorRelease(m_handleOBVMACD);
+      m_handleOBVMACD = INVALID_HANDLE;
    }
    m_initialized = false;
 }
@@ -381,12 +418,13 @@ void CFilters::SetDefaultConfig()
    m_config.volumeIgnoreF5 = true;
    
    //--- Confluência (limites MÁXIMOS)
-   //    NOTA: O EA já valida confluência com seus próprios inputs (Inp_MaxConf_F3/F4/F5)
-   //    ANTES de chamar CFilters. Portanto, usamos 100.0 como padrão aqui para 
-   //    evitar bloqueio duplo. O EA pode sobrescrever esses valores via SetConfig().
-   m_config.confluenceMaxF3 = 100.0;   // Padrão: não bloquear (EA já validou)
-   m_config.confluenceMaxF4 = 100.0;   // Padrão: não bloquear (EA já validou)
-   m_config.confluenceMaxF5 = 100.0;   // Padrão: não bloquear (EA já validou)
+   m_config.confluenceMaxF3 = 100.0;
+   m_config.confluenceMaxF4 = 100.0;
+   m_config.confluenceMaxF5 = 100.0;
+   
+   //--- Confluência MÍNIMA (NOVO)
+   m_config.confluenceMin = 0.0;       // Desativado por padrão (0 = sem mínimo)
+   m_config.confluenceMinActive = false;
    
    //--- Fase
    m_config.phaseFilterActive = true;
@@ -401,23 +439,32 @@ void CFilters::SetDefaultConfig()
    m_config.cooldownBarsAfterStop = 6;
    m_config.cooldownIgnoreF5 = true;
    
-   //--- RSIOMA Filter (NOVO)
-   m_config.rsiomaActive = false;           // Desativado por padrão
-   m_config.rsiomaPeriod = 14;              // Período RSI padrão
-   m_config.rsiomaMA_Period = 9;            // Período MA do RSI
-   m_config.rsiomaMA_Method = MODE_SMA;     // Média simples
-   m_config.rsiomaOverbought = 70;          // Nível sobrecompra
-   m_config.rsiomaOversold = 30;            // Nível sobrevenda
-   m_config.rsiomaCheckMidLevel = true;     // Verificar nível 50
-   m_config.rsiomaCheckCrossover = false;   // Não verificar cruzamento por padrão
-   m_config.rsiomaConfirmBars = 1;          // Padrão: apenas 1 barra (comportamento atual)
+   //--- RSIOMA Filter
+   m_config.rsiomaActive = false;
+   m_config.rsiomaPeriod = 14;
+   m_config.rsiomaMA_Period = 9;
+   m_config.rsiomaMA_Method = MODE_SMA;
+   m_config.rsiomaOverbought = 80;
+   m_config.rsiomaOversold = 20;
+   m_config.rsiomaCheckMidLevel = true;
+   m_config.rsiomaCheckCrossover = false;
+   m_config.rsiomaConfirmBars = 1;
    
-   //--- OBV MACD Filter (NOVO - Nexus Logic)
-   m_config.obvmACDActive = false;          // Desativado por padrão
-   m_config.obvmACDRequireBuy = false;      // Não exigir compra por padrão
-   m_config.obvmACDRequireSell = false;     // Não exigir venda por padrão
-   m_config.obvmACDAllowWeakSignals = true; // Permitir sinais fracos por padrão
-   m_config.obvmACDCheckVolumeRelevance = false; // Não verificar volume relevante por padrão
+   //--- OBV MACD Filter
+   m_config.obvmACDActive = false;
+   m_config.obvmACDRequireBuy = false;
+   m_config.obvmACDRequireSell = false;
+   m_config.obvmACDAllowWeakSignals = true;
+   m_config.obvmACDCheckVolumeRelevance = false;
+   
+   //--- Parâmetros OBV MACD padrão
+   m_config.obvFastEMA = 12;
+   m_config.obvSlowEMA = 26;
+   m_config.obvSignalSMA = 9;
+   m_config.obvSmooth = 5;
+   m_config.obvUseTickVolume = true;
+   m_config.obvThreshPeriod = 34;
+   m_config.obvThreshMult = 0.6;
 }
 
 //+------------------------------------------------------------------+
@@ -428,15 +475,15 @@ void CFilters::SetConfig(const FilterConfig& config)
    //--- Verificar se RSIOMA foi ativado e precisa criar handle
    bool needsRSIHandle = (config.rsiomaActive && m_handleRSI == INVALID_HANDLE);
    
-   //--- Verificar se OBV MACD foi ativado e precisa inicializar
-   bool needsOBVMACD = (config.obvmACDActive && m_obvmacd == NULL);
+   //--- Verificar se OBV MACD foi ativado (handle criado em CreateOBVMACDHandle se precisar)
+   //--- Mas aqui só checamos se mudou o estado de ativo para recriar se necessário
+   bool needsOBVMACD = (config.obvmACDActive && m_handleOBVMACD == INVALID_HANDLE);
    
    m_config = config;
    
    //--- Criar handle RSIOMA se foi ativado agora
    if(needsRSIHandle && m_asset != NULL)
    {
-      //--- Usar indicador RSIOMA customizado via iCustom
       m_handleRSI = iCustom(m_asset.GetSymbol(), PERIOD_CURRENT, 
                             "FGM_TrendRider_EA\\RSIOMA_v2HHLSX_MT5",
                             m_config.rsiomaPeriod,
@@ -449,59 +496,26 @@ void CFilters::SetConfig(const FilterConfig& config)
       if(m_handleRSI == INVALID_HANDLE)
       {
          Print("CFilters: Aviso - Não foi possível criar handle RSIOMA");
-         Print("CFilters: Erro: ", GetLastError());
          m_config.rsiomaActive = false;
       }
       else
       {
-         Print("CFilters: RSIOMA Filter ativado (indicador customizado)");
-         Print("CFilters: RSI(", m_config.rsiomaPeriod, 
-               ") MA(", m_config.rsiomaMA_Period, 
-               ") OB:", m_config.rsiomaOverbought, 
-               " OS:", m_config.rsiomaOversold);
+         Print("CFilters: RSIOMA Filter ativado com parâmetros novos");
       }
    }
    
-   //--- Inicializar OBV MACD se foi ativado agora (NOVO)
+   //--- Inicializar OBV MACD se foi ativado agora
    if(needsOBVMACD && m_asset != NULL)
    {
-      m_obvmacd = new COBVMACD();
-      if(m_obvmacd != NULL)
-      {
-         //--- Parâmetros padrão (serão atualizados pelo EA via SetOBVMACDParams)
-         if(!m_obvmacd.Init(m_asset.GetSymbol(), PERIOD_CURRENT, 12, 26, 9, 5, true, 34, 0.6))
-         {
-            Print("CFilters: Aviso - Não foi possível inicializar OBV MACD em SetConfig");
-            Print("CFilters: Erro: ", m_obvmacd.GetLastError());
-            delete m_obvmacd;
-            m_obvmacd = NULL;
-            m_config.obvmACDActive = false;
-         }
-         else
-         {
-            Print("CFilters: OBV MACD Filter ativado em SetConfig com parâmetros padrão (serão atualizados pelo EA)");
-         }
-      }
+      CreateOBVMACDHandle();
    }
    
    //--- DEBUG: Log da configuração recebida
-   Print("CFilters::SetConfig - Confluência máxima configurada:");
-   Print(StringFormat("  F3: %.1f%% | F4: %.1f%% | F5: %.1f%%", 
-                      m_config.confluenceMaxF3, m_config.confluenceMaxF4, m_config.confluenceMaxF5));
-   Print(StringFormat("  Slope ativo: %s | Volume ativo: %s | Cooldown: %d barras",
-                      m_config.slopeActive ? "SIM" : "NÃO",
-                      m_config.volumeActive ? "SIM" : "NÃO",
-                      m_config.cooldownBarsAfterStop));
-   Print(StringFormat("  RSIOMA ativo: %s | CheckMid: %s | CheckCross: %s | ConfirmBars: %d",
-                      m_config.rsiomaActive ? "SIM" : "NÃO",
-                      m_config.rsiomaCheckMidLevel ? "SIM" : "NÃO",
-                      m_config.rsiomaCheckCrossover ? "SIM" : "NÃO",
-                      m_config.rsiomaConfirmBars));
-   Print(StringFormat("  OBV MACD ativo: %s | RequireBuy: %s | RequireSell: %s | AllowWeak: %s",
+   Print("CFilters::SetConfig - Configurações atualizadas.");
+   Print(StringFormat("  OBV MACD ativo: %s | RequireBuy: %s | RequireSell: %s",
                       m_config.obvmACDActive ? "SIM" : "NÃO",
                       m_config.obvmACDRequireBuy ? "SIM" : "NÃO",
-                      m_config.obvmACDRequireSell ? "SIM" : "NÃO",
-                      m_config.obvmACDAllowWeakSignals ? "SIM" : "NÃO"));
+                      m_config.obvmACDRequireSell ? "SIM" : "NÃO"));
 }
 
 //+------------------------------------------------------------------+
@@ -566,14 +580,19 @@ bool CFilters::CheckVolume(int strength)
    if(!m_config.volumeActive || !m_asset.IsB3())
       return true;
    
-   //--- Ignorar para F4 e F5 (sinais fortes já confirmados pelo indicador)
-   //--- O indicador FGM já analisa força da tendência com 5 EMAs
+   //--- Ignorar para F4 e F5
    if(strength >= 4)
       return true;
    
+   //--- CORREÇÃO: Para volume, se o sinal for na barra 0 (abertura),
+   //--- o volume ainda é baixo. Devemos olhar a barra anterior (1) para validação.
+   //--- Se o sinal for na barra 1 (fechada), olhamos a própria barra 1.
+   int volumeShift = MathMax(1, m_currentShift);
+   
    //--- Obter volume atual
+   //--- Obter volume atual da barra de análise
    long volumes[];
-   if(CopyTickVolume(m_asset.GetSymbol(), PERIOD_CURRENT, 1, 1, volumes) <= 0)
+   if(CopyTickVolume(m_asset.GetSymbol(), PERIOD_CURRENT, volumeShift, 1, volumes) <= 0)
       return true;
    
    double currentVolume = (double)volumes[0];
@@ -597,8 +616,9 @@ bool CFilters::CheckConfluence(int strength)
    if(m_signal == NULL)
       return true;
    
-   //--- Ler a confluência na MESMA barra usada pelo EA (shift 0)
-   double confluence = m_signal.GetConfluence(0);
+   //--- CORREÇÃO: Ler a confluência na MESMA barra do sinal (m_currentShift)
+   double confluence = m_signal.GetConfluence(m_currentShift);
+
 
    //--- strength já vem como valor absoluto
    int absStrength = strength;
@@ -615,10 +635,21 @@ bool CFilters::CheckConfluence(int strength)
    }
 
    //--- DEBUG: Log para diagnóstico
-   Print(StringFormat("CFilters::CheckConfluence - F%d: Confluência=%.1f%% (máx=%.1f%%)", 
-                      absStrength, confluence, maxConfluence));
+   Print(StringFormat("CFilters::CheckConfluence - F%d: Confluência=%.1f%% (mín=%.1f%%, máx=%.1f%%)", 
+                      absStrength, confluence, m_config.confluenceMin, maxConfluence));
 
-   //--- Se maxConfluence <= 0, não aplicar filtro de confluência aqui
+   //--- NOVO: Verificar confluência MÍNIMA (rejeitar sinais fracos)
+   if(m_config.confluenceMinActive && m_config.confluenceMin > 0.0)
+   {
+      if(confluence < m_config.confluenceMin)
+      {
+         Print(StringFormat("CFilters: Confluência BAIXA demais: %.1f%% (mín: %.1f%%) - Sinal fraco rejeitado",
+                            confluence, m_config.confluenceMin));
+         return false;
+      }
+   }
+
+   //--- Se maxConfluence <= 0, não aplicar filtro de confluência máxima
    if(maxConfluence <= 0.0)
       return true;
 
@@ -626,6 +657,7 @@ bool CFilters::CheckConfluence(int strength)
    //    (confluência acima do limite => mercado lateral => bloquear).
    return (confluence <= maxConfluence);
 }
+
 
 //+------------------------------------------------------------------+
 //| Verificar fase de mercado                                        |
@@ -635,13 +667,15 @@ bool CFilters::CheckPhase(bool isBuy)
    if(!m_config.phaseFilterActive || m_signal == NULL)
       return true;
    
-   int phase = (int)m_signal.GetPhase(0);
+   //--- CORREÇÃO: Usar m_currentShift para sincronizar com o sinal
+   int phase = (int)m_signal.GetPhase(m_currentShift);
    
    if(isBuy)
       return (phase >= m_config.minPhaseBuy);
    else
       return (phase <= m_config.minPhaseSell);
 }
+
 
 //+------------------------------------------------------------------+
 //| Verificar força do sinal                                         |
@@ -708,7 +742,7 @@ void CFilters::UpdateCooldown()
 //+------------------------------------------------------------------+
 //| Verificação principal                                            |
 //+------------------------------------------------------------------+
-FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilter = false)
+FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilter = false, int signalShift = 1)
 {
    FilterResult result;
    ZeroMemory(result);
@@ -722,6 +756,12 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
       return result;
    }
    
+   //--- SINCRONIZAÇÃO CRÍTICA: Armazenar o shift para uso em todos os métodos
+   m_currentShift = signalShift;
+   
+   //--- DEBUG: Log de sincronização
+   Print(StringFormat("CFilters::CheckAll - Usando signalShift=%d para sincronização", signalShift));
+   
    //--- Obter valores atuais para o resultado
    result.currentSpread = GetCurrentSpread();
    result.currentSlope = GetCurrentSlope(isBuy);
@@ -730,12 +770,13 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
    
    if(m_signal != NULL)
    {
-      // Sempre usar shift 0 para manter alinhamento com o EA (ProcessSignals)
-      result.currentConfluence = m_signal.GetConfluence(0);
+      //--- CORREÇÃO: Usar m_currentShift (passado pelo EA) em vez de hardcoded 0
+      result.currentConfluence = m_signal.GetConfluence(m_currentShift);
       //--- Usar valor absoluto - Strength é negativo para SELL
-      result.currentStrength = (int)MathAbs(m_signal.GetStrength(0));
-      result.currentPhase = (int)m_signal.GetPhase(0);
+      result.currentStrength = (int)MathAbs(m_signal.GetStrength(m_currentShift));
+      result.currentPhase = (int)m_signal.GetPhase(m_currentShift);
    }
+
    
    //--- Verificar cada filtro
    result.spreadOK = CheckSpread();
@@ -799,11 +840,15 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
    if(!result.confluenceOK)
    {
       result.passed = false;
-      // Agora a lógica bloqueia quando a confluência está ALTA demais (EMAs comprimidas = lateral).
-      // Ajustamos a mensagem para refletir corretamente esse comportamento.
-      result.failReason = StringFormat("Confluência ALTA demais (lateral): %.1f%%", result.currentConfluence);
+      // Determinar se foi bloqueado por confluência BAIXA ou ALTA
+      if(m_config.confluenceMinActive && result.currentConfluence < m_config.confluenceMin)
+         result.failReason = StringFormat("Confluência BAIXA demais (sinal fraco): %.1f%% (mín: %.1f%%)", 
+                                          result.currentConfluence, m_config.confluenceMin);
+      else
+         result.failReason = StringFormat("Confluência ALTA demais (lateral): %.1f%%", result.currentConfluence);
       return result;
    }
+
    
    //--- Slope Filter: pular para PRICE CROSSOVER (movimento de preço confirma tendência)
    if(skipPhaseFilter)
@@ -889,11 +934,12 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
 //+------------------------------------------------------------------+
 //| Verificar se passa todos os filtros (simplificado)               |
 //+------------------------------------------------------------------+
-bool CFilters::PassesAllFilters(bool isBuy, int minStrength, bool skipPhaseFilter = false)
+bool CFilters::PassesAllFilters(bool isBuy, int minStrength, bool skipPhaseFilter = false, int signalShift = 1)
 {
-   FilterResult result = CheckAll(isBuy, minStrength, skipPhaseFilter);
+   FilterResult result = CheckAll(isBuy, minStrength, skipPhaseFilter, signalShift);
    return result.passed;
 }
+
 
 //+------------------------------------------------------------------+
 //| Verificações individuais públicas                                |
@@ -960,9 +1006,8 @@ double CFilters::GetCurrentSlope(bool isBuy = true)
    if(m_signal == NULL)
       return 0;
    
-   // Usar o MESMO shift 0 que é utilizado em CheckSlope/ProcessSignals
-   // para manter o alinhamento dos logs com a lógica real do filtro.
-   return m_signal.CalculateSlope(m_config.slopePeriod, 0);
+   //--- CORREÇÃO: Usar m_currentShift para calcular slope da barra do sinal
+   return m_signal.CalculateSlope(m_config.slopePeriod, m_currentShift);
 }
 
 //+------------------------------------------------------------------+
@@ -972,9 +1017,12 @@ double CFilters::GetCurrentVolume()
 {
    if(m_asset == NULL)
       return 0;
+      
+   //--- CORREÇÃO: Usar MathMax(1, m_currentShift) para consistência com CheckVolume
+   int volumeShift = MathMax(1, m_currentShift);
    
    long volumes[];
-   if(CopyTickVolume(m_asset.GetSymbol(), PERIOD_CURRENT, 1, 1, volumes) <= 0)
+   if(CopyTickVolume(m_asset.GetSymbol(), PERIOD_CURRENT, volumeShift, 1, volumes) <= 0)
       return 0;
    
    return (double)volumes[0];
@@ -988,7 +1036,10 @@ double CFilters::GetVolumeMA()
    if(m_handleVolumeMA == INVALID_HANDLE)
       return 0;
    
-   if(CopyBuffer(m_handleVolumeMA, 0, 1, 1, m_bufferVolumeMA) <= 0)
+   //--- CORREÇÃO: Usar MathMax(1, m_currentShift) para média também
+   int volumeShift = MathMax(1, m_currentShift);
+   
+   if(CopyBuffer(m_handleVolumeMA, 0, volumeShift, 1, m_bufferVolumeMA) <= 0)
       return 0;
    
    return m_bufferVolumeMA[0];
@@ -1099,26 +1150,29 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    ArraySetAsSeries(rsiValues, true);
    ArraySetAsSeries(rsiMAValues, true);
    
-   //--- Copiar valores das últimas N barras (começando da barra 1 = fechada)
+   //--- CORREÇÃO SINCRONIZAÇÃO: Usar m_currentShift para alinhar com o sinal FGM
+   int startBar = m_currentShift;
+   
+   //--- DEBUG: Log de sincronização
+   Print(StringFormat("CheckRSIOMA: Lendo a partir da barra %d (sincronizado com sinal)", startBar));
+   
+   //--- Copiar valores das últimas N barras (começando de m_currentShift)
    //--- LEITURA DIRETA: buffer 0 = RSI (linha vermelha), buffer 1 = MA (linha azul)
    //--- Lemos exatamente como o indicador desenha para não haver divergência
    //--- entre o que o trader vê e o que o EA utiliza nos filtros.
-   //--- DEBUG EXTRA: também vamos ler os valores brutos do próprio indicador
-   //--- via CopyBuffer para a BARRA 1, para garantir que
-   //--- não há nenhum deslocamento entre o cálculo interno do indicador e o
-   //--- que é retornado pelo CopyBuffer.
    double dbgRSI_Bar1 = EMPTY_VALUE;
    double dbgRSIMA_Bar1 = EMPTY_VALUE;
    double tempRSI[1], tempRSIMA[1];
-   if(CopyBuffer(m_handleRSI, 0, 1, 1, tempRSI) > 0)
+   if(CopyBuffer(m_handleRSI, 0, startBar, 1, tempRSI) > 0)
       dbgRSI_Bar1 = tempRSI[0];
-   if(CopyBuffer(m_handleRSI, 1, 1, 1, tempRSIMA) > 0)
+   if(CopyBuffer(m_handleRSI, 1, startBar, 1, tempRSIMA) > 0)
       dbgRSIMA_Bar1 = tempRSIMA[0];
 
-   if(CopyBuffer(m_handleRSI, 0, 1, confirmBars, rsiValues) < confirmBars)
+   if(CopyBuffer(m_handleRSI, 0, startBar, confirmBars, rsiValues) < confirmBars)
       return true;
-   if(CopyBuffer(m_handleRSI, 1, 1, confirmBars, rsiMAValues) < confirmBars)
+   if(CopyBuffer(m_handleRSI, 1, startBar, confirmBars, rsiMAValues) < confirmBars)
       return true;
+
    
    //--- DEBUG: Logar valores de todas as barras analisadas
    //--- Buffer 0 = RSI (linha vermelha visual) | Buffer 1 = MA (linha azul visual)
@@ -1135,6 +1189,7 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    for(int i = 0; i < confirmBars; i++)
    {
       datetime barTime = iTime(m_asset.GetSymbol(), PERIOD_CURRENT, i + 1);
+      double closePrice = iClose(m_asset.GetSymbol(), PERIOD_CURRENT, i + 1);
       double diff = rsiValues[i] - rsiMAValues[i];
       string relation;
       if(diff >= 0.5)
@@ -1144,7 +1199,7 @@ bool CFilters::CheckRSIOMA(bool isBuy)
       else
          relation = "RSI ≈ MA (INDECISÃO)";
       
-      Print("  Bar", i+1, " [", TimeToString(barTime, TIME_MINUTES), "]: ",
+      Print("  Bar", i+1, " [", TimeToString(barTime, TIME_MINUTES), "] Close=", DoubleToString(closePrice, _Digits), ": ",
             "RSI=", DoubleToString(rsiValues[i], 2), " | ",
             "MA=", DoubleToString(rsiMAValues[i], 2), " | ",
             "Diff=", DoubleToString(diff, 2), " | ", relation);
@@ -1216,7 +1271,9 @@ bool CFilters::CheckRSIOMA(bool isBuy)
          
          //--- Para BUY: RSI deve estar SUBINDO ou estável, E acima de 50 (já verificado antes)
          //--- Se RSI está caindo forte, não é bom para compra
-         if(isBuy && rsiChange < -2.0)  // RSI caindo mais de 2 pontos
+         //--- Para BUY: RSI deve estar SUBINDO ou estável.
+         //--- Bloquear imediatamente se estiver caindo (Negativo)
+         if(isBuy && rsiChange < 0)  // RSI caindo
          {
             Print("RSIOMA FILTRO: BUY bloqueado - RSI CAINDO (", 
                   DoubleToString(rsiChange, 1), " pts) - momentum contrário");
@@ -1225,7 +1282,9 @@ bool CFilters::CheckRSIOMA(bool isBuy)
          
          //--- Para SELL: RSI deve estar CAINDO ou estável, E abaixo de 50 (já verificado antes)
          //--- Se RSI está subindo forte, não é bom para venda
-         if(!isBuy && rsiChange > 2.0)  // RSI subindo mais de 2 pontos
+         //--- Para SELL: RSI deve estar CAINDO ou estável.
+         //--- Bloquear imediatamente se estiver subindo (Positivo)
+         if(!isBuy && rsiChange > 0)  // RSI subindo
          {
             Print("RSIOMA FILTRO: SELL bloqueado - RSI SUBINDO (", 
                   DoubleToString(rsiChange, 1), " pts) - momentum contrário");
@@ -1249,95 +1308,124 @@ bool CFilters::CheckRSIOMA(bool isBuy)
 //+------------------------------------------------------------------+
 //| Check OBV MACD (Nexus Logic - Sincronismo Sequencial)            |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check OBV MACD (Nexus Logic - Sincronismo Sequencial)            |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check OBV MACD (Nexus Logic - Sincronismo Sequencial)            |
+//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Check OBV MACD (Nexus Logic - Sincronismo Sequencial)            |
+//+------------------------------------------------------------------+
 bool CFilters::CheckOBVMACD(bool isBuy)
 {
    //--- Se não está ativado, permite (passa silenciosamente)
-   if(!m_config.obvmACDActive || m_obvmacd == NULL)
+   if(!m_config.obvmACDActive || m_handleOBVMACD == INVALID_HANDLE)
       return true;
    
-   //--- Obter sinal do OBV MACD (barra fechada)
-   ENUM_CUSTOM_SIGNAL signal = m_obvmacd.GetSignal(1);
+   //--- Buffers para leitura
+   //--- Buffer 0: Histograma (Ler 2 barras para detectar cruzamento)
+   //--- Buffer 1: Cor (0=VerdeForte, 1=VermelhoForte, 2=VerdeFraco, 3=VermelhoFraco)
+   //--- Buffer 4: Threshold
+   double hist[2], colorBuf[1], thresh[1];
    
-   //--- DEBUG: Log do sinal obtido
-   Print(StringFormat("OBV MACD GetSignal retornou: %d (SIGNAL_BUY=1, SIGNAL_SELL=-1, SIGNAL_HOLD_B=2, SIGNAL_HOLD_S=-2, SIGNAL_NONE=0)", signal));
+   //--- Configurar como Series para garantir ordem [0]=MaisNovo, [1]=MaisVelho
+   ArraySetAsSeries(hist, true);
+   ArraySetAsSeries(colorBuf, true);
+   ArraySetAsSeries(thresh, true);
    
-   //--- Verificar se o mercado está em lateralização (ruído)
-   if(m_obvmacd.IsSideways(1))
-   {
-      Print("OBV MACD: Mercado em lateralização (Death Zone) - BLOQUEADO");
-      return false;
-   }
+   //--- CORREÇÃO SINCRONIZAÇÃO: Usar m_currentShift para alinhar com o sinal FGM
+   //--- Se sinal está na barra 0, ler OBV MACD na barra 0 também
+   //--- Se sinal está na barra 1, ler OBV MACD na barra 1
+   int startBar = m_currentShift;
    
-   //--- Verificar se há volume relevante
+   //--- DEBUG: Log de sincronização
+   Print(StringFormat("CheckOBVMACD: Lendo barra %d (sincronizado com sinal)", startBar));
+   
+   if(CopyBuffer(m_handleOBVMACD, 0, startBar, 2, hist) <= 0) { Print("OBV MACD: Falha CopyBuffer Hist"); return true; }
+   if(CopyBuffer(m_handleOBVMACD, 1, startBar, 1, colorBuf) <= 0) { Print("OBV MACD: Falha CopyBuffer Color"); return true; }
+   if(CopyBuffer(m_handleOBVMACD, 4, startBar, 1, thresh) <= 0) { Print("OBV MACD: Falha CopyBuffer Threshold"); return true; }
+   
+   double currentHist = hist[0]; // Barra atual (m_currentShift)
+   double prevHist    = hist[1]; // Barra anterior
+   int currentColor = (int)MathRound(colorBuf[0]);
+   double currentThresh = thresh[0];
+
+   
+   //--- DEBUG: Log dos dados lidos
+   Print(StringFormat("[OBV MACD DEBUG] Bar1: Hist=%.6f | Bar2: Hist=%.6f | Color=%d | Threshold=%.6f", 
+                     currentHist, prevHist, currentColor, currentThresh));
+   
+   //--- 1. Verificar lateralização (Ruído)
+   //--- Apenas se configurado para checar relevância de volume
    if(m_config.obvmACDCheckVolumeRelevance)
    {
-      if(!m_obvmacd.IsVolumeRelevant(1))
+      bool isZeroCross = (currentHist * prevHist < 0); // Sinais opostos indicam cruzamento
+      
+      if(isZeroCross)
       {
-         Print("OBV MACD: Volume não relevante - BLOQUEADO");
-         return false;
+         Print("OBV MACD: Cruzamento de Zero detectado (Zero Cross) - Filtro de Ruído IGNORADO");
+      }
+      else
+      {
+         //--- Aplicamos tolerância de 20% (Noise Limit = 80% do Threshold)
+         double noiseLimit = currentThresh * 0.8;
+         
+         if(MathAbs(currentHist) < noiseLimit)
+         {
+            Print(StringFormat("OBV MACD: Mercado em lateralização (Death Zone) |%.6f| < %.6f - BLOQUEADO", 
+                              MathAbs(currentHist), noiseLimit));
+            return false;
+         }
       }
    }
    
-   //--- SINCRONISMO SEQUENCIAL com Sinal FGM
-   //    A lógica é: OBV MACD deve estar em sincronismo com a intenção de compra/venda
+   //--- 2. SINCRONISMO SEQUENCIAL DIRETO (Estrito por Cor - APENAS FORTE)
+   //    Mapeamento de Cores do Indicador OBV_MACD_v3:
+   //    0 = COLOR_POS_STRONG (Verde Forte) -> Hist > 0 e Subindo (Viés COMPRA FORTE)
+   //    1 = COLOR_NEG_STRONG (Vermelho Forte)-> Hist < 0 e Caindo (Viés VENDA FORTE)
+   //    2 = COLOR_POS_WEAK   (Verde Fraco) -> Bloqueado
+   //    3 = COLOR_NEG_WEAK   (Vermelho Fraco)-> Bloqueado
    
    if(isBuy)
    {
-      //--- Para COMPRA: Verificar se RequireBuy está ativado
+       //--- Se RequireBuy estiver ativo
       if(m_config.obvmACDRequireBuy)
       {
-         //--- RequireBuy ativo: exigir sinal de COMPRA válido
-         if(signal == SIGNAL_BUY)
+         //--- COMPRA FORTE: Valida Cor 0
+         if(currentColor == 0)
          {
-            Print("OBV MACD: COMPRA FORTE (Green Strong) - APROVADO para BUY");
+            Print("OBV MACD: COMPRA FORTE (Verde Forte) - APROVADO");
             return true;
          }
-         else if(signal == SIGNAL_HOLD_B && m_config.obvmACDAllowWeakSignals)
-         {
-            Print("OBV MACD: COMPRA ENFRAQUECENDO (Green Weak) - ACEITO para BUY (fraco)");
-            return true;
-         }
-         else
-         {
-            Print("OBV MACD: RequireBuy ativo - Sem sinal de compra válido. Sinal: ", signal);
-            return false;
-         }
+         
+         //--- Qualquer outra cor (1, 2 ou 3) bloqueia
+         Print(StringFormat("OBV MACD: Bloqueio de Compra. Cor=%d (Esperado: 0 - Verde Forte)", currentColor));
+         return false;
       }
-      else
-      {
-         //--- RequireBuy inativo: permitir compra (validação silenciosa)
-         Print("OBV MACD: RequireBuy desativado - Compra permitida (sem verificação OBV)");
-         return true;
-      }
+      
+      Print("OBV MACD: RequireBuy desativado - Compra permitida");
+      return true;
    }
-   else
+   else // SELL
    {
-      //--- Para VENDA: Verificar se RequireSell está ativado
+      //--- Se RequireSell estiver ativo
       if(m_config.obvmACDRequireSell)
       {
-         //--- RequireSell ativo: exigir sinal de VENDA válido
-         if(signal == SIGNAL_SELL)
+         //--- VENDA FORTE: Valida Cor 1
+         if(currentColor == 1)
          {
-            Print("OBV MACD: VENDA FORTE (Red Strong) - APROVADO para SELL");
+            Print("OBV MACD: VENDA FORTE (Vermelho Forte) - APROVADO");
             return true;
          }
-         else if(signal == SIGNAL_HOLD_S && m_config.obvmACDAllowWeakSignals)
-         {
-            Print("OBV MACD: VENDA ENFRAQUECENDO (Red Weak) - ACEITO para SELL (fraco)");
-            return true;
-         }
-         else
-         {
-            Print("OBV MACD: RequireSell ativo - Sem sinal de venda válido. Sinal: ", signal);
-            return false;
-         }
+         
+         //--- Qualquer outra cor (0, 2 ou 3) bloqueia
+         Print(StringFormat("OBV MACD: Bloqueio de Venda. Cor=%d (Esperado: 1 - Vermelho Forte)", currentColor));
+         return false;
       }
-      else
-      {
-         //--- RequireSell inativo: permitir venda (validação silenciosa)
-         Print("OBV MACD: RequireSell desativado - Venda permitida (sem verificação OBV)");
-         return true;
-      }
+      
+      Print("OBV MACD: RequireSell desativado - Venda permitida");
+      return true;
    }
 }
 
@@ -1356,38 +1444,22 @@ void CFilters::SetOBVMACDParams(int fastEMA, int slowEMA, int signalSMA,
                                 int obvSmooth, bool useTickVolume, 
                                 int threshPeriod, double threshMult)
 {
-   //--- Se OBV MACD já foi inicializado, reinicializar com novos parâmetros
-   if(m_obvmacd != NULL && m_config.obvmACDActive)
+   //--- Atualizar config
+   m_config.obvFastEMA = fastEMA;
+   m_config.obvSlowEMA = slowEMA;
+   m_config.obvSignalSMA = signalSMA;
+   m_config.obvSmooth = obvSmooth;
+   m_config.obvUseTickVolume = useTickVolume;
+   m_config.obvThreshPeriod = threshPeriod;
+   m_config.obvThreshMult = threshMult;
+   
+   //--- Se ativo, recriar handle
+   if(m_config.obvmACDActive)
    {
-      m_obvmacd.Deinit();
-      delete m_obvmacd;
-      m_obvmacd = NULL;
-      
-      //--- Recriar com novos parâmetros
-      m_obvmacd = new COBVMACD();
-      if(m_obvmacd != NULL)
-      {
-         if(!m_obvmacd.Init(m_asset.GetSymbol(), PERIOD_CURRENT, 
-                           fastEMA, slowEMA, signalSMA, obvSmooth, 
-                           useTickVolume, threshPeriod, threshMult))
-         {
-            Print("CFilters: Aviso - Não foi possível reinicializar OBV MACD com novos parâmetros");
-            Print("CFilters: Erro: ", m_obvmacd.GetLastError());
-            delete m_obvmacd;
-            m_obvmacd = NULL;
-         }
-         else
-         {
-            Print("CFilters: OBV MACD reconfigurado com novos parâmetros:");
-            Print("  FastEMA: ", fastEMA, " SlowEMA: ", slowEMA, 
-                  " SignalSMA: ", signalSMA, " ObvSmooth: ", obvSmooth);
-         }
-      }
+      CreateOBVMACDHandle();
+      Print("CFilters: OBV MACD reconfigurado com novos parâmetros: Fast=", fastEMA, " Slow=", slowEMA);
    }
 }
 
 #endif // CFILTERS_MQH
 
-#endif // CFILTERS_MQH
-
-//+------------------------------------------------------------------+

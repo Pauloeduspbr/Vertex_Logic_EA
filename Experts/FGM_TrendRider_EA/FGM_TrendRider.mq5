@@ -21,7 +21,6 @@
 #include "../../Include/FGM_TrendRider_EA/CTradeEngine.mqh"
 #include "../../Include/FGM_TrendRider_EA/CTimeFilter.mqh"
 #include "../../Include/FGM_TrendRider_EA/CRegimeDetector.mqh"
-#include "../../Include/FGM_TrendRider_EA/COBVMACD.mqh"
 #include "../../Include/FGM_TrendRider_EA/CFilters.mqh"
 #include "../../Include/FGM_TrendRider_EA/CStats.mqh"
 #include "../../Include/FGM_TrendRider_EA/CBreakEvenManager.mqh"
@@ -101,7 +100,7 @@ input double   Inp_ForceMultF5     = 1.5;              // Multiplicador F5
 //--- Stop Loss
 input group "═══════════════ STOP LOSS ═══════════════"
 input ENUM_SL_MODE Inp_SLMode      = SL_HYBRID;        // Modo do Stop Loss
-input int      Inp_SL_Points       = 150;              // SL Fixo (pontos)
+input int      Inp_SL_Points       = 300;              // SL Fixo (pontos) - Aumentado de 150
 input double   Inp_SL_ATR_Mult     = 1.5;              // Multiplicador ATR para SL
 input int      Inp_SL_Min          = 50;               // SL Mínimo (pontos)
 input int      Inp_SL_Max          = 500;              // SL Máximo (pontos)
@@ -116,14 +115,14 @@ input double   Inp_TP_ATR_Mult     = 3.0;              // Multiplicador ATR para
 //--- Break-Even
 input group "═══════════════ BREAK-EVEN ═══════════════"
 input bool     Inp_UseBE           = true;             // Usar Break-Even
-input int      Inp_BE_Trigger      = 100;              // Trigger BE (pontos de lucro)
-input int      Inp_BE_Offset       = 10;               // Offset proteção spread (pontos)
+input int      Inp_BE_Trigger      = 300;              // Trigger BE (pontos de lucro) - Aumentado de 200
+input int      Inp_BE_Offset       = 50;               // Offset proteção spread (pontos) - Aumentado de 20
 
 //--- Trailing Stop
 input group "═══════════════ TRAILING STOP ═══════════════"
 input bool     Inp_UseTrailing     = true;             // Usar Trailing Stop
-input int      Inp_Trail_Trigger   = 200;              // Trigger Trailing (pontos de lucro)
-input int      Inp_Trail_Distance  = 150;              // Distância do SL ao preço máximo (pontos)
+input int      Inp_Trail_Trigger   = 400;              // Trigger Trailing (pontos de lucro) - Aumentado de 300
+input int      Inp_Trail_Distance  = 250;              // Distância do SL ao preço máximo (pontos) - Aumentado de 200
 input int      Inp_Trail_Step      = 50;               // Step mínimo para mover SL (pontos)
 
 //--- Horários de Operação
@@ -164,9 +163,10 @@ input int              Inp_CustomCross2 = 2;   // Custom Cross EMA Index 2 (1-5)
 //===== Signal Configuration =====
 input SIGNAL_MODE      Inp_SignalMode = MODE_MODERATE;  // Signal Mode
 input int              Inp_MinStrength = 3;             // Minimum Strength Required (1-5)
-input double           Inp_ConfluenceThreshold = 50.0;  // Min Confluence Level (0-100%)
-input bool             Inp_RequireConfluence = false;   // Require Confluence Filter
+input double           Inp_ConfluenceThreshold = 60.0;  // Min Confluence Level (0-100%)
+input bool             Inp_RequireConfluence = true;    // Require Confluence Filter (ATIVADO para rejeitar sinais fracos)
 input bool             Inp_EnablePullbacks = true;      // Enable Pullback Signals
+
 
 //===== Confluence Configuration (Percentage Based) =====
 input double           Inp_ConfRangeMax = 0.05;         // Max Range % for 100% Confluence
@@ -190,8 +190,8 @@ input group "═══════════════ FILTRO RSIOMA ══�
 input bool     Inp_UseRSIOMA       = false;            // Usar Filtro RSIOMA (desativado até compilar indicador)
 input int      Inp_RSIOMA_Period   = 14;               // Período RSI
 input int      Inp_RSIOMA_MA       = 9;                // Período MA do RSI
-input int      Inp_RSIOMA_Overbought = 70;             // Nível Sobrecompra (não BUY acima)
-input int      Inp_RSIOMA_Oversold = 30;               // Nível Sobrevenda (não SELL abaixo)
+input int      Inp_RSIOMA_Overbought = 80;             // Nível Sobrecompra (não BUY acima)
+input int      Inp_RSIOMA_Oversold = 20;               // Nível Sobrevenda (não SELL abaixo)
 input bool     Inp_RSIOMA_CheckMid = true;             // Verificar nível 50 (momentum)
 input bool     Inp_RSIOMA_CheckCross = true;           // Verificar RSI × MA (direção)
 input int      Inp_RSIOMA_ConfirmBars = 2;             // Barras de Confirmação (1-5)
@@ -424,6 +424,8 @@ int OnInit()
    }
    
    //--- Configurar limites de confluência dos filtros para corresponder aos inputs do EA
+   Print(StringFormat("DEBUG_INPUTS: Inp_ConfluenceThreshold = %.2f", Inp_ConfluenceThreshold)); // DEBUG CHECK
+   
    FilterConfig filterConfig = g_Filters.GetConfig();
    //--- Atualizar limites de spread com o input do usuário
    filterConfig.spreadMaxWIN = Inp_MaxSpread;
@@ -433,10 +435,17 @@ int OnInit()
    filterConfig.confluenceMaxF3 = Inp_MaxConf_F3;
    filterConfig.confluenceMaxF4 = Inp_MaxConf_F4;
    filterConfig.confluenceMaxF5 = Inp_MaxConf_F5;
+   
+   //--- NOVO: Configurar confluência MÍNIMA usando os inputs existentes
+   //--- Inp_ConfluenceThreshold define o mínimo e Inp_RequireConfluence ativa o filtro
+   filterConfig.confluenceMin = Inp_ConfluenceThreshold;
+   filterConfig.confluenceMinActive = Inp_RequireConfluence;
+   
    filterConfig.slopeActive = Inp_UseSlopeFilter;
    filterConfig.volumeActive = Inp_UseVolumeFilter;
    filterConfig.cooldownActive = true;
    filterConfig.cooldownBarsAfterStop = Inp_CooldownBars;
+
    //--- Configurar RSIOMA Filter (NOVO)
    filterConfig.rsiomaActive = Inp_UseRSIOMA;
    filterConfig.rsiomaPeriod = Inp_RSIOMA_Period;
@@ -731,11 +740,13 @@ void ProcessSignals()
       return;
    }
    
-   //--- Aplicar filtros
-   g_Stats.LogDebug(StringFormat("Aplicando filtros para %s (Força F%d)...", 
-                                 isBuy ? "COMPRA" : "VENDA", signalStrength));
+   //--- Aplicar filtros - PASSANDO signalBar PARA SINCRONIZAÇÃO
+   g_Stats.LogDebug(StringFormat("Aplicando filtros para %s (Força F%d) na barra %d...", 
+                                 isBuy ? "COMPRA" : "VENDA", signalStrength, signalBar));
    
-   FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength, false);
+   //--- CORREÇÃO: Passar signalBar para sincronizar todos os filtros
+   FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength, false, signalBar);
+
    
    //--- Log detalhado do resultado dos filtros
    g_Stats.LogDebug(StringFormat("Filtros: Spread=%s Slope=%s Volume=%s Phase=%s EMA200=%s Cooldown=%s Confluência=%s",
@@ -945,8 +956,9 @@ void OnPositionClosed()
    bool isWin = (lastProfit > 0);
    g_RiskManager.UpdateDailyStats(lastProfit, isWin);
    
-   //--- Iniciar cooldown se foi stop
-   if(closeReason == "Stop Loss")
+   //--- Iniciar cooldown se foi stop REAL (Prejuízo)
+   //--- Ignora Stops de Break-Even ou Trailing Stop com lucro
+   if(closeReason == "Stop Loss" && lastProfit < 0)
    {
       g_Filters.StartCooldownAfterStop();
    }

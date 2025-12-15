@@ -1,0 +1,200 @@
+﻿//+------------------------------------------------------------------+
+//|                                           RSIOMA_v2HHLSX_MT5.mq5 |
+//|                              Converted from MT4 by GitHub Copilot |
+//|                                 RSI with Moving Average MT5      |
+//+------------------------------------------------------------------+
+#property copyright "RSIOMA v2 MT5"
+#property version   "2.00" // Major update: Native MT5 Handles for correctness and performance
+#property description "RSI with Moving Average - Optimized with Native Handles"
+
+#property indicator_separate_window
+#property indicator_buffers 2
+#property indicator_plots   2
+
+#property indicator_type1   DRAW_LINE
+#property indicator_color1  clrRed
+#property indicator_width1  2
+#property indicator_label1  "RSI"
+
+#property indicator_type2   DRAW_LINE
+#property indicator_color2  clrBlue
+#property indicator_width2  1
+#property indicator_label2  "RSI MA"
+
+//--- Input parameters
+input int RSI_Period = 14;           // RSI Period
+input int MA_Period = 9;             // Moving Average Period
+input ENUM_MA_METHOD MA_Method = MODE_SMA; // MA Method
+input double HighLevel = 70.0;       // High Level
+input double LowLevel = 30.0;        // Low Level
+input bool ShowLevels = true;        // Show high/low levels
+
+//--- Indicator buffers
+double rsiBuffer[];
+double rsiMaBuffer[];
+
+//--- Handles
+int rsi_handle = INVALID_HANDLE;
+int ma_handle = INVALID_HANDLE;
+
+//+------------------------------------------------------------------+
+//| Custom Indicator initialization function                         |
+//+------------------------------------------------------------------+
+int OnInit()
+{
+   //--- Set indicator buffers
+   SetIndexBuffer(0, rsiBuffer, INDICATOR_DATA);
+   SetIndexBuffer(1, rsiMaBuffer, INDICATOR_DATA);
+   
+   //--- Set arrays as series for easier access (index 0 is newest)
+   ArraySetAsSeries(rsiBuffer, true);
+   ArraySetAsSeries(rsiMaBuffer, true);
+   
+   //--- Initialize RSI handle
+   rsi_handle = iRSI(_Symbol, PERIOD_CURRENT, RSI_Period, PRICE_CLOSE);
+   if(rsi_handle == INVALID_HANDLE)
+   {
+      Print("Error: Failed to create RSI handle");
+      return(INIT_FAILED);
+   }
+   
+   //--- Initialize MA handle applied to RSI handle
+   // This ensures correct calculation (EMA history, etc.) and max performance
+   // The last parameter of iMA can be another indicator handle
+   ma_handle = iMA(_Symbol, PERIOD_CURRENT, MA_Period, 0, MA_Method, rsi_handle);
+   if(ma_handle == INVALID_HANDLE)
+   {
+      Print("Error: Failed to create MA handle");
+      return(INIT_FAILED);
+   }
+   
+   IndicatorSetString(INDICATOR_SHORTNAME, "RSIOMA v2 (" + 
+                     IntegerToString(RSI_Period) + "," + IntegerToString(MA_Period) + ")");
+   
+   IndicatorSetDouble(INDICATOR_MINIMUM, 0);
+   IndicatorSetDouble(INDICATOR_MAXIMUM, 100);
+   
+   if(ShowLevels)
+   {
+      IndicatorSetInteger(INDICATOR_LEVELS, 3);
+      IndicatorSetDouble(INDICATOR_LEVELVALUE, 0, LowLevel);
+      IndicatorSetInteger(INDICATOR_LEVELCOLOR, 0, clrGray);
+      IndicatorSetInteger(INDICATOR_LEVELSTYLE, 0, STYLE_DOT);
+
+      IndicatorSetDouble(INDICATOR_LEVELVALUE, 1, 50.0);
+      IndicatorSetInteger(INDICATOR_LEVELCOLOR, 1, clrSilver);
+      IndicatorSetInteger(INDICATOR_LEVELSTYLE, 1, STYLE_DOT);
+
+      IndicatorSetDouble(INDICATOR_LEVELVALUE, 2, HighLevel);
+      IndicatorSetInteger(INDICATOR_LEVELCOLOR, 2, clrGray);
+      IndicatorSetInteger(INDICATOR_LEVELSTYLE, 2, STYLE_DOT);
+   }
+   else
+   {
+      IndicatorSetInteger(INDICATOR_LEVELS, 0);
+   }
+   
+   return(INIT_SUCCEEDED);
+}
+
+//+------------------------------------------------------------------+
+//| Custom Indicator deinitialization function                       |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+{
+   if(rsi_handle != INVALID_HANDLE) IndicatorRelease(rsi_handle);
+   if(ma_handle != INVALID_HANDLE) IndicatorRelease(ma_handle);
+}
+
+//+------------------------------------------------------------------+
+//| Custom Indicator iteration function                              |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
+{
+   if(rates_total < RSI_Period + MA_Period)
+      return(0);
+      
+   //--- Determine how many bars to copy
+   int to_copy;
+   if(prev_calculated > rates_total || prev_calculated <= 0)
+      to_copy = rates_total;
+   else
+   {
+      to_copy = rates_total - prev_calculated;
+      // Always update at least the last bar (current forming bar)
+      if(to_copy < 1) to_copy = 1; 
+   }
+   
+   //--- Copy data from handles to buffers
+   // Note: Since buffers are Series, CopyBuffer with start_pos=0 copies the newest data to index 0
+   
+   // 1. Copy RSI
+   int copied_rsi = CopyBuffer(rsi_handle, 0, 0, to_copy, rsiBuffer);
+   if(copied_rsi <= 0) return(0);
+   
+   // 2. Copy MA (applied to RSI)
+   int copied_ma = CopyBuffer(ma_handle, 0, 0, to_copy, rsiMaBuffer);
+   if(copied_ma <= 0) return(0);
+   
+   return(rates_total);
+}
+
+//+------------------------------------------------------------------+
+//| Helper functions (Optional, for internal use or Include)         |
+//+------------------------------------------------------------------+
+double GetRSI(int shift = 0)
+{
+   if(shift >= ArraySize(rsiBuffer)) return EMPTY_VALUE;
+   return rsiBuffer[shift];
+}
+
+//+------------------------------------------------------------------+
+double GetRSIMA(int shift = 0)
+{
+   if(shift >= ArraySize(rsiMaBuffer)) return EMPTY_VALUE;
+   return rsiMaBuffer[shift];
+}
+
+//+------------------------------------------------------------------+
+bool IsRSIOverbought(int shift = 0)
+{
+   double rsi = GetRSI(shift);
+   return (rsi != EMPTY_VALUE && rsi > HighLevel);
+}
+
+//+------------------------------------------------------------------+
+bool IsRSIOversold(int shift = 0)
+{
+   double rsi = GetRSI(shift);
+   return (rsi != EMPTY_VALUE && rsi < LowLevel);
+}
+
+//+------------------------------------------------------------------+
+bool IsRSICrossUp(int shift = 0)
+{
+   if(shift + 1 >= ArraySize(rsiBuffer) || shift + 1 >= ArraySize(rsiMaBuffer))
+      return false;
+      
+   return (rsiBuffer[shift] > rsiMaBuffer[shift] && 
+           rsiBuffer[shift + 1] <= rsiMaBuffer[shift + 1]);
+}
+
+//+------------------------------------------------------------------+
+bool IsRSICrossDown(int shift = 0)
+{
+   if(shift + 1 >= ArraySize(rsiBuffer) || shift + 1 >= ArraySize(rsiMaBuffer))
+      return false;
+      
+   return (rsiBuffer[shift] < rsiMaBuffer[shift] && 
+           rsiBuffer[shift + 1] >= rsiMaBuffer[shift + 1]);
+}
+//+------------------------------------------------------------------+

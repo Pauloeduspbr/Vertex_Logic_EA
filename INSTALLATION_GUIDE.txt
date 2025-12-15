@@ -1,0 +1,312 @@
+╔═══════════════════════════════════════════════════════════════════════╗
+║                                                                       ║
+║        🚀 GUIA DE INSTALAÇÃO - FGM_TrendRider + OBV MACD             ║
+║                                                                       ║
+║                   PRONTO PARA PRODUÇÃO ✅                            ║
+║                                                                       ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════════════
+📋 ARQUIVOS A COPIAR
+═══════════════════════════════════════════════════════════════════════
+
+Origem (seu servidor/pasta):
+/media/nexustecnologies/Documentos/EA_Projetos/Vertex_Logic_EA/Vertex_Logic_EA/
+
+Destino (Pasta MT5):
+C:\Program Files\easyMarkets MetaTrader 5\MQL5\
+
+═══════════════════════════════════════════════════════════════════════
+📁 ESTRUTURA DE PASTAS - O QUE COPIAR
+═══════════════════════════════════════════════════════════════════════
+
+1️⃣  INCLUDE FILES (obrigatório)
+────────────────────────────────
+
+Copiar de:
+Include/FGM_TrendRider_EA/
+
+Para:
+MQL5/Include/FGM_TrendRider_EA/
+
+Arquivos:
+├─ CAssetSpecs.mqh
+├─ CBreakEvenManager.mqh
+├─ CFilters.mqh
+├─ CRegimeDetector.mqh
+├─ CRiskManager.mqh
+├─ CSignalFGM.mqh
+├─ CStats.mqh
+├─ CTimeFilter.mqh
+├─ CTradeEngine.mqh
+├─ CTrailingStopManager.mqh
+└─ COBVMACD.mqh ✨ NOVO
+
+
+2️⃣  EXPERT ADVISOR (obrigatório)
+──────────────────────────────────
+
+Copiar de:
+Experts/FGM_TrendRider_EA/
+
+Para:
+MQL5/Experts/FGM_TrendRider_EA/
+
+Arquivos:
+└─ FGM_TrendRider.mq5
+
+
+3️⃣  INDICATORS (obrigatório para OBV MACD)
+──────────────────────────────────────────
+
+Copiar de:
+Indicators/FGM_TrendRider_EA/
+
+Para:
+MQL5/Indicators/FGM_TrendRider_EA/
+
+Arquivos:
+├─ FGM_Indicator.mq5
+├─ OBV_MACD_v3.mq5 ✨ PRINCIPAL
+└─ RSIOMA_v2HHLSX_MT5.mq5
+
+
+═══════════════════════════════════════════════════════════════════════
+🔧 PASSO A PASSO - INSTALAÇÃO
+═══════════════════════════════════════════════════════════════════════
+
+PASSO 1: Preparar as pastas
+───────────────────────────
+
+1. Abrir: C:\Program Files\easyMarkets MetaTrader 5\MQL5\
+
+2. Criar/verificar pastas:
+   ├─ C:\...\MQL5\Include\FGM_TrendRider_EA\ (criar se não existir)
+   ├─ C:\...\MQL5\Experts\FGM_TrendRider_EA\ (criar se não existir)
+   └─ C:\...\MQL5\Indicators\FGM_TrendRider_EA\ (criar se não existir)
+
+3. Status: ✓
+
+
+PASSO 2: Copiar INCLUDE FILES
+──────────────────────────────
+
+Copiar 11 arquivos:
+  Include/FGM_TrendRider_EA/*.mqh 
+  
+Para:
+  C:\...\MQL5\Include\FGM_TrendRider_EA\
+
+Arquivos esperados:
+  ├─ CAssetSpecs.mqh
+  ├─ CBreakEvenManager.mqh
+  ├─ CFilters.mqh
+  ├─ CRegimeDetector.mqh
+  ├─ CRiskManager.mqh
+  ├─ CSignalFGM.mqh
+  ├─ CStats.mqh
+  ├─ CTimeFilter.mqh
+  ├─ CTradeEngine.mqh
+  ├─ CTrailingStopManager.mqh
+  └─ COBVMACD.mqh
+
+Status: ✓
+
+
+PASSO 3: Copiar EXPERT ADVISOR
+───────────────────────────────
+
+Copiar:
+  Experts/FGM_TrendRider_EA/FGM_TrendRider.mq5
+
+Para:
+  C:\...\MQL5\Experts\FGM_TrendRider_EA\FGM_TrendRider.mq5
+
+Status: ✓
+
+
+PASSO 4: Copiar INDICATORS
+──────────────────────────
+
+Copiar 3 arquivos:
+  Indicators/FGM_TrendRider_EA/*.mq5
+
+Para:
+  C:\...\MQL5\Indicators\FGM_TrendRider_EA\
+
+Arquivos:
+  ├─ FGM_Indicator.mq5
+  ├─ OBV_MACD_v3.mq5 ← Crítico
+  └─ RSIOMA_v2HHLSX_MT5.mq5
+
+Status: ✓
+
+
+PASSO 5: Compilar no MT5
+────────────────────────
+
+1. Abrir MT5
+2. File → Open Data Folder
+3. Verificar que a estrutura de pastas está correta
+4. File → New → Expert Advisor
+5. Ou: File → Compile (se não houver projeto)
+6. Abrir FGM_TrendRider.mq5 no editor
+7. Pressionar F5 (Compile) ou Ctrl+F9
+
+Status de Compilação Esperado:
+  Erros: 0
+  Warnings: 0
+  Status: ✅ Successful
+
+
+PASSO 6: Usar no Gráfico
+────────────────────────
+
+1. Abrir um gráfico (qualquer ativo)
+2. Abrir Expert Advisors (Ctrl+E)
+3. Procurar: FGM_TrendRider
+4. Double-click para adicionar
+5. Configurar parâmetros:
+   └─ Ir para "OBV MACD v3 - PARÂMETROS"
+   └─ Ajustar valores conforme desejo
+6. Aceitar (Allow Live Trading)
+7. Observar subjanelas:
+   ├─ Subjanela 1: FGM_Indicator (EMAs)
+   ├─ Subjanela 2: OBV_MACD_v3 ← Deve aparecer aqui!
+   └─ Subjanela 3: RSIOMA (se ativado)
+
+
+═══════════════════════════════════════════════════════════════════════
+⚠️  TROUBLESHOOTING - ERROS COMUNS
+═══════════════════════════════════════════════════════════════════════
+
+ERRO 1: "file 'CAssetSpecs.mqh' not found"
+──────────────────────────────────────────
+
+Causa: Include files não copiados ou pasta incorreta
+
+Solução:
+  1. Verificar que CAssetSpecs.mqh existe em:
+     C:\...\MQL5\Include\FGM_TrendRider_EA\CAssetSpecs.mqh
+  2. Verificar que MT5 foi fechado e reaberto após copiar
+  3. Tentar compilar novamente (F5)
+
+
+ERRO 2: "file 'OBV_MACD_v3.mq5' not found"
+───────────────────────────────────────────
+
+Causa: Indicador não copiado
+
+Solução:
+  1. Copiar OBV_MACD_v3.mq5 para:
+     C:\...\MQL5\Indicators\FGM_TrendRider_EA\
+  2. Fechar e reabrir MT5
+  3. Compilar novamente
+
+
+ERRO 3: "OnInit() failed"
+─────────────────────────
+
+Causa: Arquivo de indicador não encontrado no gráfico
+
+Solução:
+  1. Verificar que OBV_MACD_v3.mq5 está em Indicators/
+  2. Compilar o indicador primeiro (File → Compile)
+  3. Fechar e reabrir MT5
+  4. Adicionar novamente o EA ao gráfico
+
+
+ERRO 4: "OBV MACD: Aviso - Não foi possível inicializar"
+─────────────────────────────────────────────────────────
+
+Causa: Parâmetros do indicador não correspondem
+
+Solução:
+  1. Verificar inputs em:
+     EA → Parâmetros → "OBV MACD v3 - PARÂMETROS"
+  2. Valores padrão devem ser:
+     ├─ FastEMA = 12
+     ├─ SlowEMA = 26
+     ├─ SignalSMA = 9
+     ├─ ObvSmooth = 5
+     └─ ThreshMult = 0.6
+  3. Se mudou valores, recompilar o EA
+
+
+═══════════════════════════════════════════════════════════════════════
+✅ VERIFICAÇÃO FINAL - CHECKLIST
+═══════════════════════════════════════════════════════════════════════
+
+Antes de usar em trading ao vivo:
+
+□ 1. Todos os 11 .mqh files em MQL5/Include/FGM_TrendRider_EA/
+□ 2. FGM_TrendRider.mq5 em MQL5/Experts/FGM_TrendRider_EA/
+□ 3. 3 arquivos .mq5 em MQL5/Indicators/FGM_TrendRider_EA/
+□ 4. Compilação sem erros (0 errors, 0 warnings)
+□ 5. EA adicionado ao gráfico sem erros
+□ 6. OBV_MACD_v3 aparece em subjanela separada
+□ 7. Inputs configuráveis aparecem no painel
+□ 8. Parâmetros de OBV MACD visíveis:
+     └─ FastEMA, SlowEMA, SignalSMA, etc.
+□ 9. Logs mostram: "OBV MACD Filter ativado"
+□ 10. Testar em backtest antes de live trading
+
+═══════════════════════════════════════════════════════════════════════
+📊 ESTRUTURA ESPERADA FINAL NO MT5
+═══════════════════════════════════════════════════════════════════════
+
+C:\Program Files\easyMarkets MetaTrader 5\
+└─ MQL5\
+   ├─ Include\
+   │  └─ FGM_TrendRider_EA\
+   │     ├─ CAssetSpecs.mqh
+   │     ├─ CBreakEvenManager.mqh
+   │     ├─ CFilters.mqh
+   │     ├─ CRegimeDetector.mqh
+   │     ├─ CRiskManager.mqh
+   │     ├─ CSignalFGM.mqh
+   │     ├─ CStats.mqh
+   │     ├─ CTimeFilter.mqh
+   │     ├─ CTradeEngine.mqh
+   │     ├─ CTrailingStopManager.mqh
+   │     └─ COBVMACD.mqh ✨ NOVO
+   │
+   ├─ Experts\
+   │  └─ FGM_TrendRider_EA\
+   │     └─ FGM_TrendRider.mq5
+   │
+   └─ Indicators\
+      └─ FGM_TrendRider_EA\
+         ├─ FGM_Indicator.mq5
+         ├─ OBV_MACD_v3.mq5 ✨ PRINCIPAL
+         └─ RSIOMA_v2HHLSX_MT5.mq5
+
+
+═══════════════════════════════════════════════════════════════════════
+🎓 DOCUMENTAÇÃO COMPLETA
+═══════════════════════════════════════════════════════════════════════
+
+Depois de instalar, leia:
+
+1. README_FINAL.txt
+   └─ Guia visual completo com exemplos
+
+2. IMPLEMENTATION_SUMMARY.md
+   └─ Visão geral técnica
+
+3. CHANGES_SUMMARY.txt
+   └─ Resumo de mudanças e sincronismo
+
+4. OBV_MACD_INTEGRATION_README.txt
+   └─ Documentação detalhada do OBV MACD
+
+
+═══════════════════════════════════════════════════════════════════════
+
+Status Final: ✅ PRONTO PARA INSTALAÇÃO
+
+Data: 14 de Dezembro de 2025
+Sistema: FGM Trend Rider + Nexus Logic OBV MACD
+Versão: 1.00
+
+═══════════════════════════════════════════════════════════════════════
