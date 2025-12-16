@@ -162,7 +162,7 @@ input int              Inp_CustomCross2 = 2;   // Custom Cross EMA Index 2 (1-5)
 
 //===== Signal Configuration =====
 input SIGNAL_MODE      Inp_SignalMode = MODE_MODERATE;  // Signal Mode
-input int              Inp_MinStrength = 3;             // Minimum Strength Required (1-5)
+input int              Inp_MinStrength = 4;             // Minimum Strength Required - CORRIGIDO: 3→4 (F5=20% WinRate, evitar)
 input double           Inp_ConfluenceThreshold = 60.0;  // Min Confluence Level (0-100%)
 input bool             Inp_RequireConfluence = true;    // Require Confluence Filter (ATIVADO para rejeitar sinais fracos)
 input bool             Inp_EnablePullbacks = true;      // Enable Pullback Signals
@@ -187,7 +187,7 @@ input int      Inp_CooldownBars    = 3;                // Cooldown após trade (
 
 //--- Filtro RSIOMA (NOVO)
 input group "═══════════════ FILTRO RSIOMA ═══════════════"
-input bool     Inp_UseRSIOMA       = false;            // Usar Filtro RSIOMA (desativado até compilar indicador)
+input bool     Inp_UseRSIOMA       = true;             // Usar Filtro RSIOMA - ATIVADO para filtrar momentum
 input int      Inp_RSIOMA_Period   = 14;               // Período RSI
 input int      Inp_RSIOMA_MA       = 9;                // Período MA do RSI
 input int      Inp_RSIOMA_Overbought = 80;             // Nível Sobrecompra (não BUY acima)
@@ -199,8 +199,8 @@ input int      Inp_RSIOMA_ConfirmBars = 2;             // Barras de Confirmaçã
 //--- Filtro OBV MACD (NOVO - Nexus Logic)
 input group "═══════════════ FILTRO OBV MACD (NEXUS) ═══════════════"
 input bool     Inp_UseOBVMACD      = true;             // Usar Filtro OBV MACD (Nexus Logic)
-input bool     Inp_OBVMACD_RequireBuy = false;         // Exigir sinal de compra (recomendado: false)
-input bool     Inp_OBVMACD_RequireSell = false;        // Exigir sinal de venda (recomendado: false)
+input bool     Inp_OBVMACD_RequireBuy = true;          // Exigir sinal de compra - ATIVADO para filtrar volume
+input bool     Inp_OBVMACD_RequireSell = true;         // Exigir sinal de venda - ATIVADO para filtrar volume
 input bool     Inp_OBVMACD_AllowWeak = true;           // Permitir sinais fracos (Green Weak/Red Weak)
 input bool     Inp_OBVMACD_CheckVolume = false;        // Verificar volume relevante (recomendado: false)
 
