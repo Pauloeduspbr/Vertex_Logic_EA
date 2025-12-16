@@ -100,7 +100,7 @@ input double   Inp_ForceMultF5     = 1.5;              // Multiplicador F5
 //--- Stop Loss
 input group "═══════════════ STOP LOSS ═══════════════"
 input ENUM_SL_MODE Inp_SLMode      = SL_HYBRID;        // Modo do Stop Loss
-input int      Inp_SL_Points       = 300;              // SL Fixo (pontos) - Aumentado de 150
+input int      Inp_SL_Points       = 200;              // SL Fixo (pontos) - CORRIGIDO: 300→200 para R:R balanceado
 input double   Inp_SL_ATR_Mult     = 1.5;              // Multiplicador ATR para SL
 input int      Inp_SL_Min          = 50;               // SL Mínimo (pontos)
 input int      Inp_SL_Max          = 500;              // SL Máximo (pontos)
@@ -109,21 +109,21 @@ input int      Inp_SL_Max          = 500;              // SL Máximo (pontos)
 input group "═══════════════ TAKE PROFIT ═══════════════"
 input ENUM_TP_MODE Inp_TPMode      = TP_RR_RATIO;      // Modo do Take Profit
 input int      Inp_TP_Points       = 300;              // TP Fixo (pontos)
-input double   Inp_TP_RR_Ratio     = 2.0;              // Razão Risco/Retorno
+input double   Inp_TP_RR_Ratio     = 1.5;              // Razão Risco/Retorno - CORRIGIDO: 2.0→1.5 para TP mais alcançável
 input double   Inp_TP_ATR_Mult     = 3.0;              // Multiplicador ATR para TP
 
 //--- Break-Even
 input group "═══════════════ BREAK-EVEN ═══════════════"
 input bool     Inp_UseBE           = true;             // Usar Break-Even
-input int      Inp_BE_Trigger      = 300;              // Trigger BE (pontos de lucro) - Aumentado de 200
-input int      Inp_BE_Offset       = 50;               // Offset proteção spread (pontos) - Aumentado de 20
+input int      Inp_BE_Trigger      = 180;              // Trigger BE (pontos de lucro) - CORRIGIDO: 300→180 para proteção rápida
+input int      Inp_BE_Offset       = 30;               // Offset proteção spread (pontos) - CORRIGIDO: 50→30
 
 //--- Trailing Stop
 input group "═══════════════ TRAILING STOP ═══════════════"
 input bool     Inp_UseTrailing     = true;             // Usar Trailing Stop
-input int      Inp_Trail_Trigger   = 400;              // Trigger Trailing (pontos de lucro) - Aumentado de 300
-input int      Inp_Trail_Distance  = 250;              // Distância do SL ao preço máximo (pontos) - Aumentado de 200
-input int      Inp_Trail_Step      = 50;               // Step mínimo para mover SL (pontos)
+input int      Inp_Trail_Trigger   = 250;              // Trigger Trailing (pontos de lucro) - CORRIGIDO: 400→250 para deixar lucro correr
+input int      Inp_Trail_Distance  = 150;              // Distância do SL ao preço máximo (pontos) - CORRIGIDO: 250→150 para maior proteção
+input int      Inp_Trail_Step      = 30;               // Step mínimo para mover SL (pontos) - CORRIGIDO: 50→30 para movimento gradual
 
 //--- Horários de Operação
 input group "═══════════════ HORÁRIOS ═══════════════"
