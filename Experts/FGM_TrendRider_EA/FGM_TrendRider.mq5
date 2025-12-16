@@ -947,7 +947,7 @@ void ManagePosition()
          else
             profitPoints = (g_positionOpenPrice - currentPrice) / point;
          
-         if(shouldExit && profitPoints > 0) // Apenas se em lucro
+         if(shouldExit) // Allow exit even in loss to prevent full SL
          {
             g_Stats.LogNormal("Sinal de saída do indicador detectado");
             CloseAllPositions("FGM Exit Signal");
