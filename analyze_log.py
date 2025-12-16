@@ -1,199 +1,238 @@
 
 import re
 import sys
-import math
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
-LOG_PATH = "/media/nexustecnologies/Documentos/EA_Projetos/Vertex_Logic_EA/Vertex_Logic_EA/20251215.log"
-REPORT_PATH = "/media/nexustecnologies/Documentos/EA_Projetos/Vertex_Logic_EA/Vertex_Logic_EA/financial_analysis_report.md"
+import numpy as np
+import pandas as pd
 
-def calculate_mean(data):
-    if not data: return 0.0
-    return sum(data) / len(data)
 
-def calculate_std_dev(data, mean):
-    if len(data) < 2: return 0.0
-    variance = sum((x - mean) ** 2 for x in data) / (len(data) - 1)
-    return math.sqrt(variance)
+DEFAULT_LOG_PATH = Path(__file__).resolve().parent / "20251215.log"
+DEFAULT_REPORT_PATH = Path(__file__).resolve().parent / "financial_analysis_report.md"
 
-def parse_log(file_path):
-    print(f"Lendo arquivo de log: {file_path}...")
-    
-    # Regex Patterns
-    # Sinal Detectado
-    # [INFO] Sinal detectado! Bar=1, Entry=-1, Strength=-3, Confluence=50.0%
-    # Nota: Entry 1 = Buy, -1 = Sell
-    signal_pattern = re.compile(r"Sinal detectado! Bar=(\d+), Entry=(-?\d+), Strength=(-?\d+), Confluence=([\d\.]+)%")
-    
-    # Filtro falhando (bloqueio)
-    filter_block_pattern = re.compile(r"FILTRO BLOQUEOU: (.*)")
-    
-    # Execução de Trade (ou tentativa)
-    # [INFO] SIGNAL: F5 BUY | Confluência: 50.0%
-    execution_pattern = re.compile(r"SIGNAL: F(\d+) (BUY|SELL) \| Conflu.ncia: ([\d\.]+)%")
-    
-    # Resultado de conta
-    # current account state: ... Equity 19.04 ...
-    equity_pattern = re.compile(r"Equity ([\d\.]+)")
-    
-    # Erros Críticos
-    margin_error_pattern = re.compile(r"not enough money")
-    
-    # INPUTS CHECK
-    # Check for logs that show the input values being used
-    # CFilters::CheckConfluence - F5: Confluência=50.0% (mín=50.0%, máx=100.0%)
-    input_pattern = re.compile(r"\(m.n=([\d\.]+)%")
 
-    signals = []
-    executions = []
-    equity_curve = []
-    inputs_detected = []
-    margin_errors = 0
-    
-    try:
-        with open(file_path, 'r', encoding='latin-1', errors='ignore') as f:
-            lines = f.readlines()
-    except FileNotFoundError:
+def read_log_lines(log_path: Path) -> list[str]:
+    data = log_path.read_bytes()
+    # MT5 tester logs are often UTF-16LE with BOM (common on Windows/Wine).
+    if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
+        text = data.decode("utf-16", errors="ignore")
+    else:
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            text = data.decode("latin-1", errors="ignore")
+    return text.splitlines()
+
+
+@dataclass
+class TradeClose:
+    ts: datetime
+    outcome: str  # WIN/LOSS
+    profit: float
+    reason: str
+
+
+@dataclass
+class TradeOpen:
+    ts: datetime
+    side: str  # BUY/SELL
+    price: float
+    volume: float
+    sl: float
+    tp: float
+
+
+def _parse_mt5_ts(line: str) -> datetime | None:
+    # Ex: "...\t2023.01.04 14:30:00   [14:30:00] ..."
+    m = re.search(r"\t(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2})\s+", line)
+    if not m:
         return None
+    return datetime.strptime(m.group(1), "%Y.%m.%d %H:%M:%S")
 
-    # Analyzing only the LAST SESSION (finding the last init)
-    # But since user wants full analysis, let's scan all.
-    # To be more precise, we scan from the last "Initialized" to ensure we analyze the latest run.
-    
-    last_init_index = 0
-    for i, line in enumerate(lines):
-        if "Inicializado com sucesso" in line:
-            last_init_index = i
-            
-    print(f"Analisando sessão iniciada na linha {last_init_index}...")
-    relevant_lines = lines[last_init_index:]
 
-    for line in relevant_lines:
-        # 1. Inputs Check
-        inp = input_pattern.search(line)
-        if inp:
-            inputs_detected.append(float(inp.group(1)))
-            
-        # 2. Signals
-        sig = signal_pattern.search(line)
-        if sig:
-            bar, entry, strength, conf = sig.groups()
-            signals.append({
-                "bar": int(bar),
-                "type": "BUY" if int(entry) == 1 else "SELL",
-                "strength": int(strength),
-                "confluence": float(conf)
-            })
+def parse_initial_deposit(lines: list[str]) -> float | None:
+    m = None
+    for line in lines:
+        m = re.search(r"initial deposit\s+(\d+(?:\.\d+)?)", line, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+    return None
 
-        # 3. Executions (attempts)
-        ex = execution_pattern.search(line)
-        if ex:
-            strength, type_str, conf = ex.groups()
-            executions.append({
-                "type": type_str,
-                "strength": int(strength),
-                "confluence": float(conf)
-            })
-            
-        # 4. Equity Tracking
-        eq = equity_pattern.search(line)
-        if eq:
-            equity_curve.append(float(eq.group(1)))
-            
-        # 5. Errors
-        if margin_error_pattern.search(line):
-            margin_errors += 1
 
-    return {
-        "signals": signals,
-        "executions": executions,
-        "equity": equity_curve,
-        "inputs": inputs_detected,
-        "margin_errors": margin_errors
-    }
+def parse_trades(lines: list[str]) -> tuple[list[TradeOpen], list[TradeClose]]:
+    open_pattern = re.compile(
+        r"\t(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2})\s+\[\d{2}:\d{2}:\d{2}\]\s+\[INFO\]\s+TRADE:\s+(BUY|SELL)\s+@\s+([0-9.]+)\s+\|\s+Vol:\s+([0-9.]+)\s+\|\s+SL:\s+([0-9.]+)\s+\|\s+TP:\s+([0-9.]+)"
+    )
+    close_pattern = re.compile(
+        r"\t(\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2})\s+\[\d{2}:\d{2}:\d{2}\]\s+\[INFO\]\s+TRADE CLOSED:\s+(WIN|LOSS)\s+\|\s+Profit:\s+(-?[0-9.]+)\s+\|\s+Raz[aã]o:\s+(.*)$"
+    )
 
-def generate_report(data):
-    if not data:
-        return "Erro: Não foi possível ler os dados."
-        
-    s = data["signals"]
-    e = data["executions"]
-    inputs = data["inputs"]
-    
-    report = "# ANÁLISE PERICIAL DE DESEMPENHO DO EA (Via Python Analysis)\n\n"
-    
-    # 1. ANÁLISE DE INPUTS
-    report += "## 1. Auditoria de Parâmetros (A Causa Raiz)\n"
-    avg_input = calculate_mean(inputs) if inputs else 0
-    report += f"- **Parâmetro 'Confluência Mínima' detectado no log:** {avg_input:.1f}%\n"
-    
-    if avg_input <= 50.0:
-        report += "> 🚨 **ERRO CRÍTICO CONFIRMADO:** O EA está rodando com limite de 50%. Isso prova que os inputs **NÃO FORAM RESETADOS** no Strategy Tester.\n"
-        report += "> Enquanto este valor for 50%, o prejuízo é matematicamente garantido.\n"
+    opens: list[TradeOpen] = []
+    closes: list[TradeClose] = []
+
+    for line in lines:
+        mo = open_pattern.search(line)
+        if mo:
+            ts = datetime.strptime(mo.group(1), "%Y.%m.%d %H:%M:%S")
+            opens.append(
+                TradeOpen(
+                    ts=ts,
+                    side=mo.group(2),
+                    price=float(mo.group(3)),
+                    volume=float(mo.group(4)),
+                    sl=float(mo.group(5)),
+                    tp=float(mo.group(6)),
+                )
+            )
+            continue
+
+        mc = close_pattern.search(line)
+        if mc:
+            ts = datetime.strptime(mc.group(1), "%Y.%m.%d %H:%M:%S")
+            closes.append(
+                TradeClose(
+                    ts=ts,
+                    outcome=mc.group(2),
+                    profit=float(mc.group(3)),
+                    reason=mc.group(4).strip(),
+                )
+            )
+
+    return opens, closes
+
+
+def pair_trades(opens: list[TradeOpen], closes: list[TradeClose]) -> pd.DataFrame:
+    # Este EA parece operar 1 posição por vez. Emparelhamos em ordem temporal.
+    opens_sorted = sorted(opens, key=lambda x: x.ts)
+    closes_sorted = sorted(closes, key=lambda x: x.ts)
+
+    n = min(len(opens_sorted), len(closes_sorted))
+    rows = []
+    for i in range(n):
+        o = opens_sorted[i]
+        c = closes_sorted[i]
+        rows.append(
+            {
+                "open_ts": o.ts,
+                "close_ts": c.ts,
+                "side": o.side,
+                "volume": o.volume,
+                "open_price": o.price,
+                "sl": o.sl,
+                "tp": o.tp,
+                "profit": c.profit,
+                "outcome": c.outcome,
+                "reason": c.reason,
+                "duration_min": (c.ts - o.ts).total_seconds() / 60.0,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def compute_equity_curve(df: pd.DataFrame, initial_deposit: float) -> pd.DataFrame:
+    df = df.sort_values("close_ts").reset_index(drop=True)
+    df["balance_before"] = initial_deposit + df["profit"].shift(1).fillna(0).cumsum()
+    df["balance_after"] = df["balance_before"] + df["profit"]
+    df["dd_from_peak_pct"] = (
+        (df["balance_after"].cummax() - df["balance_after"]) / df["balance_after"].cummax()
+    ) * 100.0
+    df["loss_pct_of_balance"] = np.where(
+        df["profit"] < 0,
+        (-df["profit"]) / df["balance_before"] * 100.0,
+        0.0,
+    )
+    return df
+
+
+def render_report(df: pd.DataFrame, initial_deposit: float | None, log_path: Path) -> str:
+    report = []
+    report.append("# Relatório Financeiro — Análise do Log do Strategy Tester\n")
+    report.append(f"- Log: `{log_path.name}`\n")
+
+    if initial_deposit is None:
+        report.append("- Depósito inicial: (não encontrado no log)\n")
+        initial_deposit = float(df["profit"].cumsum().iloc[0] * 0 + 0)  # 0, só para tipo
     else:
-        report += "- ✅ Parâmetros parecem estar acima de 50%.\n"
+        report.append(f"- Depósito inicial (log): **{initial_deposit:.2f}**\n")
 
-    # 2. QUALIDADE DOS SINAIS
-    report += "\n## 2. Qualidade dos Sinais Gerados\n"
-    total_sig = len(s)
-    if total_sig > 0:
-        low_quality = len([x for x in s if x['confluence'] <= 50.0])
-        pct_low = (low_quality / total_sig) * 100
-        
-        report += f"- Total de Sinais: {total_sig}\n"
-        report += f"- Sinais de Baixa Qualidade (<= 50%): **{low_quality} ({pct_low:.1f}%)**\n\n"
-        
-        if pct_low > 20:
-             report += "**Diagnóstico:** O algoritmo está aceitando uma quantidade massiva de sinais fracos. Isso sobrecarrega a conta com trades de baixa probabilidade.\n"
-    else:
-        report += "Nenhum sinal detectado na última sessão.\n"
-        
-    # 3. ANÁLISE FINANCEIRA (EXECUÇÃO)
-    report += "\n## 3. Análise Financeira & Execução\n"
-    total_exec = len(e)
-    
-    if total_exec > 0:
-        report += f"- Tentativas de Trade: {total_exec}\n"
-        low_conf_exec = len([x for x in e if x['confluence'] <= 50.0])
-        report += f"- Trades executados com Confluência Mínima (50%): {low_conf_exec}\n"
-        
-        # Check for account balance in equity curve
-        start_balance = equity_curve[0] if equity_curve else 0
-        end_balance = equity_curve[-1] if equity_curve else 0
-        
-        if start_balance < 100:
-             report += f"\n> ⚠️ **ALERTA DE SALDO CRÍTICO:** O teste iniciou/está com saldo de ${start_balance:.2f}. Isso é insuficiente para margem.\n"
+    if df.empty:
+        report.append("\n## Resultado\n")
+        report.append("Nenhum trade (open/close) foi extraído do log com os padrões atuais.\n")
+        return "\n".join(report)
 
-        if data["margin_errors"] > 0:
-            report += f"\n> 💀 **COLAPSO FINANCEIRO DETECTADO:** Encontrados {data['margin_errors']} erros de 'Not Enough Money'.\n"
-            report += "> **DIAGNÓSTICO:** A conta está QUEBRADA (Saldo insuficiente para abrir lote mínimo). O EA está funcionando, mas sem dinheiro não há trades.\n"
-            report += "> **SOLUÇÃO:** Inicie um novo teste com depósito de $10,000 para validar a estratégia.\n"
-    else:
-        report += "Nenhum trade foi efetivamente aberto.\n"
-        if data["margin_errors"] > 0:
-             report += f"\n> 💀 **COLAPSO IMEDIATO:** O EA tentou operar mas falhou {data['margin_errors']} vezes por falta de saldo.\n"
-             report += "> **MOTIVO:** Sua conta tem apenas alguns dólares (ou centavos). O teste não pode prosseguir. Resete o depósito inicial.\n"
+    net = df["profit"].sum()
+    gross_profit = df.loc[df["profit"] > 0, "profit"].sum()
+    gross_loss = -df.loc[df["profit"] < 0, "profit"].sum()
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else np.inf
+    win_rate = (df["profit"] > 0).mean() * 100.0
+    avg_win = df.loc[df["profit"] > 0, "profit"].mean() if (df["profit"] > 0).any() else 0.0
+    avg_loss = df.loc[df["profit"] < 0, "profit"].mean() if (df["profit"] < 0).any() else 0.0
+    expectancy = df["profit"].mean()
+    max_dd = df["dd_from_peak_pct"].max() if "dd_from_peak_pct" in df else np.nan
 
-    # 4. PARECER TÉCNICO
-    report += "\n## 4. Parecer Técnico Final\n"
-    report += "A análise do último log (terminado em 14:20) mostra:\n"
-    report += "1. ✅ **Inputs Corrigidos:** O log confirma `mín=60.0%`. A lógica interna está correta!\n"
-    report += "2. ❌ **Inviabilidade Financeira:** O erro `10019 - Saldo insuficiente` ocorre porque o saldo atual é trivial (~$14).\n"
-    
-    report += "\n### AÇÃO IMEDIATA REQUERIDA:\n"
-    report += "1. **NOVO DEPÓSITO:** Reinicie o teste com saldo de $10,000 (ou valor realista).\n"
-    report += "2. **VALIDAÇÃO:** Com dinheiro em conta e Inputs em 60%, o EA deve começar a recuperar.\n"
+    report.append("\n## Sumário\n")
+    report.append(f"- Trades analisados: **{len(df)}**\n")
+    report.append(f"- Win rate: **{win_rate:.1f}%**\n")
+    report.append(f"- Lucro líquido: **{net:.2f}**\n")
+    report.append(f"- Profit Factor: **{profit_factor:.2f}**\n")
+    report.append(f"- Expectancy (média por trade): **{expectancy:.2f}**\n")
+    report.append(f"- Max Drawdown (por saldo fechado): **{max_dd:.2f}%**\n")
+    report.append(f"- Média WIN: **{avg_win:.2f}** | Média LOSS: **{avg_loss:.2f}**\n")
 
-    return report
+    report.append("\n## Diagnóstico Quantitativo (por que a conta quebra)\n")
+    worst_loss_pct = df["loss_pct_of_balance"].max()
+    report.append(f"- Pior perda relativa (loss/balance_before): **{worst_loss_pct:.2f}%**\n")
+    if worst_loss_pct >= 5:
+        report.append(
+            "- Isso indica **risco por trade alto** para o tamanho do depósito (o EA está operando praticamente como ~5–15% por trade em alguns pontos do log).\n"
+        )
+
+    side_counts = df["side"].value_counts(dropna=False).to_dict()
+    report.append(f"- Direção: {side_counts}\n")
+
+    reason_counts = df["reason"].value_counts().head(10).to_dict()
+    report.append(f"- Principais razões de saída (top 10): {reason_counts}\n")
+
+    report.append("\n## Observações Técnicas do Log\n")
+    report.append(
+        "- O log mostra múltiplos casos de `Drawdown diário ... excedeu limite`, o que combina com lote fixo elevado para depósito pequeno.\n"
+    )
+    report.append(
+        "- Se `Inp_LotMode=LOT_FIXED`, o `Inp_RiskPercent` vira apenas 'informativo' a menos que o EA imponha um cap — isso é um dos motivos de quebra.\n"
+    )
+
+    return "\n".join(report)
+
+
+def main() -> int:
+    log_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_LOG_PATH
+    report_path = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_REPORT_PATH
+
+    if not log_path.exists():
+        raise SystemExit(f"Log não encontrado: {log_path}")
+
+    lines = read_log_lines(log_path)
+    initial_deposit = parse_initial_deposit(lines)
+    opens, closes = parse_trades(lines)
+    df = pair_trades(opens, closes)
+
+    if initial_deposit is None:
+        # fallback razoável: usar o primeiro reset de saldo (se existir) ou 0
+        initial_deposit = 0.0
+        m = re.search(r"Saldo inicial:\s+([0-9.]+)", "\n".join(lines[:2000]))
+        if m:
+            initial_deposit = float(m.group(1))
+
+    if not df.empty:
+        df = compute_equity_curve(df, float(initial_deposit))
+
+    report = render_report(df, float(initial_deposit) if initial_deposit is not None else None, log_path)
+    report_path.write_text(report, encoding="utf-8")
+    print(report)
+    return 0
+
 
 if __name__ == "__main__":
-    try:
-        data = parse_log(LOG_PATH)
-        if data:
-            result = generate_report(data)
-            print(result)
-            with open(REPORT_PATH, 'w', encoding='utf-8') as f:
-                f.write(result)
-        else:
-            print("Erro: Arquivo de log não encontrado ou vazio.")
-    except Exception as e:
-        print(f"Erro fatal na análise: {e}")
+    raise SystemExit(main())

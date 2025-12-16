@@ -265,6 +265,24 @@ ENUM_POSITION_TYPE g_positionType;
 //--- Tracking para detectar quando posição fecha externamente (SL/TP hit)
 bool              g_wasPosition = false;      // Havia posição no tick anterior?
 
+//--- Diagnóstico (limitado) de entradas que viraram LOSS
+FilterResult       g_lastEntryFilters;
+double             g_lastEntryConfluence = 0.0;
+ENUM_MARKET_REGIME g_lastEntryRegime = REGIME_TRENDING;
+bool               g_lastEntryIsVolatile = false;
+bool               g_lastEntryIsBuy = false;
+PositionCalcResult g_lastEntryPosCalc;
+bool               g_hasLastEntryContext = false;
+
+int                g_badEntriesTotal = 0;
+int                g_badEntriesToday = 0;
+int                g_badEntryLogsToday = 0;
+datetime           g_badEntryDay = 0;
+const int          BAD_ENTRY_LOG_CAP_PER_DAY = 5;
+
+void ResetBadEntryCountersIfNewDay();
+void LogBadEntryDiagnostics(const double profit, const string closeReason);
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -321,6 +339,7 @@ int OnInit()
    riskParams.riskMultF4 = Inp_ForceMultF4;
    riskParams.riskMultF3 = Inp_ForceMultF3;
    riskParams.maxDailyDD = Inp_MaxDailyDD;
+   riskParams.maxTotalDD = Inp_MaxTotalDD;
    riskParams.maxConsecStops = Inp_MaxConsecLoss;
    //--- Parâmetros de SL
    riskParams.slMode = (int)Inp_SLMode;
@@ -803,7 +822,26 @@ void ProcessSignals()
    
    if(!posCalc.isValid)
    {
-      g_Stats.LogError(StringFormat("Cálculo de posição inválido: %s", posCalc.errorMessage));
+      //--- Log mais informativo (sem excesso): quando o EA pular trade por lote mínimo após cap de risco
+      if(StringFind(posCalc.errorMessage, "abaixo do mínimo") >= 0)
+      {
+         g_Stats.LogNormal(StringFormat(
+            "TRADE SKIPPED (risk cap/min lot): %s | Dir=%s | F%d | Entry=%.5f | SLpts=%.1f | SL=%.5f | LotMode=%d | FixedLot=%.4f | Risk%%=%.2f",
+            posCalc.errorMessage,
+            isBuy ? "BUY" : "SELL",
+            signalStrength,
+            entryPrice,
+            posCalc.slPoints,
+            posCalc.slPrice,
+            (int)Inp_LotMode,
+            Inp_FixedLot,
+            Inp_RiskPercent
+         ));
+      }
+      else
+      {
+         g_Stats.LogError(StringFormat("Cálculo de posição inválido: %s", posCalc.errorMessage));
+      }
       return;
    }
    
@@ -822,6 +860,15 @@ void ProcessSignals()
    
    if(tradeResult.success)
    {
+      //--- Capturar contexto da entrada (para diagnosticar apenas se virar LOSS)
+      g_lastEntryFilters = filterResult;
+      g_lastEntryConfluence = confluence;
+      g_lastEntryRegime = regime;
+      g_lastEntryIsVolatile = isVolatile;
+      g_lastEntryIsBuy = isBuy;
+      g_lastEntryPosCalc = posCalc;
+      g_hasLastEntryContext = true;
+
       g_hasPosition = true;
       g_positionTicket = tradeResult.ticket;
       g_positionOpenTime = TimeCurrent();
@@ -955,6 +1002,15 @@ void OnPositionClosed()
    //--- Atualizar estatísticas de risco
    bool isWin = (lastProfit > 0);
    g_RiskManager.UpdateDailyStats(lastProfit, isWin);
+
+   //--- Diagnóstico de "entrada errada": logar somente quando fechar em prejuízo
+   if(lastProfit < 0)
+   {
+      ResetBadEntryCountersIfNewDay();
+      g_badEntriesTotal++;
+      g_badEntriesToday++;
+      LogBadEntryDiagnostics(lastProfit, closeReason);
+   }
    
    //--- Iniciar cooldown se foi stop REAL (Prejuízo)
    //--- Ignora Stops de Break-Even ou Trailing Stop com lucro
@@ -992,6 +1048,60 @@ void OnPositionClosed()
    
    g_Stats.LogNormal(StringFormat("Posição fechada - Lucro: %.2f | Razão: %s", 
                                   lastProfit, closeReason));
+}
+
+//+------------------------------------------------------------------+
+//| Reset diário do contador de diagnósticos                         |
+//+------------------------------------------------------------------+
+void ResetBadEntryCountersIfNewDay()
+{
+   datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+   if(today != g_badEntryDay)
+   {
+      g_badEntryDay = today;
+      g_badEntriesToday = 0;
+      g_badEntryLogsToday = 0;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Log compacto do contexto da entrada que virou LOSS               |
+//+------------------------------------------------------------------+
+void LogBadEntryDiagnostics(const double profit, const string closeReason)
+{
+   if(g_badEntryLogsToday >= BAD_ENTRY_LOG_CAP_PER_DAY)
+      return;
+
+   // Se não temos contexto (por exemplo, posição foi aberta externamente), não spammar.
+   if(!g_hasLastEntryContext)
+      return;
+
+   g_badEntryLogsToday++;
+
+   // 1 linha, focando no que ajuda a explicar a seleção do trade.
+   g_Stats.LogNormal(StringFormat(
+      "BAD ENTRY #%d/%d today | Profit=%.2f | Close=%s | Dir=%s | Regime=%s%s | F=%d | Conf=%.1f%% | SLpts=%.1f | Risk=%.2f%% | Spread=%.1f | Slope=%.5f | Vol=%.0f/MA%.0f | Phase=%d | EMA200=%s | RSI=%.1f/MA%.1f | OBV=%d",
+      g_badEntryLogsToday,
+      BAD_ENTRY_LOG_CAP_PER_DAY,
+      profit,
+      closeReason,
+      g_lastEntryIsBuy ? "BUY" : "SELL",
+      g_RegimeDetector.GetRegimeString(g_lastEntryRegime),
+      g_lastEntryIsVolatile ? "(VOL)" : "",
+      g_lastEntryFilters.currentStrength,
+      g_lastEntryConfluence,
+      g_lastEntryPosCalc.slPoints,
+      g_lastEntryPosCalc.riskPercent,
+      g_lastEntryFilters.currentSpread,
+      g_lastEntryFilters.currentSlope,
+      g_lastEntryFilters.currentVolume,
+      g_lastEntryFilters.volumeMA,
+      g_lastEntryFilters.currentPhase,
+      g_lastEntryFilters.ema200OK ? "OK" : "FAIL",
+      g_lastEntryFilters.currentRSI,
+      g_lastEntryFilters.currentRSIMA,
+      g_lastEntryFilters.obvmACDSignal
+   ));
 }
 
 //+------------------------------------------------------------------+

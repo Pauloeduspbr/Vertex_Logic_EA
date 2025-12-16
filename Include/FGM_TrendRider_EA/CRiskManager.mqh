@@ -35,7 +35,7 @@ struct RiskParams
    double   maxLotForex;          // Máximo para Forex
    
    //--- Stop Loss
-   int      slMode;               // 0=Fixed, 1=ATR, 2=Swing, 3=Hybrid
+   int      slMode;               // 0=Fixed, 1=ATR, 2=Hybrid, 3=Swing (compat)
    int      slFixedPoints;        // SL fixo em pontos (NOVO!)
    int      slMinPoints;          // SL mínimo em pontos (NOVO!)
    int      slMaxPoints;          // SL máximo em pontos (NOVO!)
@@ -59,6 +59,7 @@ struct RiskParams
    //--- Proteção diária
    bool     dailyProtection;      // Proteção ativa
    double   maxDailyDD;           // DD diário máximo %
+   double   maxTotalDD;           // DD total máximo % (desde o start do EA/teste)
    int      maxConsecStops;       // Stops consecutivos máximo
 };
 
@@ -122,6 +123,9 @@ private:
    DailyProtectionData m_daily;         // Dados de proteção diária
    bool              m_initialized;     // Flag de inicialização
    string            m_lastError;       // Último erro
+
+   //--- Proteção total (desde o start do EA/teste)
+   double            m_totalStartBalance;
    
    //--- Parâmetros
    int               m_atrPeriod; // Mantendo o nome para compatibilidade de config, mas é Range Period
@@ -207,6 +211,7 @@ CRiskManager::CRiskManager()
    m_initialized = false;
    m_lastError = "";
    m_atrPeriod = 14;
+   m_totalStartBalance = 0.0;
    
    //--- Parâmetros padrão
    m_params.lotMode = 0;  // Lote fixo por padrão
@@ -236,6 +241,7 @@ CRiskManager::CRiskManager()
    m_params.beOffsetForex = 20;
    m_params.dailyProtection = true;
    m_params.maxDailyDD = 3.0;
+   m_params.maxTotalDD = 10.0;
    m_params.maxConsecStops = 3;
    
    //--- Inicializar proteção diária
@@ -263,6 +269,9 @@ bool CRiskManager::Init(CAssetSpecs* asset, int atrPeriod = 14)
    
    m_asset = asset;
    m_atrPeriod = atrPeriod;
+
+   //--- Capturar saldo inicial para proteção TOTAL
+   m_totalStartBalance = GetAccountBalance();
    
    //--- Inicializar proteção diária
    ResetDailyProtection();
@@ -287,6 +296,10 @@ void CRiskManager::Deinit()
 void CRiskManager::SetRiskParams(const RiskParams& params)
 {
    m_params = params;
+
+   //--- Sanity: evitar limites inválidos
+   if(m_params.maxDailyDD < 0) m_params.maxDailyDD = 0;
+   if(m_params.maxTotalDD < 0) m_params.maxTotalDD = 0;
 }
 
 //+------------------------------------------------------------------+
@@ -394,6 +407,21 @@ double CRiskManager::CalculateLot(double slPoints, int strength, bool isVolatile
          maxLot = m_asset.GetVolumeMax();
       
       lot = MathMin(lot, maxLot);
+
+      //--- SAFETY CAP: mesmo em lote fixo, limitar risco monetário ao % configurado
+      //    (evita quebrar conta com depósito pequeno e lote grande)
+      if(slPoints > 0 && m_params.riskPercent > 0)
+      {
+         double balance = GetAccountBalance();
+         double riskAmount = balance * (m_params.riskPercent / 100.0);
+         riskAmount *= GetRiskMultiplier(strength);
+         if(isVolatile)
+            riskAmount *= 0.5;
+
+         double capLot = CalculateLotByRisk(riskAmount, slPoints);
+         if(capLot > 0)
+            lot = MathMin(lot, capLot);
+      }
       
       //--- Normalizar e retornar
       return m_asset.NormalizeLot(lot);
@@ -491,12 +519,22 @@ double CRiskManager::CalculateSLPoints(bool isBuy, bool isVolatile = false)
             slPoints = m_asset.PriceToPoints(atr * mult);
          }
          break;
-         
-      case 2: // Swing
+
+      case 2: // Hybrid (EA): maior entre ATR e FIXO
+         {
+            double atr = GetAverageRange(m_atrPeriod, 1);
+            double mult = isVolatile ? m_params.slATRMultVolatile : m_params.slATRMult;
+            double slATRPoints = m_asset.PriceToPoints(atr * mult);
+            double slFixedPoints = (double)m_params.slFixedPoints;
+            slPoints = MathMax(slATRPoints, slFixedPoints);
+         }
+         break;
+
+      case 3: // Swing (compatibilidade)
          {
             double bid = SymbolInfoDouble(m_asset.GetSymbol(), SYMBOL_BID);
             double ask = SymbolInfoDouble(m_asset.GetSymbol(), SYMBOL_ASK);
-            
+
             if(isBuy)
             {
                double swingLow = FindSwingLow(3, 1);
@@ -509,34 +547,9 @@ double CRiskManager::CalculateSLPoints(bool isBuy, bool isVolatile = false)
             }
          }
          break;
-         
-      case 3: // Hybrid (ATR + Swing - usa o maior)
+
       default:
-         {
-            //--- Calcular por ATR
-            double atr = GetAverageRange(m_atrPeriod, 1);
-            double mult = isVolatile ? m_params.slATRMultVolatile : m_params.slATRMult;
-            double slATRPoints = m_asset.PriceToPoints(atr * mult);
-            
-            //--- Calcular por Swing
-            double bid = SymbolInfoDouble(m_asset.GetSymbol(), SYMBOL_BID);
-            double ask = SymbolInfoDouble(m_asset.GetSymbol(), SYMBOL_ASK);
-            double slSwingPoints = 0;
-            
-            if(isBuy)
-            {
-               double swingLow = FindSwingLow(3, 1);
-               slSwingPoints = m_asset.PriceToPoints(bid - swingLow);
-            }
-            else
-            {
-               double swingHigh = FindSwingHigh(3, 1);
-               slSwingPoints = m_asset.PriceToPoints(swingHigh - ask);
-            }
-            
-            //--- Usar o MAIOR dos dois (mais conservador)
-            slPoints = MathMax(slATRPoints, slSwingPoints);
-         }
+         slPoints = (double)m_params.slFixedPoints;
          break;
    }
    
@@ -768,6 +781,15 @@ PositionCalcResult CRiskManager::CalculatePosition(double entryPrice, bool isBuy
       result.errorMessage = "Lote inválido";
       return result;
    }
+
+   //--- Regra de proteção: se o lote capado pelo risco ficar abaixo do mínimo do ativo,
+   //--- NÃO arredondar para cima (isso pode estourar o risco). Pula o trade.
+   double volMin = m_asset.GetVolumeMin();
+   if(volMin > 0 && lot < volMin)
+   {
+      result.errorMessage = StringFormat("Lote (%.8f) abaixo do mínimo do ativo (%.8f) após cap de risco", lot, volMin);
+      return result;
+   }
    
    result.lotRaw = lot;
    result.lotSize = m_asset.NormalizeLot(lot);
@@ -836,33 +858,50 @@ bool CRiskManager::CheckDailyProtection()
 {
    if(!m_params.dailyProtection)
       return true;
-   
+
    ResetDailyIfNewDay();
-   
-   //--- Verificar drawdown
-   double currentBalance = GetAccountBalance();
-   double dd = ((m_daily.startBalance - currentBalance) / m_daily.startBalance) * 100.0;
+
+   //--- Drawdown diário por EQUITY (inclui flutuante)
+   double currentEquity = GetAccountEquity();
+   double dd = ((m_daily.startBalance - currentEquity) / m_daily.startBalance) * 100.0;
+   if(dd < 0) dd = 0;
    m_daily.currentDD = dd;
-   
-   if(dd >= m_params.maxDailyDD)
+
+   if(m_params.maxDailyDD > 0 && dd >= m_params.maxDailyDD)
    {
       m_daily.isPaused = true;
-      m_daily.pauseReason = StringFormat("Drawdown diário de %.2f%% excedeu limite de %.2f%%", 
+      m_daily.pauseReason = StringFormat("Drawdown diário de %.2f%% excedeu limite de %.2f%%",
                                           dd, m_params.maxDailyDD);
       Print("CRiskManager: ", m_daily.pauseReason);
       return false;
    }
-   
-   //--- Verificar stops consecutivos
+
+   //--- Drawdown TOTAL (desde start do EA/teste)
+   if(m_params.maxTotalDD > 0 && m_totalStartBalance > 0)
+   {
+      double totalDD = ((m_totalStartBalance - currentEquity) / m_totalStartBalance) * 100.0;
+      if(totalDD < 0) totalDD = 0;
+
+      if(totalDD >= m_params.maxTotalDD)
+      {
+         m_daily.isPaused = true;
+         m_daily.pauseReason = StringFormat("Drawdown total de %.2f%% excedeu limite de %.2f%%",
+                                             totalDD, m_params.maxTotalDD);
+         Print("CRiskManager: ", m_daily.pauseReason);
+         return false;
+      }
+   }
+
+   //--- Stops consecutivos
    if(m_daily.consecutiveStops >= m_params.maxConsecStops)
    {
       m_daily.isPaused = true;
-      m_daily.pauseReason = StringFormat("%d stops consecutivos atingidos (limite: %d)", 
+      m_daily.pauseReason = StringFormat("%d stops consecutivos atingidos (limite: %d)",
                                           m_daily.consecutiveStops, m_params.maxConsecStops);
       Print("CRiskManager: ", m_daily.pauseReason);
       return false;
    }
-   
+
    return true;
 }
 
@@ -872,7 +911,7 @@ bool CRiskManager::CheckDailyProtection()
 void CRiskManager::ResetDailyIfNewDay()
 {
    datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
-   
+
    if(today != m_daily.currentDay)
    {
       ResetDailyProtection();
@@ -885,7 +924,7 @@ void CRiskManager::ResetDailyIfNewDay()
 void CRiskManager::UpdateDailyStats(double pnl, bool isWin)
 {
    m_daily.totalTrades++;
-   
+
    if(isWin)
    {
       m_daily.winTrades++;
