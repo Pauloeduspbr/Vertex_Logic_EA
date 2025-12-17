@@ -100,7 +100,7 @@ input double   Inp_ForceMultF5     = 1.5;              // Multiplicador F5
 //--- Stop Loss
 input group "═══════════════ STOP LOSS ═══════════════"
 input ENUM_SL_MODE Inp_SLMode      = SL_FIXED;         // ESTRUTURAL: Hybrid→Fixed (evita SL inflado em volátil)
-input int      Inp_SL_Points       = 250;              // ESTRUTURAL: SL AJUSTADO (250pts) para melhorar R:R
+input int      Inp_SL_Points       = 300;              // REDESIGN: SL 300pts para R:R 1:2 com TP 600pts
 input double   Inp_SL_ATR_Mult     = 1.5;              // Multiplicador ATR para SL
 input int      Inp_SL_Min          = 50;               // SL Mínimo (pontos)
 input int      Inp_SL_Max          = 500;              // SL Máximo (pontos)
@@ -114,16 +114,16 @@ input double   Inp_TP_ATR_Mult     = 3.0;              // Multiplicador ATR para
 
 //--- Break-Even
 input group "═══════════════ BREAK-EVEN ═══════════════"
-input bool     Inp_UseBE           = true;             // Usar Break-Even
-input int      Inp_BE_Trigger      = 300;              // Trigger BE (pontos de lucro) - CORRIGIDO: 180→300 (1:1 R/R)
-input int      Inp_BE_Offset       = 10;               // Offset proteção spread (pontos) - CORRIGIDO: 30→10 (Custo apenas)
+input bool     Inp_UseBE           = false;            // DESATIVADO - Cortando lucros prematuramente (análise Python)
+input int      Inp_BE_Trigger      = 400;              // (Inativo) Trigger BE
+input int      Inp_BE_Offset       = 50;               // (Inativo) Offset
 
 //--- Trailing Stop
 input group "═══════════════ TRAILING STOP ═══════════════"
-input bool     Inp_UseTrailing     = true;             // Usar Trailing Stop - ATIVADO para capturar tendências longas
-input int      Inp_Trail_Trigger   = 300;              // Trigger Trailing (pontos de lucro) - AJUSTADO: 300 (1R)
-input int      Inp_Trail_Distance  = 100;              // Distância do SL ao preço máximo (pontos) - AJUSTADO: 100 (Lock Profit)
-input int      Inp_Trail_Step      = 30;               // Step mínimo para mover SL (pontos) - CORRIGIDO: 50→30 para movimento gradual
+input bool     Inp_UseTrailing     = false;            // DESATIVADO - Cortando lucros (Win BE=$0.50 vs Win TP=$5.00)
+input int      Inp_Trail_Trigger   = 500;              // (Inativo) Trigger Trailing
+input int      Inp_Trail_Distance  = 200;              // (Inativo) Distância do SL
+input int      Inp_Trail_Step      = 50;               // (Inativo) Step mínimo
 
 //--- Horários de Operação
 input group "═══════════════ HORÁRIOS ═══════════════"
@@ -162,7 +162,7 @@ input int              Inp_CustomCross2 = 2;   // Custom Cross EMA Index 2 (1-5)
 
 //===== Signal Configuration =====
 input SIGNAL_MODE      Inp_SignalMode = MODE_MODERATE;  // Signal Mode
-input int              Inp_MinStrength = 1;             // Minimum Strength Required (1-5) - ALLOW ALL signals to reach logic
+input int              Inp_MinStrength = 4;             // REDESIGN: Força mínima 4 (4+ EMAs alinhadas) para melhor WR
 input double           Inp_ConfluenceThreshold = 60.0;  // Min Confluence Level (0-100%)
 input bool             Inp_RequireConfluence = true;    // Require Confluence Filter (ATIVADO para rejeitar sinais fracos)
 input bool             Inp_EnablePullbacks = true;      // Enable Pullback Signals
@@ -201,15 +201,15 @@ input group "═══════════════ FILTRO RSIOMA ══�
 input bool     Inp_UseRSIOMA       = true;             // Usar Filtro RSIOMA - ATIVADO para filtrar momentum
 input int      Inp_RSIOMA_Period   = 14;               // Período RSI
 input int      Inp_RSIOMA_MA       = 9;                // Período MA do RSI
-input int      Inp_RSIOMA_Overbought = 80;             // Nível Sobrecompra (não BUY acima)
-input int      Inp_RSIOMA_Oversold = 20;               // Nível Sobrevenda (não SELL abaixo)
-input bool     Inp_RSIOMA_CheckMid = true;             // Verificar nível 50 (momentum)
+input int      Inp_RSIOMA_Overbought = 70;             // REDESIGN: Nível Sobrecompra 70 (mais restritivo)
+input int      Inp_RSIOMA_Oversold = 30;               // REDESIGN: Nível Sobrevenda 30 (mais restritivo)
+input bool     Inp_RSIOMA_CheckMid = true;             // REDESIGN: Exigir RSI>50 para BUY, <50 para SELL
 input bool     Inp_RSIOMA_CheckCross = true;           // Verificar RSI × MA (direção)
 input int      Inp_RSIOMA_ConfirmBars = 1;             // Barras de Confirmação (1=Instant)
 
 //--- Filtro OBV MACD (NOVO - Nexus Logic)
 input group "═══════════════ FILTRO OBV MACD (NEXUS) ═══════════════"
-input bool     Inp_UseOBVMACD      = true;             // Usar Filtro OBV MACD (Nexus Logic)
+input bool     Inp_UseOBVMACD      = false;            // DESATIVADO - Indicador quebrado (79% Hist=0)
 input bool     Inp_OBVMACD_RequireBuy = true;          // Exigir sinal de compra - ATIVADO para filtrar volume
 input bool     Inp_OBVMACD_RequireSell = true;         // Exigir sinal de venda - ATIVADO para filtrar volume
 input bool     Inp_OBVMACD_AllowWeak = true;           // Permitir sinais fracos (Green Weak/Red Weak)
@@ -774,6 +774,21 @@ void ProcessSignals()
    //--- Determinar direção (MOVIDO PARA O TOPO)
    bool isBuy = (entrySignal > 0);
    bool isSell = (entrySignal < 0);
+
+   //--- FILTRO CRÍTICO: Rejeitar sinais com conflito Entry/Strength
+   //--- Entry=1 (BUY) requer Strength > 0 (bullish EMAs alignment)
+   //--- Entry=-1 (SELL) requer Strength < 0 (bearish EMAs alignment)
+   //--- Conflito indica pullback fraco ou sinal falso de reversão
+   bool hasConflict = ((entrySignal > 0 && fgmData.strength < 0) || 
+                       (entrySignal < 0 && fgmData.strength > 0));
+   
+   if(hasConflict)
+   {
+       g_Stats.LogNormal(StringFormat("🚫 SINAL REJEITADO: Conflito Entry/Strength (Entry=%.0f [%s], Strength=%.0f [%s])", 
+                                     entrySignal, isBuy ? "BUY" : "SELL",
+                                     fgmData.strength, fgmData.strength > 0 ? "BULLISH" : "BEARISH"));
+       return;
+   }
 
    //--- ESTRATÉGIA NOVO PROTOCOLO 1-2-3: Agora respeita a força mínima configurada
    //--- Validação será feita pelos 3 passos rigorosos DEPOIS do filtro de força básica.

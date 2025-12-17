@@ -1602,8 +1602,15 @@ bool CFilters::CheckOBVMACD(bool isBuy, int shift)
             return true;
          }
          
-         //--- Qualquer outra cor (1, 2 ou 3) bloqueia
-         Print(StringFormat("OBV MACD STATUS: REPROVADO [BUY]. Cor=%d (Esperado: 0 - Verde Forte) | Hist=%.2f | Threshold=%.2f", 
+         //--- COMPRA FRACA: Valida Cor 2 se AllowWeak ativo E histograma positivo
+         if(m_config.obvmACDAllowWeakSignals && currentColor == 2 && currentHist > 0)
+         {
+            Print("OBV MACD: COMPRA FRACA (Verde Fraco + Hist Positivo) - APROVADO");
+            return true;
+         }
+         
+         //--- Qualquer outra cor bloqueia
+         Print(StringFormat("OBV MACD STATUS: REPROVADO [BUY]. Cor=%d (Esperado: 0 ou 2 com Hist>0) | Hist=%.2f | Threshold=%.2f", 
                            currentColor, currentHist, currentThresh));
          return false;
       }
@@ -1623,8 +1630,15 @@ bool CFilters::CheckOBVMACD(bool isBuy, int shift)
             return true;
          }
          
-         //--- Qualquer outra cor (0, 2 ou 3) bloqueia
-         Print(StringFormat("OBV MACD STATUS: REPROVADO [SELL]. Cor=%d (Esperado: 1 - Vermelho Forte) | Hist=%.2f | Threshold=%.2f", 
+         //--- VENDA FRACA: Valida Cor 3 se AllowWeak ativo E histograma negativo
+         if(m_config.obvmACDAllowWeakSignals && currentColor == 3 && currentHist < 0)
+         {
+            Print("OBV MACD: VENDA FRACA (Vermelho Fraco + Hist Negativo) - APROVADO");
+            return true;
+         }
+         
+         //--- Qualquer outra cor bloqueia
+         Print(StringFormat("OBV MACD STATUS: REPROVADO [SELL]. Cor=%d (Esperado: 1 ou 3 com Hist<0) | Hist=%.2f | Threshold=%.2f", 
                            currentColor, currentHist, currentThresh));
          return false;
       }
