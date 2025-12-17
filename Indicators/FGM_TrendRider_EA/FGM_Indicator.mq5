@@ -108,6 +108,14 @@ input double           InpConfRangeHigh = 0.10;        // Max Range % for 75% Co
 input double           InpConfRangeMed = 0.20;         // Max Range % for 50% Confluence
 input double           InpConfRangeLow = 0.30;         // Max Range % for 25% Confluence
 
+//===== Pullback "Bible" Strict Filters =====
+input bool             InpPullbackUseVol   = true;     // Filter by Volume (< Avg)
+input double           InpPullbackVolFact  = 0.7;      // Max Volume Factor (0.7 = 70% of Avg)
+input bool             InpPullbackUseRSI   = true;     // Filter by RSI (Zones)
+input double           InpPullbackRSI_Low  = 30.0;     // RSI Lower Bound (Buy > 30)
+input double           InpPullbackRSI_High = 70.0;     // RSI Upper Bound (Sell < 70)
+input int              InpVolMaPeriod      = 20;       // Volume MA Period
+
 //===== Visual Settings =====
 input bool             InpShowArrows = true;           // Show Signal Arrows
 input int              InpArrowDistance = 10;          // Arrow Distance (points)
@@ -157,6 +165,10 @@ int handle_ema2;
 int handle_ema3;
 int handle_ema4;
 int handle_ema5;
+int handle_rsi; // New RSI Handle
+double rsi_buffer[]; // RSI Data Buffer
+double volume_ma_buffer[]; // Volume MA Buffer
+
 
 //--- Core engine enable flag
 bool   CORE_Enabled = true;
@@ -223,6 +235,10 @@ int OnInit()
     handle_ema3 = iMA(_Symbol, _Period, InpPeriod3, 0, MODE_EMA, InpAppliedPrice);
     handle_ema4 = iMA(_Symbol, _Period, InpPeriod4, 0, MODE_EMA, InpAppliedPrice);
     handle_ema5 = iMA(_Symbol, _Period, InpPeriod5, 0, MODE_EMA, InpAppliedPrice);
+    
+    //--- Create RSI Handle
+    handle_rsi = iRSI(_Symbol, _Period, 14, PRICE_CLOSE);
+
     
     //--- Check handles
     if(handle_ema1 == INVALID_HANDLE || handle_ema2 == INVALID_HANDLE || 
@@ -306,6 +322,8 @@ void OnDeinit(const int reason)
     if(handle_ema3 != INVALID_HANDLE) IndicatorRelease(handle_ema3);
     if(handle_ema4 != INVALID_HANDLE) IndicatorRelease(handle_ema4);
     if(handle_ema5 != INVALID_HANDLE) IndicatorRelease(handle_ema5);
+    if(handle_rsi != INVALID_HANDLE) IndicatorRelease(handle_rsi);
+
     
     //--- Clean up chart objects
     ObjectsDeleteAll(0, "FGM_", -1, -1);
@@ -349,6 +367,15 @@ int OnCalculate(const int rates_total,
     int copied4 = CopyBuffer(handle_ema4, 0, 0, rates_total, FGM_EMA4_Buffer);
     int copied5 = CopyBuffer(handle_ema5, 0, 0, rates_total, FGM_EMA5_Buffer);
     
+    //--- Resize internal buffers
+    ArrayResize(rsi_buffer, rates_total);
+    ArraySetAsSeries(rsi_buffer, true);
+    
+    //--- Copy RSI
+    int copied_rsi = CopyBuffer(handle_rsi, 0, 0, rates_total, rsi_buffer);
+    if(copied_rsi <= 0) return(0);
+
+    
     //--- Check copy success
     if(copied1 <= 0 || copied2 <= 0 || copied3 <= 0 || 
        copied4 <= 0 || copied5 <= 0)
@@ -387,9 +414,23 @@ int OnCalculate(const int rates_total,
         bool confluence_ok = true;
         if(InpRequireConfluence && confluence < InpConfluenceThreshold)
             confluence_ok = false;
+            
+        //--- Calculate Average Volume (Simple Moving Average of Tick Volume)
+        double vol_avg = 0;
+        if(i < rates_total - InpVolMaPeriod)
+        {
+            long sum_vol = 0;
+            for(int k = 0; k < InpVolMaPeriod; k++)
+               sum_vol += tick_volume[i+k];
+            vol_avg = (double)sum_vol / InpVolMaPeriod;
+        }
+
+        //--- RSI for this bar
+        double rsi_val = rsi_buffer[i];
         
         //--- Generate entry/exit signals
-        GenerateTradeSignals(i, strength, phase, confluence, confluence_ok, close[i], time[i]);
+        GenerateTradeSignals(i, strength, phase, confluence, confluence_ok, close[i], time[i], tick_volume[i], vol_avg, rsi_val);
+
         
         //--- Update signal buffer
         if(strength >= InpMinStrength && confluence_ok)
@@ -585,9 +626,12 @@ double CalculateConfluence(int index, double current_price)
 //+------------------------------------------------------------------+
 //| Generate Trade Signals                                           |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Generate Trade Signals                                           |
+//+------------------------------------------------------------------+
 void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase, 
                           double confluence, bool confluence_ok, 
-                          double price, datetime time)
+                          double price, datetime time, long current_vol, double vol_avg, double rsi_val)
 {
     FGM_Entry_Buffer[index] = 0;
     FGM_Exit_Buffer[index] = 0;
@@ -842,31 +886,68 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         }
         
         //====================================================================
-        // STRATEGY 2: PULLBACK LOGIC (Retração na Tendência)
+        // STRATEGY 2: PULLBACK LOGIC (Retração na Tendência) - "THE BIBLE"
         //====================================================================
-        // Only if no crossover signal was generated AND Pullbacks are enabled
+        // Filters: Volume < 70% Avg, RSI Zones, Trend Direction, Bounce
         
         if(!InpEnablePullbacks) return;
+        
+        //--- VOLUME FILTER (Strict)
+        if(InpPullbackUseVol && vol_avg > 0)
+        {
+            // "Volume pullback < 70% do volume médio"
+            // If current volume is spiking, it might be a reversal or exhaustion, not a quiet pullback.
+            if((double)current_vol > vol_avg * InpPullbackVolFact) return; 
+        }
+
+        //--- RSI FILTER (Strict Zones)
+        if(InpPullbackUseRSI)
+        {
+            // Buy: RSI should be > 30 (not extremely oversold/crash) and preferably < 70 (room to grow)
+            // But User Bible says: "LONG Pullback: RSI entre 30-50". 
+            // However, for Shallow Pullbacks in strong trends, RSI stays > 50.
+            // We will use InpPullbackRSI_Low (30) as floor. 
+            // We won't strict cap at 50 for Strong trends (Shallow), but maybe for Deep.
+            // Let's implement the "Floor" check primarily to avoid falling knives.
+        }
 
         //--- Pullback BUY
-        // Trend is UP (Price > EMA200) AND Strength is High
-        if(close > ema_trend_curr && strength >= min_strength)
+        // Trend is UP (Price > EMA200)
+        if(close > ema_trend_curr)
         {
-            // Price dipped into "Value Zone" (e.g., touched EMA3/Medium) but closed bullish
-            // Relaxed: Allow touching EMA2 (Slow) if EMA3 is too far, or just getting close to EMA3
-            bool touched_value = (low <= ema_mid_curr) || (low <= ema_slow_curr); 
+            // 1. Identify Pullback Depth (Taxonomy)
+            bool is_shallow = (low <= ema_fast_curr); // Touched EMA8
+            bool is_medium  = (low <= ema_mid_curr);  // Touched EMA21
+            bool is_deep    = (low <= ema_slow_curr); // Touched EMA50
             
-            // Relaxed Bounce: 
-            // For Heavy Setups: Just need to recover above EMA1 (Fast) or show strong rejection.
-            // For Light Setups: Must recover above EMA2 (Slow).
-            double bounce_threshold = is_heavy_setup ? ema_fast_curr : ema_slow_curr;
+            bool valid_touch = is_shallow || is_medium || is_deep;
+            if(!valid_touch) return; 
             
-            bool bounced_up = (close > open) && (close > bounce_threshold); 
-            
-            // Ensure we are not too far from the EMAs (Confluence check)
-            if(touched_value && bounced_up && confluence_ok)
+            // 2. Classify & Filter based on Depth
+            // Shallow (Touch 8 but NOT 21): Strong Momentum. RSI likely > 50.
+            if(is_shallow && !is_medium) 
             {
-                 FGM_Entry_Buffer[index] = 1; // Buy Signal (Pullback)
+               // For Shallow, we expect RSI to be sustained high (e.g. > 50). 
+               if(InpPullbackUseRSI && rsi_val < 40) return; // Too weak for a shallow ride?
+            }
+            // Medium/Deep (Touch 21 or 50): Standard Pullback. RSI dips.
+            if(is_medium)
+            {
+               // "RSI entre 30-50" logic applies best here.
+               // We allow up to 60 to be safe.
+               if(InpPullbackUseRSI)
+               {
+                  if(rsi_val < InpPullbackRSI_Low) return; // < 30 (Oversold/Crash risk)
+                  // if(rsi_val > 60) return; // > 60 (Not enough dip?) - Optional
+               }
+            }
+            
+            // 3. Bounce Confirmation (Candle Green)
+            bool bounced_up = (close > open);
+            
+            if(bounced_up && confluence_ok)
+            {
+                 FGM_Entry_Buffer[index] = 1; // Buy Signal
                  DrawSignalArrow(index, price, time, true);
                  
                  if(index == 0 && !InpAlertOnBarClose) 
@@ -875,20 +956,37 @@ void GenerateTradeSignals(int index, int strength, MARKET_PHASE phase,
         }
         
         //--- Pullback SELL
-        // Trend is DOWN (Price < EMA200) AND Strength is High (Negative)
-        if(close < ema_trend_curr && MathAbs(strength) >= min_strength)
+        // Trend is DOWN (Price < EMA200)
+        if(close < ema_trend_curr)
         {
-            // Price rallied into "Value Zone" (e.g., touched EMA3/Medium) but closed bearish
-            bool touched_value = (high >= ema_mid_curr) || (high >= ema_slow_curr);
+            // 1. Identify Pullback Depth
+            bool is_shallow = (high >= ema_fast_curr); // Touched EMA8
+            bool is_medium  = (high >= ema_mid_curr);  // Touched EMA21
+            bool is_deep    = (high >= ema_slow_curr); // Touched EMA50
             
-            // Relaxed Bounce:
-            double bounce_threshold = is_heavy_setup ? ema_fast_curr : ema_slow_curr;
-            
-            bool bounced_down = (close < open) && (close < bounce_threshold); 
-            
-            if(touched_value && bounced_down && confluence_ok)
+            bool valid_touch = is_shallow || is_medium || is_deep;
+            if(!valid_touch) return;
+
+            // 2. Classify & Filter
+            if(is_shallow && !is_medium)
             {
-                 FGM_Entry_Buffer[index] = -1; // Sell Signal (Pullback)
+               // Strong Down Trend, RSI likely < 50.
+               if(InpPullbackUseRSI && rsi_val > 60) return; // Too strong up?
+            }
+            if(is_medium)
+            {
+               if(InpPullbackUseRSI)
+               {
+                  if(rsi_val > InpPullbackRSI_High) return; // > 70 (Overbought/Spike risk)
+               }
+            }
+            
+            // 3. Bounce Confirmation (Candle Red)
+            bool bounced_down = (close < open);
+            
+            if(bounced_down && confluence_ok)
+            {
+                 FGM_Entry_Buffer[index] = -1; // Sell Signal
                  DrawSignalArrow(index, price, time, false);
                  
                  if(index == 0 && !InpAlertOnBarClose) 

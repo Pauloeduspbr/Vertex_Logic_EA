@@ -125,7 +125,14 @@ public:
                           double confRangeMax = 0.05,
                           double confRangeHigh = 0.10,
                           double confRangeMed = 0.20,
-                          double confRangeLow = 0.30);
+                          double confRangeLow = 0.30,
+                          bool pullbackUseVol = true,
+                          double pullbackVolFact = 0.7,
+                          bool pullbackUseRSI = true,
+                          double pullbackRSI_Low = 30.0,
+                          double pullbackRSI_High = 70.0,
+                          int volMaPeriod = 20);
+
    void              Deinit();
    bool              IsInitialized() { return m_initialized; }
    string            GetLastError() { return m_lastError; }
@@ -243,7 +250,14 @@ bool CSignalFGM::Init(string symbol = NULL,
                        double confRangeMax = 0.05,
                        double confRangeHigh = 0.10,
                        double confRangeMed = 0.20,
-                       double confRangeLow = 0.30)
+                       double confRangeLow = 0.30,
+                       bool pullbackUseVol = true,
+                       double pullbackVolFact = 0.7,
+                       bool pullbackUseRSI = true,
+                       double pullbackRSI_Low = 30.0,
+                       double pullbackRSI_High = 70.0,
+                       int volMaPeriod = 20)
+
 {
    //--- Definir parâmetros
    m_symbol = (symbol == NULL || symbol == "") ? _Symbol : symbol;
@@ -286,8 +300,15 @@ bool CSignalFGM::Init(string symbol = NULL,
                        confRangeMax,      // Conf Range Max
                        confRangeHigh,     // Conf Range High
                        confRangeMed,      // Conf Range Med
-                       confRangeLow       // Conf Range Low
+                       confRangeLow,      // Conf Range Low
+                       pullbackUseVol,    // Bible Vol Filter
+                       pullbackVolFact,   // Bible Vol Factor
+                       pullbackUseRSI,    // Bible RSI Filter
+                       pullbackRSI_Low,   // Bible RSI Min
+                       pullbackRSI_High,  // Bible RSI Max
+                       volMaPeriod        // Bible Vol MA
                        );
+
    
    //--- Verificar se o handle foi criado com sucesso
    if(m_handle == INVALID_HANDLE)
@@ -432,19 +453,21 @@ FGM_DATA CSignalFGM::GetData(int shift = 1)
       
       double maxEMA = MathMax(data.ema1, MathMax(data.ema2, MathMax(data.ema3, MathMax(data.ema4, data.ema5))));
       double minEMA = MathMin(data.ema1, MathMin(data.ema2, MathMin(data.ema3, MathMin(data.ema4, data.ema5))));
-      
-      if(minEMA > 0)
+           if(minEMA > 0)
       {
          double spreadPercent = (maxEMA - minEMA) / minEMA * 100.0;
-         // Se spread < 0.05% -> Confluência 100%
-         // Se spread > 0.5% -> Confluência 0%
          
-         if(spreadPercent < 0.05) data.confluence = 100.0;
-         else if(spreadPercent > 0.5) data.confluence = 10.0; // Mínimo 10% para indicar tendência forte
+         // NEXUS MOD: Relaxed Confluence Logic for Volatile Breakouts
+         // Before: > 0.5% spread = 10% Confluence (Killed strong breakouts)
+         // Now: Allow up to 1.5% spread before degrading significantly.
+         
+         if(spreadPercent < 0.1) data.confluence = 100.0; // Super tight squeeze
+         else if(spreadPercent > 1.5) data.confluence = 40.0; // Expanded but still usable (High Volatility)
          else
          {
-            // Interpolação linear inversa
-            data.confluence = 100.0 - ((spreadPercent - 0.05) / (0.5 - 0.05) * 90.0);
+            // Linear interpolation: 0.1% -> 100% | 1.5% -> 50%
+            // This ensures that a 0.5% spread (typical breakout) retains ~80% confluence
+            data.confluence = 100.0 - ((spreadPercent - 0.1) / (1.5 - 0.1) * 50.0);
          }
       }
    }

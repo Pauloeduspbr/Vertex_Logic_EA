@@ -100,7 +100,7 @@ input double   Inp_ForceMultF5     = 1.5;              // Multiplicador F5
 //--- Stop Loss
 input group "═══════════════ STOP LOSS ═══════════════"
 input ENUM_SL_MODE Inp_SLMode      = SL_FIXED;         // ESTRUTURAL: Hybrid→Fixed (evita SL inflado em volátil)
-input int      Inp_SL_Points       = 300;              // ESTRUTURAL: SL maior (300pts) para suportar volatilidade
+input int      Inp_SL_Points       = 250;              // ESTRUTURAL: SL AJUSTADO (250pts) para melhorar R:R
 input double   Inp_SL_ATR_Mult     = 1.5;              // Multiplicador ATR para SL
 input int      Inp_SL_Min          = 50;               // SL Mínimo (pontos)
 input int      Inp_SL_Max          = 500;              // SL Máximo (pontos)
@@ -121,16 +121,16 @@ input int      Inp_BE_Offset       = 10;               // Offset proteção spre
 //--- Trailing Stop
 input group "═══════════════ TRAILING STOP ═══════════════"
 input bool     Inp_UseTrailing     = true;             // Usar Trailing Stop - ATIVADO para capturar tendências longas
-input int      Inp_Trail_Trigger   = 400;              // Trigger Trailing (pontos de lucro) - CORRIGIDO: 250→400
-input int      Inp_Trail_Distance  = 200;              // Distância do SL ao preço máximo (pontos) - CORRIGIDO: 150→200
+input int      Inp_Trail_Trigger   = 300;              // Trigger Trailing (pontos de lucro) - AJUSTADO: 300 (1R)
+input int      Inp_Trail_Distance  = 100;              // Distância do SL ao preço máximo (pontos) - AJUSTADO: 100 (Lock Profit)
 input int      Inp_Trail_Step      = 30;               // Step mínimo para mover SL (pontos) - CORRIGIDO: 50→30 para movimento gradual
 
 //--- Horários de Operação
 input group "═══════════════ HORÁRIOS ═══════════════"
-input bool     Inp_UseTimeFilter   = true;             // Usar Filtro de Horário
-input string   Inp_StartTime       = "09:00";          // Horário Início (HH:MM)
-input string   Inp_EndTime         = "17:30";          // Horário Fim (HH:MM)
-input bool     Inp_CloseEOD        = true;             // Fechar posições fim do dia
+input bool     Inp_UseTimeFilter   = false;            // Usar Filtro de Horário - DESATIVADO (Operar 24h/Server Time)
+input string   Inp_StartTime       = "00:00";          // Horário Início (HH:MM) - CORRIGIDO: 24h
+input string   Inp_EndTime         = "23:59";          // Horário Fim (HH:MM) - CORRIGIDO: 24h
+input bool     Inp_CloseEOD        = false;            // Fechar posições fim do dia - CORRIGIDO: false (Swing)
 input int      Inp_SoftExitMin     = 45;               // Soft Exit (min antes do fim)
 input int      Inp_HardExitMin     = 15;               // Hard Exit (min antes do fim)
 input int      Inp_BrokerOffset    = 0;                // Offset do broker (horas)
@@ -143,7 +143,7 @@ input bool     Inp_Wednesday       = true;             // Quarta-feira
 input bool     Inp_Thursday        = true;             // Quinta-feira
 input bool     Inp_Friday          = true;             // Sexta-feira
 input bool     Inp_Saturday        = false;            // Sábado
-input bool     Inp_Sunday          = false;            // Domingo
+input bool     Inp_Sunday          = true;             // Domingo - ATIVADO (Abertura de mercado)
 
 //--- Parâmetros do Indicador FGM
 input group "═══════════════ INDICADOR FGM ═══════════════"
@@ -162,7 +162,7 @@ input int              Inp_CustomCross2 = 2;   // Custom Cross EMA Index 2 (1-5)
 
 //===== Signal Configuration =====
 input SIGNAL_MODE      Inp_SignalMode = MODE_MODERATE;  // Signal Mode
-input int              Inp_MinStrength = 5;             // Minimum Strength Required - SÓ SINAIS PERFEITOS
+input int              Inp_MinStrength = 1;             // Minimum Strength Required (1-5) - ALLOW ALL signals to reach logic
 input double           Inp_ConfluenceThreshold = 60.0;  // Min Confluence Level (0-100%)
 input bool             Inp_RequireConfluence = true;    // Require Confluence Filter (ATIVADO para rejeitar sinais fracos)
 input bool             Inp_EnablePullbacks = true;      // Enable Pullback Signals
@@ -178,11 +178,22 @@ input double           Inp_MaxConf_F3      = 60.0;             // Máx Confluên
 input double           Inp_MaxConf_F4      = 100.0;            // Máx Confluência para F4 (%)
 input double           Inp_MaxConf_F5      = 100.0;            // Máx Confluência para F5 (%)
 
+//--- Filtros Pullback (BIBLE LOGIC)
+input group "═══════════════ FILTRO PULLBACK (BIBLE) ═══════════════"
+input bool             Inp_PullbackUseVol   = true;            // Filtrar Volume (< 70% Avg)
+input double           Inp_PullbackVolFact  = 0.7;             // Fator Volume Máx (0.7 = 70%)
+input bool             Inp_PullbackUseRSI   = true;            // Filtrar RSI (Zonas)
+input double           Inp_PullbackRSI_Low  = 30.0;            // RSI Min (Buy)
+input double           Inp_PullbackRSI_High = 70.0;            // RSI Max (Sell)
+input int              Inp_VolMaPeriod      = 20;              // Período Média Volume
+
+
 //--- Filtros Adicionais
 input group "═══════════════ FILTROS ═══════════════"
 input bool     Inp_UseSlopeFilter  = true;             // Usar Filtro de Slope
 input bool     Inp_UseVolumeFilter = true;             // Usar Filtro de Volume (B3)
 input bool     Inp_UseATRFilter    = true;             // Usar Filtro ATR
+input bool     Inp_UseVWAPFilter   = true;             // Usar Filtro VWAP (Daily) - FILTER FALSE BREAKOUTS
 input int      Inp_CooldownBars    = 0;                // Cooldown após trade (barras) - (0 para reentradas rápidas)
 
 //--- Filtro RSIOMA (NOVO)
@@ -194,7 +205,7 @@ input int      Inp_RSIOMA_Overbought = 80;             // Nível Sobrecompra (n�
 input int      Inp_RSIOMA_Oversold = 20;               // Nível Sobrevenda (não SELL abaixo)
 input bool     Inp_RSIOMA_CheckMid = true;             // Verificar nível 50 (momentum)
 input bool     Inp_RSIOMA_CheckCross = true;           // Verificar RSI × MA (direção)
-input int      Inp_RSIOMA_ConfirmBars = 2;             // Barras de Confirmação (1-5)
+input int      Inp_RSIOMA_ConfirmBars = 1;             // Barras de Confirmação (1=Instant)
 
 //--- Filtro OBV MACD (NOVO - Nexus Logic)
 input group "═══════════════ FILTRO OBV MACD (NEXUS) ═══════════════"
@@ -297,9 +308,9 @@ int OnInit()
       return INIT_PARAMETERS_INCORRECT;
    }
    
-   if(Inp_MinStrength < 3 || Inp_MinStrength > 5)
+   if(Inp_MinStrength < 1 || Inp_MinStrength > 5)
    {
-      Print("[FGM] Erro: Força mínima deve estar entre 3 e 5");
+      Print("[FGM] Erro: Força mínima deve estar entre 1 e 5");
       return INIT_PARAMETERS_INCORRECT;
    }
    
@@ -315,8 +326,11 @@ int OnInit()
                         Inp_FGM_Period1, Inp_FGM_Period2, Inp_FGM_Period3,
                         Inp_FGM_Period4, Inp_FGM_Period5, Inp_AppliedPrice,
                         Inp_PrimaryCross, Inp_SecondaryCross, Inp_CustomCross1, Inp_CustomCross2,
-                        Inp_SignalMode, Inp_MinStrength, Inp_ConfluenceThreshold, Inp_RequireConfluence, Inp_EnablePullbacks,
-                        Inp_ConfRangeMax, Inp_ConfRangeHigh, Inp_ConfRangeMed, Inp_ConfRangeLow))
+                        Inp_SignalMode, Inp_MinStrength, Inp_ConfluenceThreshold,
+                   Inp_RequireConfluence, Inp_EnablePullbacks,
+                   Inp_ConfRangeMax, Inp_ConfRangeHigh, Inp_ConfRangeMed, Inp_ConfRangeLow,
+                   Inp_PullbackUseVol, Inp_PullbackVolFact, Inp_PullbackUseRSI,
+                   Inp_PullbackRSI_Low, Inp_PullbackRSI_High, Inp_VolMaPeriod))
    {
       Print("[FGM] Erro ao inicializar indicador FGM");
       return INIT_FAILED;
@@ -485,7 +499,19 @@ int OnInit()
    filterConfig.obvmACDAllowWeakSignals = Inp_OBVMACD_AllowWeak;
    filterConfig.obvmACDCheckVolumeRelevance = Inp_OBVMACD_CheckVolume;
    
-   g_Filters.SetConfig(filterConfig);
+   //--- Configurar VWAP Filter (NOVO)
+   filterConfig.useVWAPFilter = Inp_UseVWAPFilter;
+   
+   g_Filters.SetConfig(Inp_UseSlopeFilter, 5, 2.0, 0.3, 0.5,
+                      Inp_UseVolumeFilter, 20, 0.7, true,
+                      Inp_UseATRFilter, 14, 2.0,
+                      Inp_MaxConf_F3, Inp_MaxConf_F4, Inp_MaxConf_F5,
+                      true, 1, -1,
+                      true,
+                      true, Inp_CooldownBars, true,
+                      Inp_UseRSIOMA, Inp_RSIOMA_Period, Inp_RSIOMA_MA, Inp_RSIOMA_Overbought, Inp_RSIOMA_Oversold, Inp_RSIOMA_CheckMid, Inp_RSIOMA_CheckCross, Inp_RSIOMA_ConfirmBars,
+                      Inp_UseOBVMACD, Inp_OBVMACD_RequireBuy, Inp_OBVMACD_RequireSell, Inp_OBVMACD_AllowWeak, Inp_OBVMACD_CheckVolume, Inp_OBVMACD_FastEMA, Inp_OBVMACD_SlowEMA, Inp_OBVMACD_SignalSMA, Inp_OBVMACD_ObvSmooth, Inp_OBVMACD_UseTickVolume, Inp_OBVMACD_ThreshPeriod, Inp_OBVMACD_ThreshMult,
+                      Inp_UseVWAPFilter); // <--- NEW ARGUMENT
    
    //--- Configurar parâmetros do indicador OBV MACD v3
    g_Filters.SetOBVMACDParams(Inp_OBVMACD_FastEMA, Inp_OBVMACD_SlowEMA, 
@@ -528,6 +554,23 @@ int OnInit()
                                   "1.00", Symbol(), EnumToString(Period())));
    g_Stats.LogNormal(StringFormat("Tipo de ativo: %s | Magic: %d", 
                                   EnumToString(g_AssetSpecs.GetAssetType()), Inp_MagicNumber));
+   
+   //--- DEBUG: Log da configuração recebida
+   Print("CFilters::SetConfig - Configurações atualizadas.");
+   
+   //--- VISUAL VWAP (User Request)
+   //--- Anexar indicador visual ao gráfico para o usuário ver a linha
+   if(Inp_UseVWAPFilter)
+   {
+      int vwapHandle = iCustom(Symbol(), Period(), "FGM_TrendRider_EA\\FGM_VWAP_Daily");
+      if(vwapHandle != INVALID_HANDLE)
+      {
+         if(!ChartIndicatorAdd(0, 0, vwapHandle))
+         {
+            Print("Aviso: Falha ao anexar VWAP visual no gráfico (Erro: ", GetLastError(), ")");
+         }
+      }
+   }
    
    return INIT_SUCCEEDED;
 }
@@ -732,24 +775,25 @@ void ProcessSignals()
    bool isBuy = (entrySignal > 0);
    bool isSell = (entrySignal < 0);
 
-   //--- ESTRATÉGIA NOVO PROTOCOLO 1-2-3: Ignoramos "Strength" numérica antiga
-   //--- A validação será feita pelos 3 passos rigorosos abaixo.
-   // if(signalStrength < Inp_MinStrength) ... REMOVIDO PARA USAR PROTOCOLO 1-2-3
+   //--- ESTRATÉGIA NOVO PROTOCOLO 1-2-3: Agora respeita a força mínima configurada
+   //--- Validação será feita pelos 3 passos rigorosos DEPOIS do filtro de força básica.
+   int signalStrength = (int)MathAbs(fgmData.strength);
+   
+   if(signalStrength < Inp_MinStrength)
+   {
+       g_Stats.LogDebug(StringFormat("Sinal ignorado por força insuficiente (%d < %d)", signalStrength, Inp_MinStrength));
+       return;
+   }
    
    // Apenas logar para referência
-   g_Stats.LogDebug(StringFormat("Sinal detectado via FGM (Direção: %s) - Iniciando Protocolo 1-2-3", isBuy ? "BUY" : "SELL"));
+   g_Stats.LogDebug(StringFormat("Sinal detectado via FGM (Direção: %s, Força: %d) - Iniciando Protocolo 1-2-3", isBuy ? "BUY" : "SELL", signalStrength));
    
-   //--- RESTAURAÇÃO DE VARIÁVEIS PARA COMPATIBILIDADE
-   //--- Como removemos o cálculo de filterResult e signalStrength, precisamos defini-los
-   //--- para não quebrar o código de logging e cálculo de risco abaixo.
-   int signalStrength = 5; // Assumimos força MÁXIMA se passou no protocolo 1-2-3
-   
-   //--- Criar um resultado de filtro "dummy" aprovado, pois o Strategy123 já validou
+   //--- Criar um resultado de filtro compatível
    FilterResult filterResult;
    filterResult.passed = true;
    filterResult.strengthOK = true;
-   filterResult.currentStrength = 5;
-   filterResult.failReason = "Aprovado por Protocolo 1-2-3";
+   filterResult.currentStrength = signalStrength;
+   filterResult.failReason = "Aprovado por Filtro de Força";
    
    //--- Verificar confluência (compressão das EMAs)
    //--- O indicador já calcula a confluência baseada em porcentagem.

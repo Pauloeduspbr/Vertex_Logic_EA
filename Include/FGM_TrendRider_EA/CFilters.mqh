@@ -57,6 +57,14 @@ struct FilterConfig
    int      spreadMaxWDO;        // Spread máximo WDO
    int      spreadMaxForex;      // Spread máximo Forex
    
+   //--- ATR (NOVO / Missing)
+   bool     atrActive;           // Filtro ATR ativo
+   int      atrPeriod;           // Período ATR
+   double   atrMultiplier;       // Multiplicador ATR
+   
+   //--- VWAP Filter (NOVO)
+   bool     useVWAPFilter;       // Filtro VWAP ativo
+   
    //--- Slope
    bool     slopeActive;         // Filtro de slope ativo
    int      slopePeriod;         // Período para cálculo
@@ -152,6 +160,10 @@ private:
    double             m_bufferOBVHist[];      // Buffer 0
    double             m_bufferOBVColor[];     // Buffer 1
    double             m_bufferOBVThreshold[]; // Buffer 4
+
+   //--- VWAP Filter (NOVO - Visual Sync)
+   int                m_handleVWAP;     // Handle do indicador VWAP
+   double             m_bufferVWAP[];   // Buffer 0
    
    //--- SINCRONIZAÇÃO: Shift atual para leitura de buffers
    int                m_currentShift;   // Barra atual do sinal (0 ou 1)
@@ -170,13 +182,15 @@ private:
    bool               CheckStrength(int minStrength);
    bool               CheckEMA200(bool isBuy);
    bool               CheckCooldown(int strength);
-   bool               CheckRSIOMA(bool isBuy, int shift);  // NOVO
-   bool               CheckOBVMACD(bool isBuy, int shift); // NOVO
-   bool               CheckLequeAberto(bool isBuy, int shift); // NOVO - Filtro EMA Fan
+   bool               CheckRSIOMA(bool isBuy, int shift);
+   bool               CheckOBVMACD(bool isBuy, int shift);
+   bool               CheckVWAP(bool isBuy, int shift);    // Agora usa indicador visual
+   bool               CheckLequeAberto(bool isBuy, int shift);
    void               UpdateCooldown();
    
-   void               CreateOBVMACDHandle(); // Helper para criar handle
-   
+   void               CreateOBVMACDHandle(); // Helper
+   void               CreateVWAPHandle();    // Helper VWAP
+
 public:
    //--- PROTOCOLO ESTRATÉGICO 1-2-3 (SINCRONIA TOTAL)
    bool               CheckStep1_Trend(bool isBuy, int shift);    // Passo 1: Tendência (Leque + Preço)
@@ -194,6 +208,17 @@ public:
    
    //--- Configuração
    void               SetConfig(const FilterConfig& config);
+   void               SetConfig(bool slopeActive, int slopePeriod, double slopeMinWIN, double slopeMinWDO, double slopeMinFX,
+                                bool volActive, int volPeriod, double volMult, bool volIgnoreF5,
+                                bool atrActive, int atrPeriod, double atrMult,
+                                double confMaxF3, double confMaxF4, double confMaxF5,
+                                bool phaseActive, int minBuy, int maxSell,
+                                bool ema200Active,
+                                bool cooldownActive, int cooldownBars, bool cooldownIgnoreF5,
+                                bool rsiomaActive, int rsiPeriod, int rsiMA, int rsiOB, int rsiOS, bool rsiCheckMid, bool rsiCheckCross, int rsiConfirmBars,
+                                bool obvmACDActive, bool requireBuy, bool requireSell, bool allowWeak, bool checkVol, int obvFast, int obvSlow, int obvSig, int obvSmooth, bool obvTick, int obvThreshPeriod, double obvThreshMult,
+                                bool useVWAPFilter); // <--- NEW ARGUMENT
+                                
    FilterConfig       GetConfig() { return m_config; }
    void               SetDefaultConfig();
    void               SetOBVMACDParams(int fastEMA, int slowEMA, int signalSMA, 
@@ -213,6 +238,7 @@ public:
    bool               IsStrengthOK(int minStrength);
    bool               IsEMA200OK(bool isBuy);
    bool               IsCooldownOK(int strength);
+   bool               IsRSIOMAOK(bool isBuy); // NOVO
    
    //--- Gestão de cooldown
    void               StartCooldownAfterStop();
@@ -227,7 +253,6 @@ public:
    double             GetVolumeMA();
    double             GetCurrentRSI();       // NOVO
    double             GetCurrentRSIMA();     // NOVO
-   bool               IsRSIOMAOK(bool isBuy); // NOVO
    
    //--- OnTick para atualizar cooldown
    void               OnNewBar();
@@ -235,6 +260,175 @@ public:
    //--- Debug
    void               PrintFilterStatus(bool isBuy, int minStrength);
 };
+
+//+------------------------------------------------------------------+
+//| Definir configuração (Overload Longa)                            |
+//+------------------------------------------------------------------+
+void CFilters::SetConfig(bool slopeActive, int slopePeriod, double slopeMinWIN, double slopeMinWDO, double slopeMinFX,
+                        bool volActive, int volPeriod, double volMult, bool volIgnoreF5,
+                        bool atrActive, int atrPeriod, double atrMult,
+                        double confMaxF3, double confMaxF4, double confMaxF5,
+                        bool phaseActive, int minBuy, int maxSell,
+                        bool ema200Active,
+                        bool cooldownActive, int cooldownBars, bool cooldownIgnoreF5,
+                        bool rsiomaActive, int rsiPeriod, int rsiMA, int rsiOB, int rsiOS, bool rsiCheckMid, bool rsiCheckCross, int rsiConfirmBars,
+                        bool obvmACDActive, bool requireBuy, bool requireSell, bool allowWeak, bool checkVol, int obvFast, int obvSlow, int obvSig, int obvSmooth, bool obvTick, int obvThreshPeriod, double obvThreshMult,
+                        bool useVWAPFilter) // <--- NEW ARGUMENT
+{
+   // 1. Preencher struct
+   m_config.slopeActive = slopeActive;
+   m_config.slopePeriod = slopePeriod;
+   m_config.slopeMinWIN = slopeMinWIN;
+   m_config.slopeMinWDO = slopeMinWDO;
+   m_config.slopeMinForex = slopeMinFX;
+   
+   m_config.volumeActive = volActive;
+   m_config.volumeMAPeriod = volPeriod;
+   m_config.volumeMultiplier = volMult;
+   m_config.volumeIgnoreF5 = volIgnoreF5;
+   
+   m_config.atrActive = atrActive;
+   m_config.atrPeriod = atrPeriod;
+   m_config.atrMultiplier = atrMult;
+   
+   m_config.confluenceMaxF3 = confMaxF3;
+   m_config.confluenceMaxF4 = confMaxF4;
+   m_config.confluenceMaxF5 = confMaxF5;
+   
+   m_config.phaseFilterActive = phaseActive;
+   m_config.minPhaseBuy = minBuy;
+   m_config.minPhaseSell = maxSell;
+   
+   m_config.ema200FilterActive = ema200Active;
+   
+   m_config.cooldownActive = cooldownActive;
+   m_config.cooldownBarsAfterStop = cooldownBars;
+   m_config.cooldownIgnoreF5 = cooldownIgnoreF5;
+   
+   // RSIOMA
+   m_config.rsiomaActive = rsiomaActive;
+   m_config.rsiomaPeriod = rsiPeriod;
+   m_config.rsiomaMA_Period = rsiMA;
+   m_config.rsiomaOverbought = rsiOB;
+   m_config.rsiomaOversold = rsiOS;
+   m_config.rsiomaCheckMidLevel = rsiCheckMid;
+   m_config.rsiomaCheckCrossover = rsiCheckCross;
+   m_config.rsiomaConfirmBars = rsiConfirmBars;
+
+   // OBV MACD
+   m_config.obvmACDActive = obvmACDActive;
+   m_config.obvmACDRequireBuy = requireBuy;
+   m_config.obvmACDRequireSell = requireSell;
+   m_config.obvmACDAllowWeakSignals = allowWeak;
+   m_config.obvmACDCheckVolumeRelevance = checkVol;
+   m_config.obvFastEMA = obvFast;
+   m_config.obvSlowEMA = obvSlow;
+   m_config.obvSignalSMA = obvSig;
+   m_config.obvSmooth = obvSmooth;
+   m_config.obvUseTickVolume = obvTick;
+   m_config.obvThreshPeriod = obvThreshPeriod;
+   m_config.obvThreshMult = obvThreshMult;
+   
+   // VWAP
+   m_config.useVWAPFilter = useVWAPFilter;
+   
+   // 2. Inicializar Handles Necessários
+   // RSIOMA
+   if(m_config.rsiomaActive && m_handleRSI == INVALID_HANDLE && m_asset != NULL)
+   {
+       m_handleRSI = iCustom(m_asset.GetSymbol(), PERIOD_CURRENT, 
+                            "FGM_TrendRider_EA\\RSIOMA_v2HHLSX_MT5",
+                            m_config.rsiomaPeriod, m_config.rsiomaMA_Period, MODE_SMA,
+                            (double)m_config.rsiomaOverbought, (double)m_config.rsiomaOversold, true);
+       Print("CFilters: RSIOMA Handle Created via Long SetConfig");
+   }
+   
+   // OBV MACD
+   if(m_config.obvmACDActive && m_handleOBVMACD == INVALID_HANDLE && m_asset != NULL)
+   {
+      CreateOBVMACDHandle();
+   }
+   
+   // VWAP (NOVO) - Create if active
+   if(m_config.useVWAPFilter && m_handleVWAP == INVALID_HANDLE && m_asset != NULL)
+   {
+      CreateVWAPHandle();
+   }
+   
+   Print("CFilters::SetConfig (Long) - All Configs Updated.");
+}
+
+//+------------------------------------------------------------------+
+//| Verify VWAP using Indicator                                      |
+//+------------------------------------------------------------------+
+bool CFilters::CheckVWAP(bool isBuy, int shift)
+{
+   if(!m_config.useVWAPFilter) return true;
+   
+   if(m_handleVWAP == INVALID_HANDLE)
+   {
+      CreateVWAPHandle(); // Try to lazy load
+      if(m_handleVWAP == INVALID_HANDLE) return true; // Fail safe
+   }
+   
+   double vwapParams[];
+   if(CopyBuffer(m_handleVWAP, 0, shift, 1, vwapParams) <= 0)
+      return true; // Data not ready
+      
+   double vwap = vwapParams[0];
+   double closePrice = iClose(m_asset.GetSymbol(), PERIOD_CURRENT, shift);
+   
+   if(isBuy)
+   {
+      // CORREÇÃO: User pediu para ignorar Abertura. Apenas Fechamento importa (Romper/Estar acima/abaixo)
+      if(closePrice > vwap) 
+      {
+         Print(StringFormat("VWAP CHECK: APROVADO [BUY] | Close(%.2f) > VWAP(%.2f)", closePrice, vwap));
+         return true;
+      }
+      else 
+      {
+         Print(StringFormat("VWAP CHECK: REPROVADO [BUY] | Close(%.2f) <= VWAP(%.2f) - Preço abaixo da VWAP (Filtro Ativo)", closePrice, vwap));
+         return false;
+      }
+   }
+   else // SELL
+   {
+      // CORREÇÃO: User pediu para ignorar Abertura. Apenas Fechamento importa.
+      if(closePrice < vwap) 
+      {
+         Print(StringFormat("VWAP CHECK: APROVADO [SELL] | Close(%.2f) < VWAP(%.2f)", closePrice, vwap));
+         return true;
+      }
+      else 
+      {
+         Print(StringFormat("VWAP CHECK: REPROVADO [SELL] | Close(%.2f) >= VWAP(%.2f) - Preço acima da VWAP (Filtro Ativo)", closePrice, vwap));
+         return false;
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Create VWAP Handle                                               |
+//+------------------------------------------------------------------+
+void CFilters::CreateVWAPHandle()
+{
+   if(m_handleVWAP != INVALID_HANDLE) return;
+   
+   m_handleVWAP = iCustom(m_asset.GetSymbol(), PERIOD_CURRENT, "FGM_TrendRider_EA\\FGM_VWAP_Daily");
+   
+   if(m_handleVWAP == INVALID_HANDLE)
+      Print("CFilters: Erro ao criar FGM_VWAP_Daily handle");
+   else
+      Print("CFilters: FGM_VWAP_Daily ativado com sucesso");
+}
+
+//+------------------------------------------------------------------+
+//| Deinicialização (Update)                                         |
+//+------------------------------------------------------------------+
+// ... (Add VWAP release to Deinit, handled via separate chunk or manual edit if needed. 
+//      Wait, replacement allows creating method but I should update Deinit too.)
+
 
 //+------------------------------------------------------------------+
 //| Construtor                                                        |
@@ -401,6 +595,11 @@ void CFilters::Deinit()
    {
       IndicatorRelease(m_handleOBVMACD);
       m_handleOBVMACD = INVALID_HANDLE;
+   }
+   if(m_handleVWAP != INVALID_HANDLE)
+   {
+      IndicatorRelease(m_handleVWAP);
+      m_handleVWAP = INVALID_HANDLE;
    }
    m_initialized = false;
 }
@@ -753,6 +952,7 @@ void CFilters::UpdateCooldown()
    if(m_cooldownCounter > 0)
       m_cooldownCounter--;
 }
+
 
 //+------------------------------------------------------------------+
 //| Verificação principal                                            |
@@ -1165,8 +1365,9 @@ bool CFilters::CheckRSIOMA(bool isBuy, int shift)
    if(m_handleRSI == INVALID_HANDLE)
       return true; // Se não conseguiu criar, permite trade
    
-   //--- Número de barras para confirmar (mínimo 1, máximo 5)
-   int confirmBars = MathMax(1, MathMin(5, m_config.rsiomaConfirmBars));
+   //--- Force 1 bar for instant reaction (Sniper Mode)
+   //--- User input ignored to prevent lag. Verification is binary on current bar.
+   int confirmBars = 1;
    
    //--- Arrays para ler múltiplas barras
    double rsiValues[], rsiMAValues[];
@@ -1287,7 +1488,7 @@ bool CFilters::CheckRSIOMA(bool isBuy, int shift)
       }
       else
       {
-         Print(StringFormat("RSIOMA ESTADO: REPROVADO (Vermelha %.2f < Azul %.2f)", rsiCurrent, maCurrent));
+         Print(StringFormat("RSIOMA STATUS: REPROVADO [BUY]. Azul (%.2f) >= Vermelha (%.2f) - Sem Momentum de Alta", maCurrent, rsiCurrent));
          return false;
       }
    }
@@ -1296,12 +1497,12 @@ bool CFilters::CheckRSIOMA(bool isBuy, int shift)
       // VENDA: Vermelha < Azul
       if(rsiCurrent < maCurrent)
       {
-         Print(StringFormat("RSIOMA ESTADO: APROVADO (%.2f < %.2f)", rsiCurrent, maCurrent));
+         Print(StringFormat("RSIOMA ESTADO: APROVADO (Vermelha %.2f < Azul %.2f)", rsiCurrent, maCurrent));
          return true;
       }
       else
       {
-         Print(StringFormat("RSIOMA ESTADO: REPROVADO (Vermelha %.2f > Azul %.2f)", rsiCurrent, maCurrent));
+         Print(StringFormat("RSIOMA STATUS: REPROVADO [SELL]. Vermelha (%.2f) >= Azul (%.2f) - Sem Momentum de Baixa", rsiCurrent, maCurrent));
          return false;
       }
    }
@@ -1402,7 +1603,8 @@ bool CFilters::CheckOBVMACD(bool isBuy, int shift)
          }
          
          //--- Qualquer outra cor (1, 2 ou 3) bloqueia
-         Print(StringFormat("OBV MACD: Bloqueio de Compra. Cor=%d (Esperado: 0 - Verde Forte)", currentColor));
+         Print(StringFormat("OBV MACD STATUS: REPROVADO [BUY]. Cor=%d (Esperado: 0 - Verde Forte) | Hist=%.2f | Threshold=%.2f", 
+                           currentColor, currentHist, currentThresh));
          return false;
       }
       
@@ -1422,7 +1624,8 @@ bool CFilters::CheckOBVMACD(bool isBuy, int shift)
          }
          
          //--- Qualquer outra cor (0, 2 ou 3) bloqueia
-         Print(StringFormat("OBV MACD: Bloqueio de Venda. Cor=%d (Esperado: 1 - Vermelho Forte)", currentColor));
+         Print(StringFormat("OBV MACD STATUS: REPROVADO [SELL]. Cor=%d (Esperado: 1 - Vermelho Forte) | Hist=%.2f | Threshold=%.2f", 
+                           currentColor, currentHist, currentThresh));
          return false;
       }
       
@@ -1515,62 +1718,90 @@ bool CFilters::CheckLequeAberto(bool isBuy, int shift)
 bool CFilters::CheckStep1_Trend(bool isBuy, int shift)
 {
    if(m_signal == NULL) return false;
+   if(m_asset == NULL) return false;
    
-   // 1. Verificar Leque Aberto (Fundamental - Fast 3 EMAs)
-   bool fanOpen = CheckLequeAberto(isBuy, shift);
-   if(!fanOpen) return false;
-   
-   // 2. VALIDAÇÃO DE ESTADO: Corpo do Candle > Todas as EMAs
-   // Nexus Rule: "CANDLE ESTA FECHADO COM O CORPO ACIMA DE TODAS EMA"
-   
-   double open  = iOpen(m_asset.GetSymbol(), PERIOD_CURRENT, shift);
+   // --- PREÇO E TÊNDENCIA (Price Action) ---
    double close = iClose(m_asset.GetSymbol(), PERIOD_CURRENT, shift);
+   double ema5  = m_signal.GetEMA5(shift); // EMA 200 (Reference)
    
-   double ema1 = m_signal.GetEMA1(shift);
-   double ema2 = m_signal.GetEMA2(shift);
-   double ema3 = m_signal.GetEMA3(shift);
-   double ema4 = m_signal.GetEMA4(shift);
-   double ema5 = m_signal.GetEMA5(shift);
+   // --- FILTRO VWAP (OBRIGATÓRIO PARA TENDÊNCIA) ---
+   // Se o preço estiver do lado errado da VWAP, nem consideramos tendência.
+   // Isso elimina os "Sinais Falsos" de oscilação na EMA200.
+   if(!CheckVWAP(isBuy, shift))
+   {
+      // Log já emitido pelo CheckVWAP
+      return false;
+   }
    
-   // Encontrar Limites das EMAs
-   // Para COMPRA: Queremos estar ACIMA da MAIOR EMA (Topo do Leque)
-   // Para VENDA: Queremos estar ABAIXO da MENOR EMA (Fundo do Leque)
-   
-   double maxEMA = MathMax(ema1, MathMax(ema2, MathMax(ema3, MathMax(ema4, ema5))));
-   double minEMA = MathMin(ema1, MathMin(ema2, MathMin(ema3, MathMin(ema4, ema5))));
-   
-   double bodyLow = MathMin(open, close);
-   double bodyHigh = MathMax(open, close);
+   // --- MODO 1: REVERSÃO (SNIPER) ---
+   // Definição: Preço rompeu EMA200 E está a favor da VWAP.
+   // Apenas isso. Simples e Rápido. "Pega o inicio da tendencia".
    
    if(isBuy)
    {
-      // COMPRA: O corpo (parte inferior) deve estar ACIMA de todas as EMAs?
-      // Ou apenas o Fechamento? A regra "Corpo Acima" geralmente implica que o candle inteiro (ou corpo) rompeu.
-      // Vamos ser estritos para garantir tendência limpa: Corpo Mínimo > MaxEMA
-      if(bodyLow > maxEMA)
+      if(close > ema5)
       {
-         return true; // Aprovado
+         // CRITÉRIO ADICIONAL DE SEGURANÇA:
+         // Se a EMA1 (Rápida) já estiver acima da EMA200, é muito mais seguro.
+         double ema1 = m_signal.GetEMA1(shift);
+         if(ema1 > ema5 || close > ema5 * 1.0001) // Margem mínima ou cruzamento confirmado
+         {
+            Print(StringFormat("PASSO 1: SNIPER TREND CONFIRMADA (Close > EMA200 & VWAP) | Close=%.2f", close));
+            return true;
+         }
       }
-      
-      // Se falhar, verificar se pelo menos o CLOSE está bem acima (flexibilidade para pullbacks)
-      if(close > maxEMA) return true;
-      
-      // Print("PASSO 1 FALHOU: Corpo do candle dentro das EMAs (Indecisão)");
-      return false;
    }
    else // SELL
    {
-      // VENDA: O corpo (parte superior) deve estar ABAIXO de todas as EMAs
-      if(bodyHigh < minEMA)
+      if(close < ema5)
       {
-         return true; // Aprovado
+         double ema1 = m_signal.GetEMA1(shift);
+         if(ema1 < ema5 || close < ema5 * 0.9999)
+         {
+             Print(StringFormat("PASSO 1: SNIPER TREND CONFIRMADA (Close < EMA200 & VWAP) | Close=%.2f", close));
+             return true;
+         }
       }
-      
-      if(close < minEMA) return true;
-      
-      // Print("PASSO 1 FALHOU: Corpo do candle dentro das EMAs (Indecisão)");
-      return false;
    }
+   
+   // --- MODO 2: CONTINUAÇÃO (RIDE) ---
+   // Se não é reversão (já estamos longe da 200), validamos o Leque (Fan).
+   // CORREÇÃO LAG: Usamos FastFan (1-4) se o FullFan (1-5) estiver fechado.
+   
+   bool fanOpen = CheckLequeAberto(isBuy, shift); // Verifica o que estiver config (Fast ou Full)
+   
+   if(fanOpen)
+   {
+       Print("PASSO 1: TENDÊNCIA CONTINUAÇÃO (Fan Open) - RIDE ENTRY");
+       return true;
+   }
+   
+   // Se nem Sniper nem Fan...
+   // Tentar "Deep Pullback Recovery" (Preço volta a favor da tendência macro)
+   // Ex: Preço cruzou EMA21 mas voltou pra favor da EMA1
+   
+   double ema1 = m_signal.GetEMA1(shift);
+   double ema3 = m_signal.GetEMA3(shift); // EMA 21
+   
+   if(isBuy)
+   {
+      if(close > ema5 && close > ema3 && close > ema1)
+      {
+          Print("PASSO 1: DEEP PULLBACK RECOVERY (Close > EMA200/21/5) - RIDE");
+          return true;
+      }
+   }
+   else
+   {
+      if(close < ema5 && close < ema3 && close < ema1)
+      {
+          Print("PASSO 1: DEEP PULLBACK RECOVERY (Close < EMA200/21/5) - RIDE");
+          return true;
+      }
+   }
+   
+   Print("FGM_DEBUG: PASSO 1 Falhou. Sem estrutura de tendência clara.");
+   return false;
 }
 
 //+------------------------------------------------------------------+
@@ -1587,7 +1818,8 @@ bool CFilters::CheckStep2_Momentum(bool isBuy, int shift)
    
    if(!momentumOK)
    {
-      // Print("PASSO 2 FALHOU: RSIOMA Momentum não confirma");
+      // LOG DETALHADO JÁ EMITIDO DENTRO DE CheckRSIOMA
+      Print("STRATEGY 1-2-3: Passo 2 (MOMENTUM/RSI) Falhou -> ABORTAR");
       return false;
    }
    
@@ -1608,7 +1840,8 @@ bool CFilters::CheckStep3_Volume(bool isBuy, int shift)
    
    if(!volumeOK)
    {
-      // Print("PASSO 3 FALHOU: OBV MACD sem fluxo/volume");
+      // LOG DETALHADO JÁ EMITIDO DENTRO DE CheckOBVMACD
+      Print("STRATEGY 1-2-3: Passo 3 (VOLUME/OBV) Falhou -> ABORTAR");
       return false;
    }
    
