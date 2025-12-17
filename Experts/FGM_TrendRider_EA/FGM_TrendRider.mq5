@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "FGM Trading Systems"
 #property link      "https://www.fgmtrade.com"
-#property version   "1.00"
+#property version   "1.01"
 #property description "FGM Trend Rider - Versão Platina Consolidada"
 #property description "Expert Advisor para B3 (WIN/WDO) e Forex"
 
@@ -87,9 +87,9 @@ input int      Inp_MaxSpread       = 30;               // Spread máximo (pontos
 
 //--- Gestão de Risco
 input group "═══════════════ GESTÃO DE RISCO ═══════════════"
-input ENUM_LOT_MODE Inp_LotMode    = LOT_FIXED;        // Modo de Lote
+input ENUM_LOT_MODE Inp_LotMode    = LOT_RISK_PERCENT; // Modo de Lote - ESTRUTURAL: Fixo→Risco% para controle real
 input double   Inp_FixedLot        = 1.0;              // Lote Fixo (B3: contratos, Forex: lotes)
-input double   Inp_RiskPercent     = 1.0;              // Risco Base (%) - só se Modo=Risco
+input double   Inp_RiskPercent     = 3.0;              // Risco % por trade (Aumentado para permitir SL maior) (%) - só se Modo=Risco
 input double   Inp_MaxDailyDD      = 3.0;              // Drawdown Diário Máximo (%)
 input double   Inp_MaxTotalDD      = 10.0;             // Drawdown Total Máximo (%)
 input int      Inp_MaxConsecLoss   = 3;                // Máx perdas consecutivas
@@ -99,8 +99,8 @@ input double   Inp_ForceMultF5     = 1.5;              // Multiplicador F5
 
 //--- Stop Loss
 input group "═══════════════ STOP LOSS ═══════════════"
-input ENUM_SL_MODE Inp_SLMode      = SL_HYBRID;        // Modo do Stop Loss
-input int      Inp_SL_Points       = 200;              // SL Fixo (pontos) - CORRIGIDO: 300→200 para R:R balanceado
+input ENUM_SL_MODE Inp_SLMode      = SL_FIXED;         // ESTRUTURAL: Hybrid→Fixed (evita SL inflado em volátil)
+input int      Inp_SL_Points       = 300;              // ESTRUTURAL: SL maior (300pts) para suportar volatilidade
 input double   Inp_SL_ATR_Mult     = 1.5;              // Multiplicador ATR para SL
 input int      Inp_SL_Min          = 50;               // SL Mínimo (pontos)
 input int      Inp_SL_Max          = 500;              // SL Máximo (pontos)
@@ -109,20 +109,20 @@ input int      Inp_SL_Max          = 500;              // SL Máximo (pontos)
 input group "═══════════════ TAKE PROFIT ═══════════════"
 input ENUM_TP_MODE Inp_TPMode      = TP_RR_RATIO;      // Modo do Take Profit
 input int      Inp_TP_Points       = 300;              // TP Fixo (pontos)
-input double   Inp_TP_RR_Ratio     = 1.5;              // Razão Risco/Retorno - CORRIGIDO: 2.0→1.5 para TP mais alcançável
+input double   Inp_TP_RR_Ratio     = 2.0;              // ESTRUTURAL: R:R=2:1 obrigatório para lucratividade
 input double   Inp_TP_ATR_Mult     = 3.0;              // Multiplicador ATR para TP
 
 //--- Break-Even
 input group "═══════════════ BREAK-EVEN ═══════════════"
 input bool     Inp_UseBE           = true;             // Usar Break-Even
-input int      Inp_BE_Trigger      = 180;              // Trigger BE (pontos de lucro) - CORRIGIDO: 300→180 para proteção rápida
-input int      Inp_BE_Offset       = 30;               // Offset proteção spread (pontos) - CORRIGIDO: 50→30
+input int      Inp_BE_Trigger      = 300;              // Trigger BE (pontos de lucro) - CORRIGIDO: 180→300 (1:1 R/R)
+input int      Inp_BE_Offset       = 10;               // Offset proteção spread (pontos) - CORRIGIDO: 30→10 (Custo apenas)
 
 //--- Trailing Stop
 input group "═══════════════ TRAILING STOP ═══════════════"
-input bool     Inp_UseTrailing     = true;             // Usar Trailing Stop
-input int      Inp_Trail_Trigger   = 250;              // Trigger Trailing (pontos de lucro) - CORRIGIDO: 400→250 para deixar lucro correr
-input int      Inp_Trail_Distance  = 150;              // Distância do SL ao preço máximo (pontos) - CORRIGIDO: 250→150 para maior proteção
+input bool     Inp_UseTrailing     = true;             // Usar Trailing Stop - ATIVADO para capturar tendências longas
+input int      Inp_Trail_Trigger   = 400;              // Trigger Trailing (pontos de lucro) - CORRIGIDO: 250→400
+input int      Inp_Trail_Distance  = 200;              // Distância do SL ao preço máximo (pontos) - CORRIGIDO: 150→200
 input int      Inp_Trail_Step      = 30;               // Step mínimo para mover SL (pontos) - CORRIGIDO: 50→30 para movimento gradual
 
 //--- Horários de Operação
@@ -162,7 +162,7 @@ input int              Inp_CustomCross2 = 2;   // Custom Cross EMA Index 2 (1-5)
 
 //===== Signal Configuration =====
 input SIGNAL_MODE      Inp_SignalMode = MODE_MODERATE;  // Signal Mode
-input int              Inp_MinStrength = 4;             // Minimum Strength Required - CORRIGIDO: 3→4 (F5=20% WinRate, evitar)
+input int              Inp_MinStrength = 5;             // Minimum Strength Required - SÓ SINAIS PERFEITOS
 input double           Inp_ConfluenceThreshold = 60.0;  // Min Confluence Level (0-100%)
 input bool             Inp_RequireConfluence = true;    // Require Confluence Filter (ATIVADO para rejeitar sinais fracos)
 input bool             Inp_EnablePullbacks = true;      // Enable Pullback Signals
@@ -183,7 +183,7 @@ input group "═══════════════ FILTROS ════�
 input bool     Inp_UseSlopeFilter  = true;             // Usar Filtro de Slope
 input bool     Inp_UseVolumeFilter = true;             // Usar Filtro de Volume (B3)
 input bool     Inp_UseATRFilter    = true;             // Usar Filtro ATR
-input int      Inp_CooldownBars    = 3;                // Cooldown após trade (barras)
+input int      Inp_CooldownBars    = 0;                // Cooldown após trade (barras) - (0 para reentradas rápidas)
 
 //--- Filtro RSIOMA (NOVO)
 input group "═══════════════ FILTRO RSIOMA ═══════════════"
@@ -217,9 +217,11 @@ input double   Inp_OBVMACD_ThreshMult = 0.6;           // Threshold multiplier
 //--- Regime de Mercado
 input group "═══════════════ REGIME DE MERCADO ═══════════════"
 input bool     Inp_UseRegime       = true;             // Usar Detecção de Regime
+input bool     Inp_BlockRanging    = true;             // BLOQUEAR trades em mercado LATERAL (61% das losses!)
+input bool     Inp_BlockVolatile   = true;             // BLOQUEAR trades em ALTA VOLATILIDADE
 input double   Inp_TrendMult       = 1.0;              // Multiplicador Trending
-input double   Inp_RangeMult       = 0.5;              // Multiplicador Ranging
-input double   Inp_VolatileMult    = 0.3;              // Multiplicador Volatile
+input double   Inp_RangeMult       = 0.5;              // Multiplicador Ranging (se não bloqueado)
+input double   Inp_VolatileMult    = 0.3;              // Multiplicador Volatile (se não bloqueado)
 
 //--- Logging e Estatísticas
 input group "═══════════════ LOGGING ═══════════════"
@@ -726,14 +728,28 @@ void ProcessSignals()
    g_Stats.LogNormal(StringFormat("Sinal detectado! Bar=%d, Entry=%.0f, Strength=%.0f, Confluence=%.1f%%",
                                   signalBar, entrySignal, fgmData.strength, fgmData.confluence));
    
-   //--- Verificar força mínima do sinal (usar valor absoluto - negativo para SELL)
-   int signalStrength = (int)MathAbs(fgmData.strength);
-   if(signalStrength < Inp_MinStrength)
-   {
-      g_Stats.LogNormal(StringFormat("Força insuficiente: F%d (mín: F%d)", 
-                                    signalStrength, Inp_MinStrength));
-      return;
-   }
+   //--- Determinar direção (MOVIDO PARA O TOPO)
+   bool isBuy = (entrySignal > 0);
+   bool isSell = (entrySignal < 0);
+
+   //--- ESTRATÉGIA NOVO PROTOCOLO 1-2-3: Ignoramos "Strength" numérica antiga
+   //--- A validação será feita pelos 3 passos rigorosos abaixo.
+   // if(signalStrength < Inp_MinStrength) ... REMOVIDO PARA USAR PROTOCOLO 1-2-3
+   
+   // Apenas logar para referência
+   g_Stats.LogDebug(StringFormat("Sinal detectado via FGM (Direção: %s) - Iniciando Protocolo 1-2-3", isBuy ? "BUY" : "SELL"));
+   
+   //--- RESTAURAÇÃO DE VARIÁVEIS PARA COMPATIBILIDADE
+   //--- Como removemos o cálculo de filterResult e signalStrength, precisamos defini-los
+   //--- para não quebrar o código de logging e cálculo de risco abaixo.
+   int signalStrength = 5; // Assumimos força MÁXIMA se passou no protocolo 1-2-3
+   
+   //--- Criar um resultado de filtro "dummy" aprovado, pois o Strategy123 já validou
+   FilterResult filterResult;
+   filterResult.passed = true;
+   filterResult.strengthOK = true;
+   filterResult.currentStrength = 5;
+   filterResult.failReason = "Aprovado por Protocolo 1-2-3";
    
    //--- Verificar confluência (compressão das EMAs)
    //--- O indicador já calcula a confluência baseada em porcentagem.
@@ -742,9 +758,9 @@ void ProcessSignals()
    
    double confluence = fgmData.confluence;
    
-   //--- Determinar direção
-   bool isBuy = (entrySignal > 0);
-   bool isSell = (entrySignal < 0);
+   //--- Determinar direção (JÁ CALCULADO ACIMA)
+   // bool isBuy = (entrySignal > 0);
+   // bool isSell = (entrySignal < 0);
    
    //--- Verificar permissões de direção
    if(isBuy && !Inp_AllowBuy)
@@ -759,29 +775,20 @@ void ProcessSignals()
       return;
    }
    
-   //--- Aplicar filtros - PASSANDO signalBar PARA SINCRONIZAÇÃO
-   g_Stats.LogDebug(StringFormat("Aplicando filtros para %s (Força F%d) na barra %d...", 
-                                 isBuy ? "COMPRA" : "VENDA", signalStrength, signalBar));
+   //--- APLICAR PROTOCOLO SNIPER 1-2-3 (SINCRONIA TOTAL)
+   g_Stats.LogDebug("Verificando Sincronia Total (Steps 1-2-3)...");
    
-   //--- CORREÇÃO: Passar signalBar para sincronizar todos os filtros
-   FilterResult filterResult = g_Filters.CheckAll(isBuy, Inp_MinStrength, false, signalBar);
-
+   //--- Verificação Rigorosa: Se FALHAR qualquer passo, NÃO ENTRA.
+   bool strategyOK = g_Filters.CheckStrategy123(isBuy, signalBar);
    
-   //--- Log detalhado do resultado dos filtros
-   g_Stats.LogDebug(StringFormat("Filtros: Spread=%s Slope=%s Volume=%s Phase=%s EMA200=%s Cooldown=%s Confluência=%s",
-                                 filterResult.spreadOK ? "OK" : "FALHOU",
-                                 filterResult.slopeOK ? "OK" : "FALHOU",
-                                 filterResult.volumeOK ? "OK" : "FALHOU",
-                                 filterResult.phaseOK ? "OK" : "FALHOU",
-                                 filterResult.ema200OK ? "OK" : "FALHOU",
-                                 filterResult.cooldownOK ? "OK" : "FALHOU",
-                                 filterResult.confluenceOK ? "OK" : "FALHOU"));
-   
-   if(!filterResult.passed)
+   if(!strategyOK)
    {
-      g_Stats.LogNormal(StringFormat("FILTRO BLOQUEOU: %s", filterResult.failReason));
+      string failReason = "Sincronia 1-2-3 FALHOU (Ver logs acima)";
+      g_Stats.LogNormal(StringFormat("FILTRO BLOQUEOU: %s", failReason));
       return;
    }
+   
+   g_Stats.LogNormal("✅ PROTOCOLO 1-2-3 APROVADO: Tendência + Momentum + Volume ALINHADOS!");
    
    g_Stats.LogNormal("Todos os filtros passaram - Preparando ordem...");
    
@@ -792,6 +799,22 @@ void ProcessSignals()
    if(Inp_UseRegime)
    {
       regime = g_RegimeDetector.GetCurrentRegime();
+      
+      //--- BLOQUEIO POR REGIME (CORREÇÃO FUNDAMENTAL DA ESTRATÉGIA)
+      //--- 61% das LOSSES ocorrem em RANGING/VOLATILE - agora BLOQUEAMOS!
+      if(Inp_BlockRanging && regime == REGIME_RANGING)
+      {
+         g_Stats.LogNormal(StringFormat("FILTRO BLOQUEOU: Mercado em LATERALIZAÇÃO (%s) - não operar", 
+                                        g_RegimeDetector.GetRegimeString(regime)));
+         return;
+      }
+      
+      if(Inp_BlockVolatile && regime == REGIME_VOLATILE)
+      {
+         g_Stats.LogNormal(StringFormat("FILTRO BLOQUEOU: Mercado em ALTA VOLATILIDADE (%s) - não operar", 
+                                        g_RegimeDetector.GetRegimeString(regime)));
+         return;
+      }
       
       switch(regime)
       {

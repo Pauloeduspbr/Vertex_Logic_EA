@@ -166,6 +166,7 @@ public:
    double            CalculateSlope(int period = 5, int shift = 1);
    double            GetEMASpread(int shift = 1);
    bool              IsLequeAberto(bool isBuy, int shift = 1);
+   bool              IsLequeAbertoFast(bool isBuy, int shift = 1);
    
    //--- Texto descritivo
    string            GetPhaseString(int shift = 1);
@@ -679,6 +680,28 @@ bool CSignalFGM::IsLequeAberto(bool isBuy, int shift = 1)
       //--- Para venda: EMA1 < EMA2 < EMA3 < EMA4 < EMA5
       return (ema1 < ema2 && ema2 < ema3 && ema3 < ema4 && ema4 < ema5);
    }
+}
+
+//+------------------------------------------------------------------+
+//| Verificar se o "leque RÁPIDO" está aberto (EMAs 1-4 apenas)      |
+//| Permite entradas no início de reversão (Golden Cross)            |
+//+------------------------------------------------------------------+
+bool CSignalFGM::IsLequeAbertoFast(bool isBuy, int shift = 1)
+{
+   if(!m_initialized || shift >= ArraySize(m_bufferEMA1)) return false;
+   
+   double ema1 = m_bufferEMA1[shift];
+   double ema2 = m_bufferEMA2[shift];
+   double ema3 = m_bufferEMA3[shift];
+   double ema4 = m_bufferEMA4[shift];
+   // Ignoramos EMA5 (200) para o alinhamento fino, mas verificamos macro depois
+   // CORREÇÃO: Usar apenas 3 EMAs (1, 2, 3) para detectar início de reversão mais rápido
+   // EMA4 (50) é muito lenta para sniper entries
+   
+   if(isBuy)
+      return (ema1 > ema2 && ema2 > ema3);
+   else
+      return (ema1 < ema2 && ema2 < ema3);
 }
 
 //+------------------------------------------------------------------+

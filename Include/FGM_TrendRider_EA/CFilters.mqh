@@ -118,6 +118,11 @@ struct FilterConfig
    bool     obvUseTickVolume;
    int      obvThreshPeriod;
    double   obvThreshMult;
+   
+   //--- NOVO: Filtro de Leque Aberto (EMA Fan) - CORREÇÃO FUNDAMENTAL
+   //--- Bloqueia trades quando EMAs estão emaranhadas (mercado lateral)
+   bool     lequeAbertoActive;   // Ativar filtro de leque aberto
+   int      lequeAbertoMinEMAs;  // Mínimo de EMAs alinhadas (3-5)
 };
 
 //+------------------------------------------------------------------+
@@ -165,13 +170,19 @@ private:
    bool               CheckStrength(int minStrength);
    bool               CheckEMA200(bool isBuy);
    bool               CheckCooldown(int strength);
-   bool               CheckRSIOMA(bool isBuy);  // NOVO
-   bool               CheckOBVMACD(bool isBuy); // NOVO
+   bool               CheckRSIOMA(bool isBuy, int shift);  // NOVO
+   bool               CheckOBVMACD(bool isBuy, int shift); // NOVO
+   bool               CheckLequeAberto(bool isBuy, int shift); // NOVO - Filtro EMA Fan
    void               UpdateCooldown();
    
    void               CreateOBVMACDHandle(); // Helper para criar handle
    
 public:
+   //--- PROTOCOLO ESTRATÉGICO 1-2-3 (SINCRONIA TOTAL)
+   bool               CheckStep1_Trend(bool isBuy, int shift);    // Passo 1: Tendência (Leque + Preço)
+   bool               CheckStep2_Momentum(bool isBuy, int shift); // Passo 2: Momentum (RSIOMA)
+   bool               CheckStep3_Volume(bool isBuy, int shift);   // Passo 3: Fluxo/Volume (OBV MACD)
+   bool               CheckStrategy123(bool isBuy, int shift);    // Validação Final
                       CFilters();
                      ~CFilters();
    
@@ -465,6 +476,10 @@ void CFilters::SetDefaultConfig()
    m_config.obvUseTickVolume = true;
    m_config.obvThreshPeriod = 34;
    m_config.obvThreshMult = 0.6;
+   
+   //--- Leque Aberto (EMA Fan)
+   m_config.lequeAbertoActive = true;  // Ativado por padrão (correção fundamental)
+   m_config.lequeAbertoMinEMAs = 5;    // Exigir alinhamento total (1 a 5)
 }
 
 //+------------------------------------------------------------------+
@@ -886,7 +901,7 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
    }
    
    //--- RSIOMA Filter (NOVO)
-   result.rsiomaOK = CheckRSIOMA(isBuy);
+   result.rsiomaOK = CheckRSIOMA(isBuy, signalShift);
    result.currentRSI = GetCurrentRSI();
    result.currentRSIMA = GetCurrentRSIMA();
    
@@ -912,8 +927,16 @@ FilterResult CFilters::CheckAll(bool isBuy, int minStrength, bool skipPhaseFilte
       return result;
    }
    
+   //--- Leque Aberto Filter (NOVO - Filtro Fundamental)
+   if(!CheckLequeAberto(isBuy, signalShift))
+   {
+      result.passed = false;
+      result.failReason = "Leque de EMAs não está aberto (EMAs emaranhadas/lateral)";
+      return result;
+   }
+
    //--- OBV MACD Filter (NOVO - Nexus Logic com sincronismo sequencial)
-   result.obvmACDOK = CheckOBVMACD(isBuy);
+   result.obvmACDOK = CheckOBVMACD(isBuy, signalShift);
    if(!result.obvmACDOK)
    {
       result.passed = false;
@@ -1133,7 +1156,7 @@ double CFilters::GetCurrentRSIMA()
 //+------------------------------------------------------------------+
 //| Verificar filtro RSIOMA (NOVO)                                   |
 //+------------------------------------------------------------------+
-bool CFilters::CheckRSIOMA(bool isBuy)
+bool CFilters::CheckRSIOMA(bool isBuy, int shift)
 {
    //--- Se filtro desativado, passa
    if(!m_config.rsiomaActive)
@@ -1150,8 +1173,8 @@ bool CFilters::CheckRSIOMA(bool isBuy)
    ArraySetAsSeries(rsiValues, true);
    ArraySetAsSeries(rsiMAValues, true);
    
-   //--- CORREÇÃO SINCRONIZAÇÃO: Usar m_currentShift para alinhar com o sinal FGM
-   int startBar = m_currentShift;
+   //--- CORREÇÃO SINCRONIZAÇÃO: Usar shift para alinhar com o sinal FGM
+   int startBar = shift;
    
    //--- DEBUG: Log de sincronização
    Print(StringFormat("CheckRSIOMA: Lendo a partir da barra %d (sincronizado com sinal)", startBar));
@@ -1247,62 +1270,41 @@ bool CFilters::CheckRSIOMA(bool isBuy)
       }
    }
    
-   //--- FILTRO 2B: RSI vs MA - Verificar DIREÇÃO do movimento
-   //--- A MA atrasa em relação ao RSI, então verificar posição relativa não funciona bem
-   //--- Em vez disso, verificamos se o RSI está se MOVENDO na direção correta:
-   //--- Para SELL: RSI deve estar CAINDO (RSI barra atual < RSI barra anterior)
-   //--- Para BUY: RSI deve estar SUBINDO (RSI barra atual > RSI barra anterior)
-   //--- Isso é mais confiável do que exigir RSI < MA para SELL
-   if(m_config.rsiomaCheckCrossover)
+   //--- FILTRO 2B: RSI vs MA - VALIDAÇÃO DE ESTADO (Nexus Logic)
+   //--- "SE A LINHA VERMELHA ESTA ACIMA DA LINHA AZUL..."
+   //--- Não importa crossing, slope ou histórico. Importa o AGORA.
+   
+   double rsiCurrent = rsiValues[0];   // Linha Vermelha
+   double maCurrent = rsiMAValues[0];  // Linha Azul (Sinal)
+   
+   if(isBuy)
    {
-      //--- Precisamos de pelo menos 2 barras para verificar direção
-      if(confirmBars >= 2)
+      // COMPRA: Vermelha > Azul
+      if(rsiCurrent > maCurrent)
       {
-         double rsiBar1 = rsiValues[0];  // Barra mais recente (fechada)
-         double rsiBar2 = rsiValues[1];  // Barra anterior
-         double maBar1 = rsiMAValues[0];
-         
-         double rsiChange = rsiBar1 - rsiBar2; // Positivo = subindo, Negativo = caindo
-         
-         Print("RSIOMA CROSSOVER: RSI Bar1=", DoubleToString(rsiBar1, 2), 
-               " Bar2=", DoubleToString(rsiBar2, 2), 
-               " Mudança=", DoubleToString(rsiChange, 2),
-               " (", rsiChange > 0 ? "SUBINDO" : "CAINDO", ")");
-         
-         //--- Para BUY: RSI deve estar SUBINDO ou estável, E acima de 50 (já verificado antes)
-         //--- Se RSI está caindo forte, não é bom para compra
-         //--- Para BUY: RSI deve estar SUBINDO ou estável.
-         //--- Bloquear imediatamente se estiver caindo (Negativo)
-         if(isBuy && rsiChange < 0)  // RSI caindo
-         {
-            Print("RSIOMA FILTRO: BUY bloqueado - RSI CAINDO (", 
-                  DoubleToString(rsiChange, 1), " pts) - momentum contrário");
-            return false;
-         }
-         
-         //--- Para SELL: RSI deve estar CAINDO ou estável, E abaixo de 50 (já verificado antes)
-         //--- Se RSI está subindo forte, não é bom para venda
-         //--- Para SELL: RSI deve estar CAINDO ou estável.
-         //--- Bloquear imediatamente se estiver subindo (Positivo)
-         if(!isBuy && rsiChange > 0)  // RSI subindo
-         {
-            Print("RSIOMA FILTRO: SELL bloqueado - RSI SUBINDO (", 
-                  DoubleToString(rsiChange, 1), " pts) - momentum contrário");
-            return false;
-         }
-         
-         //--- Log de aprovação
-         if(isBuy)
-            Print("RSIOMA CROSSOVER: BUY OK - RSI ", rsiChange >= 0 ? "subindo/estável" : "leve queda aceitável");
-         else
-            Print("RSIOMA CROSSOVER: SELL OK - RSI ", rsiChange <= 0 ? "caindo/estável" : "leve alta aceitável");
+         Print(StringFormat("RSIOMA ESTADO: APROVADO (%.2f > %.2f)", rsiCurrent, maCurrent));
+         return true;
+      }
+      else
+      {
+         Print(StringFormat("RSIOMA ESTADO: REPROVADO (Vermelha %.2f < Azul %.2f)", rsiCurrent, maCurrent));
+         return false;
       }
    }
-   
-   //--- PASSOU em todos os filtros
-   Print("RSIOMA FILTRO: ", isBuy ? "BUY" : "SELL", " APROVADO");
-   
-   return true;
+   else // SELL
+   {
+      // VENDA: Vermelha < Azul
+      if(rsiCurrent < maCurrent)
+      {
+         Print(StringFormat("RSIOMA ESTADO: APROVADO (%.2f < %.2f)", rsiCurrent, maCurrent));
+         return true;
+      }
+      else
+      {
+         Print(StringFormat("RSIOMA ESTADO: REPROVADO (Vermelha %.2f > Azul %.2f)", rsiCurrent, maCurrent));
+         return false;
+      }
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -1317,7 +1319,7 @@ bool CFilters::CheckRSIOMA(bool isBuy)
 //+------------------------------------------------------------------+
 //| Check OBV MACD (Nexus Logic - Sincronismo Sequencial)            |
 //+------------------------------------------------------------------+
-bool CFilters::CheckOBVMACD(bool isBuy)
+bool CFilters::CheckOBVMACD(bool isBuy, int shift)
 {
    //--- Se não está ativado, permite (passa silenciosamente)
    if(!m_config.obvmACDActive || m_handleOBVMACD == INVALID_HANDLE)
@@ -1327,17 +1329,17 @@ bool CFilters::CheckOBVMACD(bool isBuy)
    //--- Buffer 0: Histograma (Ler 2 barras para detectar cruzamento)
    //--- Buffer 1: Cor (0=VerdeForte, 1=VermelhoForte, 2=VerdeFraco, 3=VermelhoFraco)
    //--- Buffer 4: Threshold
-   double hist[2], colorBuf[1], thresh[1];
+   double hist[], colorBuf[], thresh[];
    
    //--- Configurar como Series para garantir ordem [0]=MaisNovo, [1]=MaisVelho
    ArraySetAsSeries(hist, true);
    ArraySetAsSeries(colorBuf, true);
    ArraySetAsSeries(thresh, true);
    
-   //--- CORREÇÃO SINCRONIZAÇÃO: Usar m_currentShift para alinhar com o sinal FGM
+   //--- CORREÇÃO SINCRONIZAÇÃO: Usar shift para alinhar com o sinal FGM
    //--- Se sinal está na barra 0, ler OBV MACD na barra 0 também
    //--- Se sinal está na barra 1, ler OBV MACD na barra 1
-   int startBar = m_currentShift;
+   int startBar = shift;
    
    //--- DEBUG: Log de sincronização
    Print(StringFormat("CheckOBVMACD: Lendo barra %d (sincronizado com sinal)", startBar));
@@ -1434,7 +1436,7 @@ bool CFilters::CheckOBVMACD(bool isBuy)
 //+------------------------------------------------------------------+
 bool CFilters::IsRSIOMAOK(bool isBuy)
 {
-   return CheckRSIOMA(isBuy);
+   return CheckRSIOMA(isBuy, 1);
 }
 
 //+------------------------------------------------------------------+
@@ -1461,5 +1463,192 @@ void CFilters::SetOBVMACDParams(int fastEMA, int slowEMA, int signalSMA,
    }
 }
 
+//+------------------------------------------------------------------+
+//| Verificar Leque Aberto (EMA Fan)                                 |
+//+------------------------------------------------------------------+
+bool CFilters::CheckLequeAberto(bool isBuy, int shift)
+{
+   if(!m_config.lequeAbertoActive)
+      return true;
+      
+   if(m_signal == NULL)
+      return true;
+      
+   //--- Usar método IsLequeAbertoFast (EMAs 1-4) para capturar 1-2-3 Reversals
+   //--- A validação estrita (IsLequeAberto 1-5) gera lag de ~18 barras em reversões.
+   bool fanOpenFast = m_signal.IsLequeAbertoFast(isBuy, shift);
+   
+   //--- Verificação Macro (Segurança): Preço/EMA1 deve estar do lado certo da EMA200
+   double ema1 = m_signal.GetEMA1(shift);
+   double ema5 = m_signal.GetEMA5(shift); // EMA 200
+   
+   bool macroTrendOK = isBuy ? (ema1 > ema5) : (ema1 < ema5);
+   
+   if(!fanOpenFast || !macroTrendOK)
+   {
+      double ema2 = m_signal.GetEMA2(shift);
+      double ema3 = m_signal.GetEMA3(shift);
+      double ema4 = m_signal.GetEMA4(shift);
+      
+      // DIAGNÓSTICO COMPLETO: Mostrar valores de todas as EMAs para debug
+      Print(StringFormat("CFilters: Leque/Trend FALHOU para %s", isBuy ? "BUY" : "SELL"));
+      Print(StringFormat("   Valores: E1=%.2f | E2=%.2f | E3=%.2f | E4=%.2f | E5(200)=%.2f", 
+                         ema1, ema2, ema3, ema4, ema5));
+      Print(StringFormat("   Status: FastFan=%s | MacroTrend=%s", 
+                         fanOpenFast ? "OK" : "FAIL (E1..E4 desalinhadas)", 
+                         macroTrendOK ? "OK" : "FAIL (Contra EMA200)"));
+                         
+      return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| PROTOCOLO ESTRATÉGICO 1-2-3 (SINCRONIA TOTAL)
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| PASSO 1: TENDÊNCIA (Price + Fan)                                 |
+//| Valida se o preço está a favor E o leque de médias está aberto   |
+//+------------------------------------------------------------------+
+bool CFilters::CheckStep1_Trend(bool isBuy, int shift)
+{
+   if(m_signal == NULL) return false;
+   
+   // 1. Verificar Leque Aberto (Fundamental - Fast 3 EMAs)
+   bool fanOpen = CheckLequeAberto(isBuy, shift);
+   if(!fanOpen) return false;
+   
+   // 2. VALIDAÇÃO DE ESTADO: Corpo do Candle > Todas as EMAs
+   // Nexus Rule: "CANDLE ESTA FECHADO COM O CORPO ACIMA DE TODAS EMA"
+   
+   double open  = iOpen(m_asset.GetSymbol(), PERIOD_CURRENT, shift);
+   double close = iClose(m_asset.GetSymbol(), PERIOD_CURRENT, shift);
+   
+   double ema1 = m_signal.GetEMA1(shift);
+   double ema2 = m_signal.GetEMA2(shift);
+   double ema3 = m_signal.GetEMA3(shift);
+   double ema4 = m_signal.GetEMA4(shift);
+   double ema5 = m_signal.GetEMA5(shift);
+   
+   // Encontrar Limites das EMAs
+   // Para COMPRA: Queremos estar ACIMA da MAIOR EMA (Topo do Leque)
+   // Para VENDA: Queremos estar ABAIXO da MENOR EMA (Fundo do Leque)
+   
+   double maxEMA = MathMax(ema1, MathMax(ema2, MathMax(ema3, MathMax(ema4, ema5))));
+   double minEMA = MathMin(ema1, MathMin(ema2, MathMin(ema3, MathMin(ema4, ema5))));
+   
+   double bodyLow = MathMin(open, close);
+   double bodyHigh = MathMax(open, close);
+   
+   if(isBuy)
+   {
+      // COMPRA: O corpo (parte inferior) deve estar ACIMA de todas as EMAs?
+      // Ou apenas o Fechamento? A regra "Corpo Acima" geralmente implica que o candle inteiro (ou corpo) rompeu.
+      // Vamos ser estritos para garantir tendência limpa: Corpo Mínimo > MaxEMA
+      if(bodyLow > maxEMA)
+      {
+         return true; // Aprovado
+      }
+      
+      // Se falhar, verificar se pelo menos o CLOSE está bem acima (flexibilidade para pullbacks)
+      if(close > maxEMA) return true;
+      
+      // Print("PASSO 1 FALHOU: Corpo do candle dentro das EMAs (Indecisão)");
+      return false;
+   }
+   else // SELL
+   {
+      // VENDA: O corpo (parte superior) deve estar ABAIXO de todas as EMAs
+      if(bodyHigh < minEMA)
+      {
+         return true; // Aprovado
+      }
+      
+      if(close < minEMA) return true;
+      
+      // Print("PASSO 1 FALHOU: Corpo do candle dentro das EMAs (Indecisão)");
+      return false;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| PASSO 2: MOMENTUM (RSIOMA / Gatilho)                             |
+//| Valida se temos gatilho de momentum exato                        |
+//+------------------------------------------------------------------+
+bool CFilters::CheckStep2_Momentum(bool isBuy, int shift)
+{
+   if(!m_config.rsiomaActive) return true; // Se desativado, passa direto (perigoso)
+   
+   // Usar a lógica já existente do CheckRSIOMA que implementa Crossover + Alinhamento
+   // Mas agora é OBRIGATÓRIO (não apenas um filtro)
+   bool momentumOK = CheckRSIOMA(isBuy, shift);
+   
+   if(!momentumOK)
+   {
+      // Print("PASSO 2 FALHOU: RSIOMA Momentum não confirma");
+      return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| PASSO 3: VOLUME/FLUXO (OBV MACD)                                 |
+//| Valida se há fluxo financeiro real apoiando o movimento          |
+//+------------------------------------------------------------------+
+bool CFilters::CheckStep3_Volume(bool isBuy, int shift)
+{
+   if(!m_config.obvmACDActive) return true; // Se desativado, passa
+   
+   // Usar lógica existente do CheckOBVMACD
+   // Isso verifica histograma verde/vermelho e acima/abaixo de zero
+   bool volumeOK = CheckOBVMACD(isBuy, shift);
+   
+   if(!volumeOK)
+   {
+      // Print("PASSO 3 FALHOU: OBV MACD sem fluxo/volume");
+      return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| VALIDAÇÃO FINAL DA ESTRATÉGIA (Chamada Principal)                |
+//+------------------------------------------------------------------+
+bool CFilters::CheckStrategy123(bool isBuy, int shift)
+{
+   // Reset da struct de resultado para logging se necessário
+   // Mas aqui vamos retornar direto bool para ser binário
+   
+   // --- PASSO 1 ---
+   if(!CheckStep1_Trend(isBuy, shift)) 
+   {
+      Print("STRATEGY 1-2-3: Passo 1 (TENDÊNCIA) Falhou -> ABORTAR");
+      return false;
+   }
+   
+   // --- PASSO 2 ---
+   if(!CheckStep2_Momentum(isBuy, shift))
+   {
+      Print("STRATEGY 1-2-3: Passo 2 (MOMENTUM) Falhou -> ABORTAR");
+      return false;
+   }
+   
+   // --- PASSO 3 ---
+   if(!CheckStep3_Volume(isBuy, shift))
+   {
+      Print("STRATEGY 1-2-3: Passo 3 (VOLUME) Falhou -> ABORTAR");
+      return false;
+   }
+   
+   // SE CHEGOU AQUI: SINCRONIA TOTAL! SNIPER SHOT!
+   Print("⭐⭐⭐ STRATEGY 1-2-3: ALINHAMENTO PERFEITO! DISPARANDO ORDEM! ⭐⭐⭐");
+   return true;
+}
+
 #endif // CFILTERS_MQH
+
 
